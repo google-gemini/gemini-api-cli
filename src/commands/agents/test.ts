@@ -132,15 +132,16 @@ Examples:
         const activeBlocks = new Map<number, string>();
         
         await processStream(response, {
-          onEvent: (event) => {
+          onEvent: (event, block) => {
             if (event.type === "content.start") {
               activeBlocks.set(event.data.index, event.data.content.type);
             } else if (event.type === "content.delta") {
               const type = activeBlocks.get(event.data.index) || "text";
-              renderer.handleEvent(event, type);
+              renderer.handleEvent(event, type, block);
             }
           },
           onComplete: (result) => {
+            renderer.finish();
             const latencySeconds = (performance.now() - startTime) / 1000;
             printCompletionSummary(result, latencySeconds);
             if (!args.json) {

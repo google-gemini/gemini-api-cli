@@ -50,7 +50,7 @@ export type ContentBlock =
 export async function processStream(
   response: Response,
   callbacks: {
-    onEvent: (event: StreamEvent) => void;       // Called for each SSE event
+    onEvent: (event: StreamEvent, block?: ContentBlock) => void;       // Called for each SSE event
     onComplete: (result: StreamResult) => void;   // Called when stream ends
     onBlockComplete?: (block: ContentBlock) => void; // Called when a block is complete
   }
@@ -96,9 +96,9 @@ export async function processStream(
               data: data,
               raw: dataStr,
             };
-
-            callbacks.onEvent(event);
             handleEvent(event, result, contentBlocks);
+            const block = event.data && event.data.index !== undefined ? contentBlocks.get(event.data.index) : undefined;
+            callbacks.onEvent(event, block);
 
             if (event.type === "content.stop") {
               const index = event.data.index;
@@ -192,7 +192,9 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
     const index = data.index;
     const content = data.content;
     if (content && content.type) {
-      contentBlocks.set(index, { type: content.type } as any);
+      const block: any = { type: content.type };
+      if (content.name) block.name = content.name;
+      contentBlocks.set(index, block);
     }
   } else if (event.type === "content.delta") {
     const index = data.index;
@@ -214,8 +216,11 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
         case "function_call":
           if (delta.name) (block as any).name = delta.name;
           if (delta.arguments) {
-            const argsStr = typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
-            (block as any).arguments = ((block as any).arguments || "") + argsStr;
+            if (typeof delta.arguments === "string") {
+              (block as any).arguments = ((block as any).arguments || "") + delta.arguments;
+            } else {
+              (block as any).arguments = delta.arguments;
+            }
           }
           if (delta.id) (block as any).id = delta.id;
           break;
@@ -247,8 +252,11 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
           if (delta.server) (block as any).server = delta.server;
           if (delta.tool) (block as any).tool = delta.tool;
           if (delta.arguments) {
-            const argsStr = typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
-            (block as any).arguments = ((block as any).arguments || "") + argsStr;
+            if (typeof delta.arguments === "string") {
+              (block as any).arguments = ((block as any).arguments || "") + delta.arguments;
+            } else {
+              (block as any).arguments = delta.arguments;
+            }
           }
           break;
         case "file_search_call":

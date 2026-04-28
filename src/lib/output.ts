@@ -23,6 +23,7 @@ export class HumanStreamRenderer {
   private currentBlockIndex: number | null = null;
   private prefixPrinted = false;
   private colWidth = 15;
+  private wasFunctionCall = false;
 
   constructor(private stdout: typeof process.stdout = process.stdout) {}
 
@@ -52,7 +53,7 @@ export class HumanStreamRenderer {
     return type in prefixes ? prefixes[type] : `[${type}]`;
   }
 
-  handleEvent(event: StreamEvent, type: string) {
+  handleEvent(event: StreamEvent, type: string, block?: ContentBlock) {
     if (event.type !== "content.delta") return;
     if (type === "thought" || type === "thought_summary" || type === "thought_signature") return;
 
@@ -61,10 +62,14 @@ export class HumanStreamRenderer {
 
     if (this.currentBlockIndex !== index) {
       if (this.currentBlockIndex !== null) {
+        if (this.wasFunctionCall) {
+          this.stdout.write(")");
+        }
         this.stdout.write("\n");
       }
       this.currentBlockIndex = index;
       this.prefixPrinted = false;
+      this.wasFunctionCall = false;
     }
 
     const prefix = this.getPrefix(type);
@@ -73,16 +78,21 @@ export class HumanStreamRenderer {
     if (delta.text) content = delta.text;
     else if (delta.arguments) content = typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
     else if (delta.code) content = delta.code;
-    else if (delta.result) content = delta.result;
+    else if (delta.result) content = typeof delta.result === "string" ? delta.result : JSON.stringify(delta.result);
     else if (delta.query) content = delta.query;
     else if (delta.url) content = delta.url;
     else if (delta.name) content = delta.name;
-    else if (delta.signature) content = delta.signature;
 
     if (content) {
       if (prefix) {
         if (!this.prefixPrinted) {
           this.stdout.write(prefix.padEnd(this.colWidth));
+          
+          if (block && (block as any).name) {
+            this.stdout.write((block as any).name + "(");
+            this.wasFunctionCall = true;
+          }
+          
           this.prefixPrinted = true;
         }
 
@@ -99,6 +109,13 @@ export class HumanStreamRenderer {
         this.stdout.write(content);
       }
     }
+  }
+
+  finish() {
+    if (this.wasFunctionCall) {
+      this.stdout.write(")");
+    }
+    this.stdout.write("\n");
   }
 }
 

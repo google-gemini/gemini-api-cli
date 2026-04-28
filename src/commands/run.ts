@@ -217,12 +217,12 @@ Examples:
       const activeBlocks = new Map<number, string>();
       
       await processStream(response, {
-        onEvent: (event) => {
+        onEvent: (event, block) => {
           if (event.type === "content.start") {
             activeBlocks.set(event.data.index, event.data.content.type);
           } else if (event.type === "content.delta") {
             const type = activeBlocks.get(event.data.index) || "text";
-            renderer.handleEvent(event, type);
+            renderer.handleEvent(event, type, block);
           }
         },
         onBlockComplete: (block) => {
@@ -231,6 +231,7 @@ Examples:
           }
         },
         onComplete: (result) => {
+          renderer.finish();
           saveMediaOutputs(result.outputs, result.interactionId, args.output as string | undefined);
           const latencySeconds = (performance.now() - startTime) / 1000;
           printCompletionSummary(result, latencySeconds);

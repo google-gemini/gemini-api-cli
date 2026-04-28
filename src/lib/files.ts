@@ -142,7 +142,7 @@ export async function collectInlineFiles(
       const fullPath = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
-        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".gemini") continue;
         await walk(fullPath);
         continue;
       }
