@@ -20,7 +20,7 @@ export const EnvironmentSchema = z.object({
 
 export const AgentConfigSchema = z.object({
   id: z.string(),
-  base_agent: z.string().optional(),
+  base_agent: z.literal("waverunner").optional(),
   description: z.string().optional(),
   system_instruction: z.string().optional(),
   tools: z.array(ToolSchema).optional(),
@@ -28,7 +28,7 @@ export const AgentConfigSchema = z.object({
   environment: EnvironmentSchema.optional(),
   base_environment: z.string().optional(),
   metadata: z.record(z.string()).optional(),
-});
+}).strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

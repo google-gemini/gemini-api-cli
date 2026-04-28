@@ -1,0 +1,6 @@
+id: test-agent-with-tools
+base_agent: waverunner
+description: Agent with tools
+tools:
+  - type: google_search
+  - type: code_execution

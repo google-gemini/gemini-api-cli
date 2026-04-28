@@ -1,7 +1,9 @@
-// TODO: Implement — see tasks/task_8.md
-
 import { defineCommand } from "citty";
 import { globalFlags } from "../../lib/shared-args";
+import { loadAgent } from "../../lib/config";
+import { resolveContext, apiRequest } from "../../lib/api";
+import { printCurl, printError } from "../../lib/output";
+import { CLIError, ConfigError } from "../../lib/errors";
 
 export default defineCommand({
   meta: {
@@ -10,7 +12,8 @@ export default defineCommand({
 
 Examples:
   gemini-api agents update my-agent
-  gemini-api agents update my-agent --path ./my-agent`,
+  gemini-api agents update my-agent --path ./my-agent
+  gemini-api agents update my-agent --dry-run`,
   },
   args: {
     ...globalFlags,
@@ -25,7 +28,39 @@ Examples:
       default: ".",
     },
   },
-  run({ args }) {
-    console.log("TODO: gemini-api agents update", args.id);
+  async run({ args }) {
+    try {
+      const ctx = resolveContext(args);
+      const agentDir = args.path;
+      const id = args.id;
+
+      const { config } = await loadAgent(agentDir);
+
+      const body: any = {
+        ...config,
+      };
+
+      const url = `/agents/${id}`;
+
+      if (args["dry-run"]) {
+        printCurl("PATCH", `${ctx.baseUrl}${url}`, ctx.apiKey, body);
+        return;
+      }
+
+      const response = await apiRequest<any>(ctx, "PATCH", url, body);
+
+      if (args.json) {
+        console.log(JSON.stringify(response, null, 2));
+      } else {
+        console.log(`✓ Updated agent: agents/${id}`);
+      }
+    } catch (error) {
+      if (error instanceof CLIError || error instanceof ConfigError) {
+        printError(error.message);
+      } else {
+        printError(`Unexpected error: ${(error as Error).message}`);
+      }
+      process.exit(1);
+    }
   },
 });

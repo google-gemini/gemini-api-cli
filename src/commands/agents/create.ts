@@ -1,7 +1,9 @@
-// TODO: Implement — see tasks/task_8.md
-
 import { defineCommand } from "citty";
 import { globalFlags } from "../../lib/shared-args";
+import { loadAgent } from "../../lib/config";
+import { resolveContext, apiRequest } from "../../lib/api";
+import { printCurl, printError } from "../../lib/output";
+import { CLIError, ConfigError } from "../../lib/errors";
 
 export default defineCommand({
   meta: {
@@ -25,7 +27,48 @@ Examples:
       description: "Override base environment",
     },
   },
-  run({ args }) {
-    console.log("TODO: gemini-api agents create", args);
+  async run({ args }) {
+    try {
+      const ctx = resolveContext(args);
+      const agentDir = args.path;
+      const baseEnvOverride = args["base-env"];
+
+      const { config } = await loadAgent(agentDir);
+
+      const body: any = {
+        ...config,
+      };
+
+      if (baseEnvOverride) {
+        body.base_environment = baseEnvOverride;
+      }
+
+      const url = "/agents";
+
+      if (args["dry-run"]) {
+        printCurl("POST", `${ctx.baseUrl}${url}`, ctx.apiKey, body);
+        return;
+      }
+
+      const response = await apiRequest<any>(ctx, "POST", url, body);
+
+      if (args.json) {
+        console.log(JSON.stringify(response, null, 2));
+      } else {
+        console.log(`✓ Created agent: agents/${response.name || response.id}`);
+        console.log(`  agent_id: ${response.id}`);
+        console.log(`  base_agent: ${response.base_agent}`);
+        if (response.environment) {
+          console.log(`  environment: ${response.environment}`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof CLIError || error instanceof ConfigError) {
+        printError(error.message);
+      } else {
+        printError(`Unexpected error: ${(error as Error).message}`);
+      }
+      process.exit(1);
+    }
   },
 });

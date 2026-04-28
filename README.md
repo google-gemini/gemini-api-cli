@@ -4,14 +4,18 @@
 
 **Status:** Under development. See [SPEC.md](./SPEC.md) and [tasks/TASK.md](./tasks/TASK.md) for progress.
 
-## Quick Start
+## Installation
+
+See [DOCS.md](./DOCS.md) for full installation instructions (Binary, npm, or from source).
+
+### Quick Start (from source)
 
 ```bash
 # Install dependencies
 bun install
 
 # Run in dev mode
-bun run dev -- run "Hello" --api-key YOUR_KEY
+bun run dev -- run "Hello"
 
 # Build standalone binary
 bun run compile
@@ -23,24 +27,21 @@ bun run compile
 ```bash
 # Run an interaction against a model
 gemini-api run "What is the capital of France?"
-gemini-api run "Explain this" --model gemini-3-pro-preview
 
 # Scaffold, test, and deploy agents
 gemini-api agents init my-agent
 gemini-api agents test --prompt "Hello"
 gemini-api agents create
-gemini-api agents list
 
 # Manage environment files
 gemini-api files list <env-id>
-gemini-api files download <env-id>
 ```
 
 ## Documentation
 
+- [DOCS.md](./DOCS.md) — Full user guide and reference
 - [SPEC.md](./SPEC.md) — Architecture specification
 - [tasks/TASK.md](./tasks/TASK.md) — Implementation task tracker
-- [tasks/DOCS.md](./tasks/DOCS.md) — User-facing documentation (in progress)
 - [CLI-skill.md](./CLI-skill.md) — Agent-first CLI design principles
 
 ## License

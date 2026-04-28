@@ -1,0 +1,7 @@
+dist/gemini-api
+dist/gemini-api-darwin-arm64
+dist/gemini-api-darwin-x64
+dist/gemini-api-linux-arm64
+dist/gemini-api-linux-x64
+dist/gemini-api-win-x64.exe
+dist/gemini-api-min

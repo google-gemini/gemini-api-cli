@@ -1,0 +1,43 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            output: gemini-api-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            output: gemini-api-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            output: gemini-api-darwin-arm64
+          - os: macos-13
+            target: bun-darwin-x64
+            output: gemini-api-darwin-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun build --compile --target=${{ matrix.target }} ./src/cli.ts --outfile dist/${{ matrix.output }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.output }}
+
+  npm:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

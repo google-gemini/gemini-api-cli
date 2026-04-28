@@ -17,9 +17,4 @@ export const globalFlags = {
     description: "Print curl and exit",
     default: false,
   },
-  verbose: {
-    type: "boolean" as const,
-    description: "Debug logging",
-    default: false,
-  },
 };

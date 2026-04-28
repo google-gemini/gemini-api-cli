@@ -8,13 +8,13 @@
     "gemini-api": "./dist/cli.js"
   },
   "files": [
-    "dist/",
+    "dist/cli.js",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build ./src/cli.ts --outdir dist --target node",
+    "build": "bun build ./src/cli.ts --outdir dist --target node --banner=\"#!/usr/bin/env node\"",
     "compile": "bun build --compile ./src/cli.ts --outfile dist/gemini-api",
     "test": "bun test",
     "lint": "biome check .",
