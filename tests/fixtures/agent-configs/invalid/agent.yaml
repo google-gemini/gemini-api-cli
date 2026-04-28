@@ -1,0 +1,4 @@
+# Missing required 'id' field
+base_agent: waverunner
+tools:
+  - type: invalid_tool_type

@@ -1,0 +1,38 @@
+{
+  "name": "@google/gemini-api-cli",
+  "version": "0.1.0",
+  "description": "The official CLI for the Gemini API",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "gemini-api": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun build ./src/cli.ts --outdir dist --target node",
+    "compile": "bun build --compile ./src/cli.ts --outfile dist/gemini-api",
+    "test": "bun test",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "citty": "^0.1.6",
+    "js-yaml": "^4.1.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "bun-types": "latest",
+    "typescript": "^5.7.0",
+    "@biomejs/biome": "latest"
+  }
+}

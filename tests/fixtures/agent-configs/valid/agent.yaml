@@ -1,0 +1,3 @@
+id: test-agent
+base_agent: waverunner
+description: Valid test agent

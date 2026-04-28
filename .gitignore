@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.gemini/
+*.tgz
+.DS_Store
+
+tasks/
+CLI-skill.md
+SPEC.md
+PROGRESS.md
+PROMPT.md
