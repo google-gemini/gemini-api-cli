@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun build ./src/cli.ts --outdir dist --target node --banner=\"#!/usr/bin/env node\"",
+    "prepare": "node scripts/prepare.js",
     "compile": "bun build --compile ./src/cli.ts --outfile dist/gemini-api",
     "test": "bun test",
     "lint": "biome check .",
@@ -33,6 +34,7 @@
     "@types/node": "^22.0.0",
     "bun-types": "latest",
     "typescript": "^5.7.0",
-    "@biomejs/biome": "latest"
+    "@biomejs/biome": "latest",
+    "esbuild": "latest"
   }
 }

@@ -24,9 +24,12 @@
 git clone https://github.com/google-gemini/gemini-api-cli.git
 cd gemini-api-cli
 npm install -g .
+cd .. 
 
 # Install the skill for AI agents
-npx skills add ./skills/gemini-api-cli
+npx skills add ./gemini-api-cli/skills/gemini-api-cli -y
+
+rm -rf gemini-api-cli
 ```
 
 <!-- 
