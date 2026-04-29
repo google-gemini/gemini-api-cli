@@ -6,10 +6,9 @@ import { defineCommand } from "citty";
 export default defineCommand({
   meta: {
     name: "files",
-    description: "Manage environment files: list, download",
+    description: "Manage environment files: download",
   },
   subCommands: {
-    list: () => import("./list").then((m) => m.default),
     download: () => import("./download").then((m) => m.default),
   },
 });

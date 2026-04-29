@@ -7,7 +7,7 @@ const main = defineCommand({
   meta: {
     name: "gemini-api",
     version: "0.2.0",
-    description: "The official CLI for the Gemini API",
+        description: "CLI to access Gemini API",
   },
   subCommands: {
     run: () => import("./commands/run").then((m) => m.default),
@@ -16,4 +16,9 @@ const main = defineCommand({
   },
 });
 
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  process.env.CONSOLA_LEVEL = '5';
+}
+
 runMain(main);
+

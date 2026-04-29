@@ -11,7 +11,7 @@ export function run(args: string, opts?: ExecSyncOptions): string {
 }
 
 export function runJson(args: string): any[] {
-  const result = run(`${args} --json --no-stream`);
+  const result = run(`${args} --json`);
   return result.trim().split("\n").map(l => JSON.parse(l));
 }
 

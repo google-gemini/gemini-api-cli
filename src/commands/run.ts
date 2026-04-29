@@ -1,15 +1,17 @@
 // gemini-api run command
-// TODO: Implement — see tasks/task_5.md
 
 import { readFileSync } from "node:fs";
 import { defineCommand } from "citty";
 import { globalFlags } from "../lib/shared-args";
-import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, type RunOptions, type Tool, parseToolFlag } from "../lib/api";
+import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, apiGetRequest, apiGetStreamRequest, isDeepResearchAgent, isAgentName, type RunOptions, type Tool, parseToolFlag } from "../lib/api";
 import { processStream } from "../lib/stream";
-import { printCurl, HumanStreamRenderer, printCompletionSummary, printError, printBlock } from "../lib/output";
+import { printCurl, HumanStreamRenderer, printCompletionSummary, printError, printBlock, printPollingStatus } from "../lib/output";
 import { inputToContentBlock, saveMediaOutputs } from "../lib/files";
 import { CLIError } from "../lib/errors";
 import { logRequest, logResponse } from "../lib/logger";
+import type { StreamResult, StreamEvent, ContentBlock } from "../lib/stream";
+
+const DEEP_RESEARCH_POLL_INTERVAL_MS = 10_000;
 
 export default defineCommand({
   meta: {
@@ -18,7 +20,7 @@ export default defineCommand({
 
 Examples:
   gemini-api run "What is the capital of France?"
-  gemini-api run "Explain quantum computing" --model gemini-3-pro-preview`,
+  gemini-api run "Explain quantum computing" --model gemini-3.1-pro-preview`,
   },
   args: {
     ...globalFlags,
@@ -38,8 +40,6 @@ Examples:
       alias: "a",
       description: "Agent to use (overrides --model)",
     },
-
-
     "previous-interaction-id": {
       type: "string",
       alias: "p",
@@ -59,9 +59,21 @@ Examples:
       alias: "i",
       description: "Additional input (can be specified multiple times): <type>:<path_or_url>",
     },
+    tool: {
+      type: "string",
+      description: "Tool declaration (can be specified multiple times): code_execution, google_search, mcp_server:name:url, function:name:schema",
+    },
+    "tool-choice": {
+      type: "string",
+      description: "Tool choice mode (auto, any, none, validated)",
+    },
     "response-modality": {
       type: "string",
       description: "Requested output types (e.g., image, audio)",
+    },
+    "response-mime-type": {
+      type: "string",
+      description: "MIME type for response (e.g., application/json)",
     },
     output: {
       type: "string",
@@ -92,7 +104,6 @@ Examples:
       type: "string",
       description: "Language code for TTS",
     },
-
   },
   async run({ args }) {
     let prompt = args.prompt;
@@ -133,6 +144,8 @@ Examples:
 
     const ctx = resolveContext(sharedFlags);
 
+    // Parse repeated --input flags from process.argv
+    // (citty doesn't natively support repeated flags well)
     const inputs: string[] = [];
     for (let i = 0; i < process.argv.length; i++) {
       if (process.argv[i] === "--input" || process.argv[i] === "-i") {
@@ -141,6 +154,31 @@ Examples:
           i++; // Skip the value
         }
       }
+    }
+
+    // Parse repeated --tool flags from process.argv
+    const toolStrings: string[] = [];
+    for (let i = 0; i < process.argv.length; i++) {
+      if (process.argv[i] === "--tool") {
+        if (i + 1 < process.argv.length) {
+          toolStrings.push(process.argv[i + 1]);
+          i++;
+        }
+      }
+    }
+
+    // Parse tools
+    let tools: Tool[] | undefined = undefined;
+    if (toolStrings.length > 0) {
+      tools = [];
+      for (const toolStr of toolStrings) {
+        tools.push(parseToolFlag(toolStr));
+      }
+    }
+
+    if (args.agent && !isAgentName(args.agent as string)) {
+      printError(`Unknown agent: '${args.agent}'\n\n  Available agent types: waverunner, deep-research`);
+      process.exit(1);
     }
 
     let interactionInput: any = prompt;
@@ -178,11 +216,14 @@ Examples:
       agent: args.agent as string | undefined,
       input: interactionInput,
       systemInstruction: args["system-instruction"] as string | undefined,
+      tools,
       serviceTier: args["service-tier"] as string | undefined,
       previousInteractionId: args["previous-interaction-id"] as string | undefined,
-      stream: true,
+      stream: !isDeepResearchAgent(args.agent as string | undefined),
+      toolChoice: args["tool-choice"] as string | undefined,
 
       responseModalities: args["response-modality"] ? [args["response-modality"] as string] : undefined,
+      responseMimeType: args["response-mime-type"] as string | undefined,
       voice: args.voice as string | undefined,
       language: args.language as string | undefined,
       aspectRatio: args["aspect-ratio"] as string | undefined,
@@ -199,6 +240,14 @@ Examples:
     }
 
     const startTime = performance.now();
+
+    // Deep Research agents use streaming with auto-reconnect
+    if (isDeepResearchAgent(args.agent as string | undefined)) {
+      await runDeepResearch(ctx, body, args, startTime);
+      return;
+    }
+
+    // Standard model/agent streaming
     const response = await apiStreamRequest(ctx, "/interactions", body);
     
     if (args.json) {
@@ -244,3 +293,107 @@ Examples:
     }
   },
 });
+
+/**
+ * Run a Deep Research agent with streaming and automatic reconnection.
+ * 
+ * Deep Research tasks can take minutes. The SSE connection may drop (e.g., after
+ * the 600s server timeout). This function handles:
+ * 1. Initial POST to start the task (stream=true, background=true)
+ * 2. Processing stream events as they arrive
+ * 3. If the connection drops while status is still in_progress, poll the
+ *    interaction status and reconnect the stream using last_event_id
+ */
+async function runDeepResearch(
+  ctx: import("../lib/api").CLIContext,
+  body: object,
+  args: any,
+  startTime: number,
+): Promise<void> {
+  let interactionId = "";
+  let isComplete = false;
+  let result: StreamResult = {
+    status: "in_progress",
+    outputs: [],
+    interactionId: "",
+  };
+
+  console.error(`⟳ Starting deep research...`);
+  try {
+    const response = await apiRequest<any>(ctx, "POST", "/interactions", body);
+    interactionId = response.id || response.interaction_id;
+    result.interactionId = interactionId;
+    console.error(`✓ Deep research started. Interaction ID: ${interactionId}`);
+  } catch (error) {
+    printError(`Failed to start deep research: ${(error as Error).message}`);
+    process.exit(1);
+  }
+
+  let retryCount = 0;
+  const maxRetries = 5;
+
+  // 2. Polling loop
+  while (!isComplete && interactionId) {
+    const elapsedSeconds = (performance.now() - startTime) / 1000;
+    printPollingStatus(elapsedSeconds);
+
+    // Wait before polling
+    await new Promise(resolve => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS));
+
+    // Check interaction status via GET
+    try {
+      const status = await apiGetRequest<any>(ctx, `/interactions/${interactionId}`);
+      retryCount = 0; // Reset retry count on success
+      
+      if (status.status === "completed" || status.status === "failed") {
+        isComplete = true;
+        result.status = status.status;
+        result.interactionId = interactionId;
+
+        if (status.usage) {
+          result.usage = {
+            inputTokens: status.usage.total_input_tokens ?? status.usage.input_tokens,
+            outputTokens: status.usage.total_output_tokens ?? status.usage.output_tokens,
+            thoughtTokens: status.usage.total_thought_tokens ?? status.usage.thought_tokens,
+          };
+        }
+
+        // Print final outputs
+        if (status.outputs && status.outputs.length > 0) {
+          for (const output of status.outputs) {
+            if (output.type === "text" && output.text) {
+              process.stdout.write(output.text);
+            }
+          }
+        }
+        break;
+      }
+
+      if (status.status !== "in_progress") {
+        // Unexpected status
+        isComplete = true;
+        break;
+      }
+    } catch (error) {
+      retryCount++;
+      const elapsedSeconds = (performance.now() - startTime) / 1000;
+      console.error(`⟳ Polling failed, retrying (${retryCount}/${maxRetries})... (${Math.round(elapsedSeconds)}s elapsed)`);
+      if (retryCount >= maxRetries) {
+        printError(`Failed to poll status after ${maxRetries} attempts.`);
+        process.exit(1);
+      }
+      // Wait longer on failure
+      await new Promise(resolve => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS * 2));
+    }
+  }
+
+  // 3. Finalize output
+  saveMediaOutputs(result.outputs, result.interactionId, args.output as string | undefined);
+  const latencySeconds = (performance.now() - startTime) / 1000;
+  if (!args.json) {
+    printCompletionSummary(result, latencySeconds);
+    logRequest(result.interactionId, body);
+    logResponse(result.interactionId, result);
+  }
+}
+

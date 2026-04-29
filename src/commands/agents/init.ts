@@ -37,6 +37,11 @@ Examples:
     const fromTemplate = args["from-template"];
     const dryRun = args["dry-run"];
 
+    if (!name || name.trim() === "") {
+      console.error("Error: Agent name cannot be empty.");
+      process.exit(1);
+    }
+
     if (fs.existsSync(name)) {
       console.log(`Directory '${name}' already exists.`);
       return;
@@ -79,6 +84,7 @@ Examples:
       id: name,
       base_agent: baseAgent,
       description: `Scaffolded agent ${name}`,
+      tools: [{ type: "code_execution" }],
     };
 
     fs.writeFileSync(
@@ -90,7 +96,7 @@ Examples:
     const STARTER_AGENTS_MD = `# Agent Instructions
 
 Describe your agent's behavior, personality, and capabilities here.
-This file is used as the system instruction for your agent.
+This file is uploaded to the agent environment and merged with system_instruction on the server.
 
 ## What This Agent Does
 
@@ -125,5 +131,7 @@ This file is used as the system instruction for your agent.
     console.log(`  ├── .env             # Configurations`);
     console.log(`  ├── skills/          # Custom skills`);
     console.log(`  └── workspace/       # Files seeded into environment`);
+    console.log();
+    console.log(`Next: cd ${name} && gemini-api agents test --prompt "Hello"`);
   },
 });

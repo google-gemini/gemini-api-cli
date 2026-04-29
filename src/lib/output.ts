@@ -8,7 +8,8 @@ export function printCurl(
 ): void {
   let curl = `curl -X ${method} "${url}" \\\n`;
   curl += `  -H "Content-Type: application/json" \\\n`;
-  curl += `  -H "x-goog-api-key: ${apiKey}"`;
+  curl += `  -H "x-goog-api-key: ${apiKey}" \\\n`;
+  curl += `  -H "x-server-timeout: 600"`;
 
   if (body) {
     // Escape single quotes in body for bash
@@ -199,4 +200,8 @@ export function printBlock(block: ContentBlock): void {
       }
       break;
   }
+}
+
+export function printPollingStatus(elapsedSeconds: number, status: string = "in_progress"): void {
+  console.error(`\r⟳ deep-research ${status}... (${Math.round(elapsedSeconds)}s elapsed)`);
 }

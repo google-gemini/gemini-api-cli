@@ -33,6 +33,12 @@ Examples:
       const ctx = resolveContext(args);
       const id = args.id;
       const force = args.force;
+      
+      if (!id || id.trim() === "") {
+        printError("Error: Agent ID cannot be empty.");
+        process.exit(1);
+      }
+      
       const url = `/agents/${id}`;
 
       if (args["dry-run"]) {

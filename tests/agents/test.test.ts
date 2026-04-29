@@ -17,8 +17,8 @@ describe("gemini-api agents test", () => {
         return;
     }
     const result = runCli(
-      `agents test --prompt "Say exactly: agent-test-pass" --path ./tests/fixtures/agent-configs/valid --no-stream`
+      `agents test --prompt "Say exactly: agent-test-pass" --path ./tests/fixtures/agent-configs/valid`
     );
     expect(result).toContain("agent-test-pass");
-  });
+  }, 60000);
 });

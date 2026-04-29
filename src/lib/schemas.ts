@@ -5,29 +5,44 @@ export const ToolSchema = z.object({
     "code_execution",
     "google_search",
     "url_context",
-    "computer_use",
-    "mcp_server",
-    "file_search",
-    "google_maps",
-    "retrieval",
-    "function",
   ]),
 }).passthrough();
 
-export const EnvironmentSchema = z.object({
-  enabled: z.boolean().optional(),
-}).passthrough();
+const SourceSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("gcs"),
+    source: z.string(),
+    target: z.string(),
+  }),
+  z.object({
+    type: z.literal("inline"),
+    content: z.string(),
+    target: z.string(),
+  }),
+  z.object({
+    type: z.literal("github"),
+    source: z.string(),
+    target: z.string(),
+  }),
+]);
+
+const ConfigSchema = z.object({
+  sources: z.array(SourceSchema),
+});
+
+export const EnvironmentSchema = z.union([
+  z.object({ enabled: z.boolean() }),
+  z.object({ env_id: z.string() }),
+  z.object({ config: ConfigSchema }),
+]);
 
 export const AgentConfigSchema = z.object({
   id: z.string(),
   base_agent: z.literal("waverunner").optional(),
   description: z.string().optional(),
-  system_instruction: z.string().optional(),
+  instructions: z.string().optional(),
   tools: z.array(ToolSchema).optional(),
-  subagents: z.array(z.string()).optional(),
-  environment: EnvironmentSchema.optional(),
-  base_environment: z.string().optional(),
-  metadata: z.record(z.string()).optional(),
+  base_environment: z.union([z.string(), z.object({ config: ConfigSchema })]).optional(),
 }).strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

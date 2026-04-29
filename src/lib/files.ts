@@ -92,6 +92,28 @@ export function mimeTypeToExt(mimeType: string): string | undefined {
   return undefined;
 }
 
+function getWavHeader(pcmLength: number, sampleRate: number = 24000, numChannels: number = 1, bitsPerSample: number = 16): Buffer {
+  const header = Buffer.alloc(44);
+  
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmLength, 4);
+  header.write("WAVE", 8);
+  
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
+  header.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  
+  header.write("data", 36);
+  header.writeUInt32LE(pcmLength, 40);
+  
+  return header;
+}
+
 export function saveMediaOutputs(outputs: any[], interactionId: string, requestedOutput?: string) {
   for (let i = 0; i < outputs.length; i++) {
     const block = outputs[i];
@@ -110,7 +132,14 @@ export function saveMediaOutputs(outputs: any[], interactionId: string, requeste
           mkdirSync(dir, { recursive: true });
         }
         
-        writeFileSync(filename, Buffer.from(data, "base64"));
+        const buffer = Buffer.from(data, "base64");
+        if (block.type === "audio" && mimeType === "audio/l16" && filename.toLowerCase().endsWith(".wav")) {
+          const header = getWavHeader(buffer.length);
+          writeFileSync(filename, Buffer.concat([header, buffer]));
+        } else {
+          writeFileSync(filename, buffer);
+        }
+        
         console.log(`[${block.type}] Saved to ${filename} (${mimeType})`);
       }
     }

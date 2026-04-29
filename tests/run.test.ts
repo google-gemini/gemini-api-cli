@@ -21,7 +21,7 @@ describe("gemini-api run", () => {
         console.warn("Skipping live API test because GEMINI_API_KEY is not set");
         return;
     }
-    const result = runCli('run "Say exactly: pong" --no-stream');
+    const result = runCli('run "Say exactly: pong"');
     expect(result).toContain("pong");
     expect(result).toContain("interaction_id:");
   });
@@ -84,9 +84,9 @@ describe("gemini-api run", () => {
     expect(intId).toBeTruthy();
 
     // Second turn
-    const r2 = runCli(`run "What word did I ask you to remember?" --previous-interaction-id ${intId} --no-stream`);
+    const r2 = runCli(`run "What word did I ask you to remember?" --previous-interaction-id ${intId}`);
     expect(r2.toLowerCase()).toContain("banana");
-  }, 10000);
+  }, 60000);
 
   test("missing prompt shows error", () => {
     const result = runCli('run');

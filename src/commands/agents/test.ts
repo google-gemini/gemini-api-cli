@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { globalFlags } from "../../lib/shared-args";
 import { loadAgent } from "../../lib/config";
-import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, type RunOptions, parseToolFlag, type Tool } from "../../lib/api";
+import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, type RunOptions, parseToolFlag, type Tool, isAgentName } from "../../lib/api";
 import { processStream } from "../../lib/stream";
 import { printCurl, HumanStreamRenderer, printCompletionSummary, printError } from "../../lib/output";
 import { CLIError, ConfigError } from "../../lib/errors";
@@ -57,7 +57,10 @@ Examples:
       const { config } = await loadAgent(agentDir);
       const inlineFiles = await collectInlineFiles(agentDir);
 
-      let systemInstruction = config.system_instruction;
+      // system_instruction from agent.yaml is sent in the request body.
+      // AGENTS.md is NOT loaded here — it is uploaded as an inline file and
+      // merged with the system instruction on the server side.
+      let systemInstruction = config.instructions;
 
       // Add note about inline files if any exist
       if (inlineFiles.length > 0) {
@@ -83,33 +86,33 @@ Examples:
         }
       }
 
-      const runOpts: RunOptions = {
-        agent: config.base_agent,
-        input: prompt,
-        systemInstruction: systemInstruction,
-        tools: config.tools as any, // Cast to any to avoid lint error for now
-        previousInteractionId: args["previous-interaction-id"] as string | undefined,
-        stream: true,
-      };
-
-      const body = buildInteractionRequest(runOpts);
-
+      // Build environment config
       let environment: any = {};
       if (args.environment) {
         environment = { env_id: args.environment };
       } else {
-        if (config.environment) {
-          environment = { ...config.environment };
-        }
         if (inlineFiles.length > 0) {
           environment.config = environment.config || {};
           environment.config.sources = inlineFiles;
         }
       }
 
-      if (Object.keys(environment).length > 0) {
-        (body as any).environment = environment;
-      }
+      // Determine whether base_agent is an agent or model name.
+      // Known agents use the `agent` field; model names use the `model` field.
+      const isAgent = isAgentName(config.base_agent);
+
+      const runOpts: RunOptions = {
+        agent: isAgent ? config.base_agent : undefined,
+        model: isAgent ? undefined : config.base_agent,
+        input: prompt,
+        systemInstruction: systemInstruction,
+        tools: config.tools as any,
+        previousInteractionId: args["previous-interaction-id"] as string | undefined,
+        stream: true,
+        environment: Object.keys(environment).length > 0 ? environment : undefined,
+      };
+
+      const body = buildInteractionRequest(runOpts);
 
       if (args["dry-run"]) {
         printCurl("POST", `${ctx.baseUrl}/interactions`, ctx.apiKey, body);

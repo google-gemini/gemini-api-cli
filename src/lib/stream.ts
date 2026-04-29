@@ -20,6 +20,7 @@ export interface StreamResult {
   created?: string;
   updated?: string;
   environmentId?: string;
+  lastEventId?: string;  // For deep-research stream reconnection
 }
 
 export type ContentBlock = 
@@ -187,6 +188,9 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
   if (data.environment_id) {
     result.environmentId = data.environment_id;
   }
+  if (data.event_id) {
+    result.lastEventId = data.event_id;
+  }
 
   if (event.type === "content.start") {
     const index = data.index;
@@ -298,11 +302,12 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
       }
     }
   } else if (event.type === "interaction.complete") {
-    if (data.usage) {
+    const usage = data.usage || data.interaction?.usage;
+    if (usage) {
       result.usage = {
-        inputTokens: data.usage.input_tokens,
-        outputTokens: data.usage.output_tokens,
-        thoughtTokens: data.usage.thought_tokens,
+        inputTokens: usage.total_input_tokens ?? usage.input_tokens,
+        outputTokens: usage.total_output_tokens ?? usage.output_tokens,
+        thoughtTokens: usage.total_thought_tokens ?? usage.thought_tokens,
       };
     }
   }

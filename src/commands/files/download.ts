@@ -9,8 +9,8 @@ import * as path from "node:path";
 export default defineCommand({
   meta: {
     name: "download",
-    description: `Download files from environment.
-
+    description: `Download files from environment as a snapshot and extract them.
+ 
 Examples:
   gemini-api files download env_xyz789
   gemini-api files download env_xyz789 --output ./results`,
@@ -27,43 +27,16 @@ Examples:
       description: "Output directory",
       default: "./",
     },
-    "file-id": {
-      type: "string",
-      description: "Download specific file",
-    },
   },
   async run({ args }) {
     try {
       const ctx = resolveContext(args);
       const envId = args["env-id"];
       const outputDir = args.output || "./";
-      const fileId = args["file-id"];
 
-      async function downloadFile(id: string, filePath?: string) {
-        const url = `${ctx.baseUrl}/environments/${envId}/files/${id}`;
-        const headers: Record<string, string> = {
-          "x-goog-api-key": ctx.apiKey,
-        };
-        
-        const response = await fetch(url, { headers });
-        if (!response.ok) {
-          throw new CLIError(`Failed to download file ${id}: ${response.statusText}`);
-        }
-        
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        
-        const filename = filePath ? path.basename(filePath) : id;
-        const fullPath = path.join(outputDir, filename);
-        
-        fs.writeFileSync(fullPath, buffer);
-        console.log(`  ${filePath || id} saved to ${fullPath}`);
-      }
+      const url = `/files/environment-${envId}:download?alt=media`;
 
       if (args["dry-run"]) {
-        const url = fileId 
-          ? `/environments/${envId}/files/${fileId}`
-          : `/environments/${envId}/files`;
         printCurl("GET", `${ctx.baseUrl}${url}`, ctx.apiKey);
         return;
       }
@@ -72,28 +45,40 @@ Examples:
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
-      if (fileId) {
-        await downloadFile(fileId);
-      } else {
-        // Download all
-        const listUrl = `/environments/${envId}/files`;
-        const response = await apiRequest<any>(ctx, "GET", listUrl);
-        const files = Array.isArray(response) ? response : response.files || [];
+      const fullUrl = `${ctx.baseUrl}${url}`;
+      const headers: Record<string, string> = {
+        "x-goog-api-key": ctx.apiKey,
+      };
 
-        if (files.length === 0) {
-          console.log(`No files found in environment ${envId}.`);
-          return;
-        }
+      console.log(`Downloading snapshot for environment ${envId}...`);
+      const response = await fetch(fullUrl, { headers });
+      
+      if (!response.ok) {
+        throw new CLIError(`Failed to download snapshot: ${response.statusText}`);
+      }
 
-        let downloadedCount = 0;
-        for (const file of files) {
-          const id = file.id || file.name; // Assume id or name
-          if (id) {
-            await downloadFile(id, file.path);
-            downloadedCount++;
-          }
-        }
-        console.log(`✓ Downloaded ${downloadedCount} files to ${outputDir}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      const snapshotPath = path.join(outputDir, `snapshot_${envId}.tar`);
+      fs.writeFileSync(snapshotPath, buffer);
+      console.log(`✓ Saved snapshot to ${snapshotPath}`);
+
+      // Extract it
+      const extractDir = path.join(outputDir, `snapshot_${envId}`);
+      if (!fs.existsSync(extractDir)) {
+        fs.mkdirSync(extractDir, { recursive: true });
+      }
+
+      console.log(`Extracting snapshot to ${extractDir}...`);
+      try {
+        const { execSync } = await import("node:child_process");
+        execSync(`tar xf ${snapshotPath} -C ${extractDir}`);
+        console.log(`✓ Extracted snapshot to ${extractDir}`);
+        fs.unlinkSync(snapshotPath);
+      } catch (error) {
+        console.error(`✗ Failed to extract snapshot: ${(error as Error).message}`);
+        console.log(`Snapshot file is still available at ${snapshotPath}`);
       }
     } catch (error) {
       if (error instanceof CLIError) {

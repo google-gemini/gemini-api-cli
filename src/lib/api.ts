@@ -30,6 +30,10 @@ export function resolveContext(flags: SharedFlags): CLIContext {
   return { apiKey, baseUrl };
 }
 
+function cleanErrorMessage(message: string): string {
+  return message.replace(/Did you mean '.*?'\?/, "").trim();
+}
+
 export async function apiRequest<T>(
   ctx: CLIContext,
   method: string,
@@ -40,6 +44,7 @@ export async function apiRequest<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
+    "x-server-timeout": "600",
   };
 
   const response = await fetch(url, {
@@ -52,8 +57,11 @@ export async function apiRequest<T>(
     let errorMsg = `API error (${response.status})`;
     try {
       const errorData = await response.json();
+      if (response.status === 400) {
+        console.error("400 Error Data:", JSON.stringify(errorData, null, 2));
+      }
       if (errorData.error?.message) {
-        errorMsg += `: ${errorData.error.message}`;
+        errorMsg += `: ${cleanErrorMessage(errorData.error.message)}`;
       }
     } catch {
       // Ignore JSON parse error
@@ -73,6 +81,70 @@ export async function apiRequest<T>(
   return response.json() as Promise<T>;
 }
 
+export async function apiGetRequest<T>(
+  ctx: CLIContext,
+  path: string,
+  params?: Record<string, string>,
+): Promise<T> {
+  let url = `${ctx.baseUrl}${path}`;
+  if (params) {
+    const qs = new URLSearchParams(params).toString();
+    url += `?${qs}`;
+  }
+  const headers: Record<string, string> = {
+    "x-goog-api-key": ctx.apiKey,
+  };
+
+  const response = await fetch(url, { method: "GET", headers });
+
+  if (!response.ok) {
+    let errorMsg = `API error (${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error?.message) {
+        errorMsg += `: ${cleanErrorMessage(errorData.error.message)}`;
+      }
+    } catch {
+      // Ignore JSON parse error
+    }
+    throw new CLIError(errorMsg);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export async function apiGetStreamRequest(
+  ctx: CLIContext,
+  path: string,
+  params?: Record<string, string>,
+): Promise<Response> {
+  let url = `${ctx.baseUrl}${path}`;
+  if (params) {
+    const qs = new URLSearchParams(params).toString();
+    url += `?${qs}`;
+  }
+  const headers: Record<string, string> = {
+    "x-goog-api-key": ctx.apiKey,
+  };
+
+  const response = await fetch(url, { method: "GET", headers });
+
+  if (!response.ok) {
+    let errorMsg = `API error (${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error?.message) {
+        errorMsg += `: ${cleanErrorMessage(errorData.error.message)}`;
+      }
+    } catch {
+      // Ignore JSON parse error
+    }
+    throw new CLIError(errorMsg);
+  }
+
+  return response;
+}
+
 export async function apiStreamRequest(
   ctx: CLIContext,
   path: string,
@@ -82,6 +154,7 @@ export async function apiStreamRequest(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
+    "x-server-timeout": "600",
   };
 
   const response = await fetch(url, {
@@ -95,7 +168,7 @@ export async function apiStreamRequest(
     try {
       const errorData = await response.json();
       if (errorData.error?.message) {
-        errorMsg += `: ${errorData.error.message}`;
+        errorMsg += `: ${cleanErrorMessage(errorData.error.message)}`;
       }
     } catch {
       // Ignore JSON parse error
@@ -173,6 +246,31 @@ export interface RunOptions {
   toolChoice?: string;
   editStrength?: number;
   mask?: string;
+
+  // Environment override (for agents test)
+  environment?: object;
+}
+
+// Agents that automatically get `environment: { enabled: true }` when used
+// via `gemini-api run --agent <name>` (i.e., without an agent.yaml config).
+const ENVIRONMENT_ENABLED_AGENTS = ["waverunner"];
+
+// Known agent name prefixes. Everything else is treated as a model name.
+const AGENT_PREFIXES = ["waverunner", "deep-research"];
+
+// Deep Research agent prefixes — these get background:true and agent_config auto-injected.
+const DEEP_RESEARCH_PREFIX = "deep-research";
+
+/** Returns true if the base_agent value is an agent name (not a model). */
+export function isAgentName(name?: string): boolean {
+  if (!name) return false;
+  return AGENT_PREFIXES.some(prefix => name === prefix || name.startsWith(prefix + "-"));
+}
+
+/** Returns true if the agent is a Deep Research agent. */
+export function isDeepResearchAgent(agent?: string): boolean {
+  if (!agent) return false;
+  return agent === DEEP_RESEARCH_PREFIX || agent.startsWith(DEEP_RESEARCH_PREFIX + "-");
 }
 
 export function buildInteractionRequest(opts: RunOptions): object {
@@ -180,7 +278,8 @@ export function buildInteractionRequest(opts: RunOptions): object {
     input: opts.input,
   };
 
-  if (opts.agent === "waverunner") {
+  // For known agent types, automatically enable the environment
+  if (opts.agent && ENVIRONMENT_ENABLED_AGENTS.includes(opts.agent)) {
     body.environment = { enabled: true };
   }
 
@@ -189,12 +288,23 @@ export function buildInteractionRequest(opts: RunOptions): object {
   if (opts.systemInstruction) body.system_instruction = opts.systemInstruction;
   if (opts.tools) body.tools = opts.tools;
   if (opts.responseModalities) body.response_modalities = opts.responseModalities;
-  if (opts.responseFormat) body.responseFormat = opts.responseFormat;
-  if (opts.responseMimeType) body.responseMimeType = opts.responseMimeType;
-  if (opts.serviceTier) body.serviceTier = opts.serviceTier;
+  if (opts.responseFormat) body.response_format = opts.responseFormat;
+  if (opts.responseMimeType) body.response_mime_type = opts.responseMimeType;
+  if (opts.serviceTier) body.service_tier = opts.serviceTier;
   if (opts.previousInteractionId) body.previous_interaction_id = opts.previousInteractionId;
   if (opts.stream !== undefined) body.stream = opts.stream;
 
+  // Deep Research agents: auto-inject background:true and agent_config
+  if (isDeepResearchAgent(opts.agent)) {
+    body.background = true;
+    body.agent_config = {
+      type: "deep-research",
+      thinking_summaries: "auto",
+    };
+  }
+
+  // Environment override (from agents test command)
+  if (opts.environment) body.environment = opts.environment;
 
   // Generation Config
   const generationConfig: any = {};
@@ -210,9 +320,9 @@ export function buildInteractionRequest(opts: RunOptions): object {
   
   if (opts.aspectRatio || opts.imageSize || opts.editStrength !== undefined || opts.mask) {
     generationConfig.image_config = {};
-    if (opts.aspectRatio) generationConfig.image_config.aspectRatio = opts.aspectRatio;
-    if (opts.imageSize) generationConfig.image_config.imageSize = opts.imageSize;
-    if (opts.editStrength !== undefined) generationConfig.image_config.editStrength = opts.editStrength;
+    if (opts.aspectRatio) generationConfig.image_config.aspect_ratio = opts.aspectRatio;
+    if (opts.imageSize) generationConfig.image_config.image_size = opts.imageSize;
+    if (opts.editStrength !== undefined) generationConfig.image_config.edit_strength = opts.editStrength;
     if (opts.mask) generationConfig.image_config.mask = opts.mask;
   }
 

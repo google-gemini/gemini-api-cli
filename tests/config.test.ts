@@ -16,12 +16,33 @@ describe("AgentConfigSchema", () => {
       id: "my-agent",
       base_agent: "waverunner",
       description: "Test agent",
-      system_instruction: "You are helpful",
+      instructions: "You are helpful",
       tools: [
         { type: "code_execution" },
         { type: "google_search" },
       ],
-      environment: { enabled: true },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("valid base_environment as string", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      base_environment: "env-123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("valid base_environment with config sources", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      base_environment: {
+        config: {
+          sources: [
+            { type: "gcs", source: "gs://bucket/path", target: "/target" },
+          ],
+        },
+      },
     });
     expect(result.success).toBe(true);
   });

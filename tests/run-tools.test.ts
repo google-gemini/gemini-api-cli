@@ -17,25 +17,28 @@ describe("tools (live API)", () => {
       return;
     }
     const result = runCli(
-      'run "Use code execution to calculate 2+2 and return only the number" --tool code_execution --no-stream'
+      'run "Use code execution to calculate 2+2 and return only the number" --tool code_execution'
     );
     expect(result).toContain("4");
+    expect(result).not.toContain("API error");
   }, 30000);
 
   test("google_search works", () => {
     if (!process.env.GEMINI_API_KEY) return;
     const result = runCli(
-      'run "What is the current population of Tokyo? Use search." --tool google_search --no-stream'
+      'run "What is the current population of Tokyo? Use search." --tool google_search'
     );
-    expect(result.length).toBeGreaterThan(10);
+    expect(result).toContain("✓ completed");
+    expect(result).not.toContain("API error");
   }, 30000);
 
   test("multiple tools", () => {
     if (!process.env.GEMINI_API_KEY) return;
     const result = runCli(
-      'run "Search for the GDP of France then calculate GDP per capita" --tool google_search --tool code_execution --no-stream'
+      'run "Search for the GDP of France then calculate GDP per capita" --tool google_search --tool code_execution'
     );
-    expect(result.length).toBeGreaterThan(10);
+    expect(result).toContain("✓ completed");
+    expect(result).not.toContain("API error");
   }, 30000);
 
   test("invalid tool shows error", () => {

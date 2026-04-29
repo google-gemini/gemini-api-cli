@@ -29,7 +29,7 @@ describe("multimodal input (live API)", () => {
     const png = createTestPng();
     writeFileSync("test_input.png", png);
     
-    const result = runCli('run "What color is this image?" --input image:test_input.png --no-stream');
+    const result = runCli('run "What color is this image?" --input image:test_input.png');
     expect(result.toLowerCase()).toMatch(/red|salmon|coral/);
     unlinkSync("test_input.png");
   }, 60000);
@@ -55,7 +55,7 @@ describe("image generation (live API)", () => {
         console.warn("Skipping live API test because GEMINI_API_KEY is not set");
         return;
     }
-    runCli('run "Generate a simple blue square" --model gemini-3-pro-image-preview --output test_output.png --no-stream');
+    runCli('run "Generate a simple blue square" --model gemini-3-pro-image-preview --output test_output.png');
     expect(existsSync("test_output.png")).toBe(true);
     expect(statSync("test_output.png").size).toBeGreaterThan(100);
     unlinkSync("test_output.png");
@@ -77,7 +77,7 @@ describe("TTS (live API)", () => {
         console.warn("Skipping live API test because GEMINI_API_KEY is not set");
         return;
     }
-    const result = runCli('run "Hello world" --model gemini-3.1-flash-tts-preview --voice Kore --output test_tts.wav --no-stream');
+    const result = runCli('run "Hello world" --model gemini-3.1-flash-tts-preview --voice Kore --output test_tts.wav');
     if (!existsSync("test_tts.wav")) {
       console.error("TTS failed. Output:", result);
     }
@@ -109,7 +109,7 @@ describe("image editing (live API)", () => {
     writeFileSync("test_edit_input.png", png);
     
     try {
-      runCli('run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --no-stream --model gemini-3-pro-image-preview');
+      runCli('run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --model gemini-3-pro-image-preview');
       
       expect(existsSync("test_edit_output.png")).toBe(true);
       expect(statSync("test_edit_output.png").size).toBeGreaterThan(100);
@@ -140,7 +140,7 @@ describe("image editing (dry-run)", () => {
         'run "Edit this image" --input image:tmp_input.png --response-modality image --edit-strength 0.5 --mask tmp_mask.png --dry-run'
       );
       
-      expect(result).toContain('"editStrength": 0.5');
+      expect(result).toContain('"edit_strength": 0.5');
       expect(result).toContain('"mask":');
     } finally {
       if (existsSync("tmp_input.png")) unlinkSync("tmp_input.png");

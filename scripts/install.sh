@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh — Install gemini-api CLI from GCS
+# install.sh — Install gemini-api CLI
 set -euo pipefail
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -9,14 +9,64 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64) ARCH="x64" ;;
   aarch64|arm64) ARCH="arm64" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+# Map OS names
+case "$OS" in
+  linux) OS="linux" ;;
+  darwin) OS="darwin" ;;
+  *)
+    echo "Unsupported OS: $OS"
+    exit 1
+    ;;
 esac
 
 BINARY="gemini-api-${OS}-${ARCH}"
-DEST="${INSTALL_DIR:-/usr/local/bin}/gemini-api"
+REPO="google-gemini/gemini-api-cli"
+URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
 
-echo "Downloading ${BINARY}..."
-gcloud storage cp "gs://gemini-api-eap/agents-api/${BINARY}" "${DEST}"
-chmod +x "${DEST}"
+# Determine installation directory
+if [ -w "/usr/local/bin" ]; then
+  DEST_DIR="/usr/local/bin"
+else
+  DEST_DIR="$HOME/.local/bin"
+  mkdir -p "$DEST_DIR"
+fi
+
+DEST="${DEST_DIR}/gemini-api"
+
+echo "Downloading ${BINARY} from GitHub releases..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$URL" -o "$DEST"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$DEST" "$URL"
+else
+  echo "Error: curl or wget is required to download the binary."
+  exit 1
+fi
+
+chmod +x "$DEST"
 
 echo "✓ Installed gemini-api to ${DEST}"
-gemini-api --version
+
+# Check if DEST_DIR is in PATH
+case ":$PATH:" in
+  *":$DEST_DIR:"*) ;;
+  *)
+    echo "Warning: $DEST_DIR is not in your PATH."
+    echo "You may need to add it to your shell profile (e.g., ~/.bashrc or ~/.zshrc):"
+    echo "  export PATH=\"\$PATH:$DEST_DIR\""
+    ;;
+esac
+
+# Verify installation if it's in PATH
+if command -v gemini-api >/dev/null 2>&1; then
+  echo "Verification: $(gemini-api --version)"
+else
+  echo "To run it, you may need to restart your terminal or use the full path:"
+  echo "  $DEST --version"
+fi

@@ -1,4 +1,7 @@
-# gemini-api CLI — Documentation
+# Experimental Gemini API CLI — Documentation
+
+> [!CAUTION]
+> **Disclaimer**: This is not a supported Google product.
 
 > Develop, test, and deploy Gemini Agents. Run interactions across every model and modality.
 
@@ -6,44 +9,21 @@
 
 ## Installation
 
-### Standalone Binary (Recommended)
+### Via Install Script (Recommended)
 
-Download the pre-compiled binary for your platform:
+The easiest way to install is via the install script:
 
 ```bash
-# macOS (Apple Silicon)
-curl -fsSL https://github.com/google-gemini/gemini-api-cli/releases/latest/download/gemini-api-darwin-arm64 -o /usr/local/bin/gemini-api
-chmod +x /usr/local/bin/gemini-api
-
-# macOS (Intel)
-curl -fsSL https://github.com/google-gemini/gemini-api-cli/releases/latest/download/gemini-api-darwin-x64 -o /usr/local/bin/gemini-api
-chmod +x /usr/local/bin/gemini-api
-
-# Linux (x64)
-curl -fsSL https://github.com/google-gemini/gemini-api-cli/releases/latest/download/gemini-api-linux-x64 -o /usr/local/bin/gemini-api
-chmod +x /usr/local/bin/gemini-api
+curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
 ```
 
-### npm
+
+### From Source (via npm)
 
 ```bash
-npm install -g @google/gemini-api-cli
-```
-
-### GCS (Internal/EAP)
-
-```bash
-gcloud storage cp gs://gemini-api-eap/agents-api/install.sh ./install.sh
-bash ./install.sh
-```
-
-### From Source
-
-```bash
-git clone https://github.com/google-gemini/Gemini-API-Agent-Templates.git
-cd Gemini-API-Agent-Templates/gemini-agents-cli
-bun install && bun run compile
-# Binary at dist/gemini-api
+git clone https://github.com/google-gemini/gemini-api-cli.git
+cd gemini-api-cli
+npm install -g .
 ```
 
 **Requirements:** Bun ≥ 1.1 or Node.js ≥ 22
@@ -71,7 +51,7 @@ Get your API key at [aistudio.google.com](https://aistudio.google.com/).
 gemini-api run "What is the capital of France?"
 
 # Use a specific model
-gemini-api run "Explain quantum computing" --model gemini-3-pro-preview
+gemini-api run "Explain quantum computing" --model gemini-3.1-pro-preview
 
 # Scaffold an agent
 gemini-api agents init my-agent
@@ -101,28 +81,24 @@ Create an interaction against a model or agent.
 
 ```bash
 gemini-api run "What is the capital of France?"
-gemini-api run "Explain this code" --model gemini-3-pro-preview
+gemini-api run "Explain this code" --model gemini-3.1-pro-preview
 gemini-api run "Analyze my data" --agent my-data-analyst
-echo "Translate to French" | gemini-api run -
 ```
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `<prompt>` | | positional | — | Input prompt. Use `-` for stdin. |
+| `<prompt>` | | positional | — | Input prompt. |
 | `--model` | `-m` | string | `gemini-3-flash-preview` | Model to use |
 | `--agent` | `-a` | string | — | Agent to use (overrides `--model`) |
 | `--input` | `-i` | string[] | — | Multimodal input: `image:path`, `audio:path`, `video:path`, `document:path` |
 | `--output` | `-o` | string | — | Save generated media to file |
-| `--stream` | | boolean | `true` | Stream response via SSE |
-| `--no-stream` | | boolean | | Disable streaming |
-| `--store` | | boolean | `false` | Store interaction for later retrieval |
+
 | `--previous-interaction-id` | `-p` | string | — | Continue from previous interaction |
 | `--system-instruction` | `-s` | string | — | System instruction |
 | `--response-modality` | | enum[] | — | `text`, `image`, `audio`, `video`, `document` |
-| `--response-format` | | JSON | — | JSON schema for structured output |
 | `--response-mime-type` | | string | — | MIME type for response |
-| `--tool` | | string[] | — | Tool declarations (see Tools section) |
-| `--tool-choice` | | enum | — | `auto`, `any`, `none`, `validated` |
+| `--tool` | | string[] | — | Tool declaration (can be repeated): `code_execution`, `google_search`, `mcp_server:name:url` |
+
 | `--voice` | | string | — | TTS voice name |
 | `--language` | | string | — | TTS language code |
 | `--aspect-ratio` | | enum | — | Image aspect ratio (e.g., `16:9`) |
@@ -132,9 +108,10 @@ echo "Translate to French" | gemini-api run -
 | `--service-tier` | | enum | — | `flex`, `standard`, `priority` |
 | `--json` | `-j` | boolean | `false` | Output raw SSE events as JSONL |
 | `--dry-run` | | boolean | `false` | Print curl command and exit |
-| `--verbose` | `-v` | boolean | `false` | Debug output |
+
 | `--api-key` | | string | `$GEMINI_API_KEY` | API key |
 | `--base-url` | | string | `$GEMINI_API_BASE_URL` | Override API base URL |
+
 
 **Examples:**
 
@@ -149,16 +126,13 @@ gemini-api run "What's in this image?" --input image:photo.jpg
 gemini-api run "Add a red hat" --input image:person.jpg --response-modality image --output with_hat.jpg
 
 # Image generation
-gemini-api run "A cat in space" --model gemini-3-pro-image-preview --output cat.png
+gemini-api run "A cat in space" --model gemini-3.1-flash-image-preview --output cat.png
 
 # Text-to-speech
-gemini-api run "Hello world" --model gemini-3.1-flash-tts-preview --voice Kore --output hello.wav
+gemini-api run "Hello my name is gemini, i am a large language model from google. I can help you with a wide range of tasks." --model gemini-3.1-flash-tts-preview --voice Kore --output hello.wav
 
 # With tools
 gemini-api run "What is the weather?" --tool google_search --tool code_execution
-
-# Structured output
-gemini-api run "List 5 cities" --response-format '{"type":"array","items":{"type":"string"}}'
 
 # Multi-turn
 gemini-api run "Remember the word: banana"
@@ -181,14 +155,14 @@ Scaffold a new agent project.
 
 ```bash
 gemini-api agents init my-agent
-gemini-api agents init my-agent --base-agent gemini-3-flash-preview
+gemini-api agents init my-agent --base-agent waverunner
 gemini-api agents init my-agent --from-template https://github.com/google-gemini/Gemini-API-Agent-Templates/tree/main/customer-data-analysis-agent
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `<name>` | positional | — | Agent directory name |
-| `--base-agent` | string | `gemini-3-flash-preview` | Base model |
+| `--base-agent` | string | `waverunner` | Base model (only 'waverunner' is supported) |
 | `--from-template` | string | — | Git or GCS URL to scaffold from |
 
 #### `gemini-api agents create`
@@ -224,14 +198,6 @@ gemini-api agents get my-agent --json
 gemini-api agents get my-agent --dry-run
 ```
 
-#### `gemini-api agents update <id>`
-
-```bash
-gemini-api agents update my-agent
-gemini-api agents update my-agent --path ./my-agent
-gemini-api agents update my-agent --dry-run
-```
-
 #### `gemini-api agents delete <id>`
 
 ```bash
@@ -259,12 +225,12 @@ gemini-api agents test --prompt "Hello" --dry-run
 |---|---|---|---|
 | `--prompt` | string | — | Input prompt (required) |
 | `--path` | string | `.` | Agent directory |
-| `--stream` | boolean | `true` | Stream SSE |
-| `--no-stream` | boolean | | Disable streaming |
+
 | `--previous-interaction-id` | string | — | Multi-turn |
 | `--environment` | string | — | Use existing environment |
 | `--json` | boolean | `false` | JSON output |
 | `--dry-run` | boolean | `false` | Print curl |
+
 
 ---
 
@@ -272,15 +238,9 @@ gemini-api agents test --prompt "Hello" --dry-run
 
 Manage environment files.
 
-#### `gemini-api files list <env-id>`
-
-```bash
-gemini-api files list env_xyz789
-gemini-api files list env_xyz789 --json
-gemini-api files list env_xyz789 --dry-run
-```
-
 #### `gemini-api files download <env-id>`
+
+Download all files from the environment as a snapshot and extract them into a folder named `snapshot_<env-id>` in the output directory.
 
 ```bash
 gemini-api files download env_xyz789
@@ -291,7 +251,6 @@ gemini-api files download env_xyz789 --dry-run
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output` | string | `./` | Output directory |
-| `--file-id` | string | — | Download specific file |
 
 ---
 
@@ -313,7 +272,7 @@ my-agent/
 ```yaml
 # Required
 id: my-agent
-base_agent: gemini-3-flash-preview
+base_agent: waverunner
 
 # Optional
 description: "A data analyst agent"
@@ -330,14 +289,6 @@ environment:
 
 # OR derive from existing environment
 # base_environment: env_abc123
-
-# Subagents
-subagents:
-  - researcher
-
-# Metadata
-metadata:
-  team: platform
 ```
 
 ### `.env`
@@ -352,27 +303,7 @@ Agent instructions in markdown. Uploaded to the remote environment and loaded be
 
 ## Tools
 
-### `--tool` Flag Syntax
 
-```bash
-# Simple tools (no config)
---tool code_execution
---tool google_search
---tool url_context
---tool computer_use
---tool file_search
---tool google_maps
---tool retrieval
-
-# MCP server — mcp_server:<name>:<url>
---tool 'mcp_server:weather:https://example.com/mcp'
-
-# Custom function — function:<name>:<json-schema>
---tool 'function:get_weather:{"type":"object","properties":{"location":{"type":"string"}}}'
-
-# Multiple tools
---tool code_execution --tool google_search
-```
 
 ### `agent.yaml` Tools
 
@@ -382,27 +313,6 @@ tools:
   - type: google_search
     search_types: [web_search, image_search]
   - type: url_context
-  - type: computer_use
-    environment: browser
-  - type: mcp_server
-    name: weather_service
-    url: https://example.com/mcp
-  - type: file_search
-    file_search_store_names: ["fileSearchStores/abc123"]
-    top_k: 10
-  - type: google_maps
-    latitude: 37.7749
-    longitude: -122.4194
-  - type: retrieval
-    retrieval_types: [vertex_ai_search]
-  - type: function
-    name: get_weather
-    description: "Get weather for a location"
-    parameters:
-      type: object
-      properties:
-        location: { type: string }
-      required: [location]
 ```
 
 ---
@@ -414,15 +324,14 @@ tools:
 Streaming text with typed block labels:
 
 ```
-[thought]  Analyzing...
-[code]     print("Hello")
-[result]   Hello
-[text]     Based on my analysis...
+[tool]         read_file({"path":"/credentials/.env"})
+[result]       # Configurations for your agent...
+[text]         I found the credentials file.
 
 ✓ completed
-  interaction_id: int_abc123
-  tokens: in:1,234 out:567
-  latency: 4.2s
+  interaction_id: v1_ChdZTlR3YVlfSE9zdjJ4TjhQbjVHQjhRdxIXWU5Ud2FZX0hPc3YyeE44UG41R0I4UXc
+  environment_id: 7a5c3831-cc50-48cf-9351-100aa7d1c3a8
+  latency: 15.8s
 ```
 
 ### JSON (`--json`)
@@ -567,7 +476,7 @@ gemini-api agents create --dry-run
 | Model | Description |
 |---|---|
 | `gemini-3-flash-preview` | Frontier + search (default) |
-| `gemini-3-pro-preview` | SOTA reasoning + multimodal |
+| `gemini-3.1-pro-preview` | SOTA reasoning + multimodal |
 | `gemini-3.1-pro-preview` | SOTA reasoning |
 | `gemini-2.5-flash` | Hybrid reasoning, 1M context |
 | `gemini-2.5-pro` | SOTA coding + reasoning |
@@ -587,7 +496,6 @@ gemini-api agents create --dry-run
 |---|---|
 | `deep-research-preview-04-2026` | Deep Research (latest) |
 | `deep-research-max-preview-04-2026` | Deep Research Max |
-| `deep-research-pro-preview-12-2025` | Deep Research |
 
 ---
 
