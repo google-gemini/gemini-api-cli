@@ -18,13 +18,23 @@
 
 ## Installation
 
-The easiest way to install is via the install script:
+### From Source (via npm)
+
+```bash
+git clone https://github.com/google-gemini/gemini-api-cli.git
+cd gemini-api-cli
+npm install -g .
+```
+
+<!-- 
+### Via Install Script (Coming Soon)
+
+The easiest way to install will be via the install script once binaries are available:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
 ```
-
-See [DOCS.md](./DOCS.md) for full installation instructions (Manual binary download, npm, or from source).
+-->
 
 ### Quick Start (from source)
 
