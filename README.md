@@ -24,6 +24,9 @@
 git clone https://github.com/google-gemini/gemini-api-cli.git
 cd gemini-api-cli
 npm install -g .
+
+# Install the skill for AI agents
+npx skills add ./skills/gemini-api-cli
 ```
 
 <!-- 
@@ -85,6 +88,8 @@ This repository includes a skill for AI agents to understand how to use this CLI
   - Agent lifecycle management (init, create, test, delete)
   - Agent calls (invoking Waverunner and Deep Research)
   - Genmedia (image generation, editing, TTS, music)
+
+
 
 ## Documentation
 
