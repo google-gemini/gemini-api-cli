@@ -81,9 +81,14 @@ Examples:
       if (args.environment) {
         environment = { env_id: args.environment };
       } else {
-        if (inlineFiles.length > 0) {
+        const sources: any[] = [...inlineFiles];
+        if (config.sources) {
+          sources.push(...config.sources);
+        }
+
+        if (sources.length > 0) {
           environment.config = environment.config || {};
-          environment.config.sources = inlineFiles;
+          environment.config.sources = sources;
         }
       }
 

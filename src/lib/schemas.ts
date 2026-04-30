@@ -43,6 +43,7 @@ export const AgentConfigSchema = z.object({
   instructions: z.string().optional(),
   tools: z.array(ToolSchema).optional(),
   base_environment: z.union([z.string(), z.object({ config: ConfigSchema })]).optional(),
+  sources: z.array(SourceSchema).optional(),
 }).strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

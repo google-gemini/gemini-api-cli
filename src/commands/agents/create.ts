@@ -64,10 +64,16 @@ Examples:
       } else {
         // Collect and inline files from the agent directory
         const inlineFiles = await collectInlineFiles(agentDir);
-        if (inlineFiles.length > 0) {
+        
+        const sources: any[] = [...inlineFiles];
+        if (config.sources) {
+          sources.push(...config.sources);
+        }
+
+        if (sources.length > 0) {
           body.base_environment = body.base_environment || {};
           body.base_environment.config = body.base_environment.config || {};
-          body.base_environment.config.sources = inlineFiles;
+          body.base_environment.config.sources = sources;
         }
 
         // Handle .env credential injection

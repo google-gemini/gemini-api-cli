@@ -54,6 +54,10 @@ Examples:
       type: "string",
       description: "Service tier (flex, standard, priority)",
     },
+    environment: {
+      type: "string",
+      description: "Environment to use ('remote' or a specific env_id)",
+    },
     input: {
       type: "string",
       alias: "i",
@@ -200,10 +204,7 @@ Examples:
       }
     }
 
-    if (args.agent && !isAgentName(args.agent as string)) {
-      printError(`Unknown agent: '${args.agent}'\n\n  Available agent types: waverunner, deep-research`);
-      process.exit(1);
-    }
+
 
     let interactionInput: any = prompt;
 
@@ -235,6 +236,15 @@ Examples:
       }
     }
 
+    let environment: any = undefined;
+    if (args.environment) {
+      if (args.environment === "remote") {
+        environment = { enabled: true };
+      } else {
+        environment = { env_id: args.environment };
+      }
+    }
+
     const runOpts: RunOptions = {
       model: args.agent ? undefined : (args.model as string | undefined),
       agent: args.agent as string | undefined,
@@ -255,6 +265,7 @@ Examples:
       imageSize: args["image-size"] as string | undefined,
       editStrength: args["edit-strength"] ? parseFloat(args["edit-strength"] as string) : undefined,
       mask: maskData,
+      environment,
     };
 
     const body = buildInteractionRequest(runOpts);

@@ -167,6 +167,9 @@ export async function apiStreamRequest(
      let errorMsg = `API error (${response.status})`;
     try {
       const errorData = await response.json();
+      if (response.status === 400) {
+        console.error("400 Error Data:", JSON.stringify(errorData, null, 2));
+      }
       if (errorData.error?.message) {
         errorMsg += `: ${cleanErrorMessage(errorData.error.message)}`;
       }
@@ -321,7 +324,7 @@ export function buildInteractionRequest(opts: RunOptions): object {
   // Environment: custom sources take priority over auto-enable
   if (opts.sources && opts.sources.length > 0) {
     body.environment = { config: { sources: opts.sources } };
-  } else if (opts.agent && ENVIRONMENT_ENABLED_AGENTS.includes(opts.agent)) {
+  } else if (opts.agent && !isDeepResearchAgent(opts.agent)) {
     body.environment = { enabled: true };
   }
 
