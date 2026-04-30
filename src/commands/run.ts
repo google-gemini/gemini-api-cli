@@ -299,11 +299,6 @@ Examples:
             renderer.handleEvent(event, type, block);
           }
         },
-        onBlockComplete: (block) => {
-          if (block.type !== "text") {
-            printBlock(block);
-          }
-        },
         onComplete: (result) => {
           renderer.finish();
           saveMediaOutputs(result.outputs, result.interactionId, args.output as string | undefined);
