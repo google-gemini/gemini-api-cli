@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { defineCommand } from "citty";
 import { globalFlags } from "../lib/shared-args";
-import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, apiGetRequest, apiGetStreamRequest, isDeepResearchAgent, isAgentName, type RunOptions, type Tool, parseToolFlag } from "../lib/api";
+import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, apiGetRequest, apiGetStreamRequest, isDeepResearchAgent, isAgentName, type RunOptions, type Tool, type Source, parseToolFlag, parseSourceFlag } from "../lib/api";
 import { processStream } from "../lib/stream";
 import { printCurl, HumanStreamRenderer, printCompletionSummary, printError, printBlock, printPollingStatus } from "../lib/output";
 import { inputToContentBlock, saveMediaOutputs } from "../lib/files";
@@ -62,6 +62,10 @@ Examples:
     tool: {
       type: "string",
       description: "Tool declaration (can be specified multiple times): code_execution, google_search, mcp_server:name:url, function:name:schema",
+    },
+    source: {
+      type: "string",
+      description: "Environment source (can be specified multiple times): inline:<target>:<content>, github:<url>:<target>, gcs:<source>:<target>",
     },
     "tool-choice": {
       type: "string",
@@ -176,6 +180,26 @@ Examples:
       }
     }
 
+    // Parse repeated --source flags from process.argv
+    const sourceStrings: string[] = [];
+    for (let i = 0; i < process.argv.length; i++) {
+      if (process.argv[i] === "--source") {
+        if (i + 1 < process.argv.length) {
+          sourceStrings.push(process.argv[i + 1]);
+          i++;
+        }
+      }
+    }
+
+    // Parse sources
+    let sources: Source[] | undefined = undefined;
+    if (sourceStrings.length > 0) {
+      sources = [];
+      for (const sourceStr of sourceStrings) {
+        sources.push(parseSourceFlag(sourceStr));
+      }
+    }
+
     if (args.agent && !isAgentName(args.agent as string)) {
       printError(`Unknown agent: '${args.agent}'\n\n  Available agent types: waverunner, deep-research`);
       process.exit(1);
@@ -217,6 +241,7 @@ Examples:
       input: interactionInput,
       systemInstruction: args["system-instruction"] as string | undefined,
       tools,
+      sources,
       serviceTier: args["service-tier"] as string | undefined,
       previousInteractionId: args["previous-interaction-id"] as string | undefined,
       stream: !isDeepResearchAgent(args.agent as string | undefined),

@@ -62,16 +62,6 @@ Examples:
       // merged with the system instruction on the server side.
       let systemInstruction = config.instructions;
 
-      // Add note about inline files if any exist
-      if (inlineFiles.length > 0) {
-        const note = `\n\nNote: Files from your agent directory have been seeded into the environment under /.agents/.`;
-        if (systemInstruction) {
-          systemInstruction += note;
-        } else {
-          systemInstruction = note;
-        }
-      }
-
       // Update system instructions if .env was inlined
       const envFile = inlineFiles.find((f) => f.target === "/credentials/.env");
       if (envFile) {

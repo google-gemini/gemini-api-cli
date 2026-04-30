@@ -98,6 +98,7 @@ gemini-api run "Analyze my data" --agent my-data-analyst
 | `--response-modality` | | enum[] | — | `text`, `image`, `audio`, `video`, `document` |
 | `--response-mime-type` | | string | — | MIME type for response |
 | `--tool` | | string[] | — | Tool declaration (can be repeated): `code_execution`, `google_search`, `mcp_server:name:url` |
+| `--source` | | string[] | — | Environment source (can be repeated): `inline:target:content`, `github:url:target`, `gcs:source:target` |
 
 | `--voice` | | string | — | TTS voice name |
 | `--language` | | string | — | TTS language code |
@@ -133,6 +134,9 @@ gemini-api run "Hello my name is gemini, i am a large language model from google
 
 # With tools
 gemini-api run "What is the weather?" --tool google_search --tool code_execution
+
+# With sources (e.g. Waverunner)
+gemini-api run "Generate test" --agent waverunner --source "inline:/.agents/README.md:# Instructions" --source "github:https://github.com/user/repo:/.agents"
 
 # Multi-turn
 gemini-api run "Remember the word: banana"

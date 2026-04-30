@@ -16,7 +16,7 @@ export interface SharedFlags {
 }
 
 export function resolveContext(flags: SharedFlags): CLIContext {
-  const apiKey = flags.apiKey ?? process.env.GEMINI_AUTOPUSH_API_KEY ?? process.env.GEMINI_API_KEY;
+  const apiKey = flags.apiKey ?? process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new CLIError(
       "No API key found.\n\n  Try:\n    export GEMINI_API_KEY=\"your-api-key\"\n    gemini-api run \"Hello\" --api-key \"your-api-key\""
@@ -226,6 +226,45 @@ export function parseToolFlag(value: string): Tool {
   throw new CLIError(`Unknown tool: '${value}'\n\n  Available: code_execution, google_search, url_context, computer_use, mcp_server, file_search, google_maps, retrieval, function`);
 }
 
+export interface Source {
+  type: string;
+  [key: string]: string;
+}
+
+export function parseSourceFlag(value: string): Source {
+  // inline:<target>:<content>
+  if (value.startsWith("inline:")) {
+    const rest = value.substring(7);
+    const idx = rest.indexOf(":");
+    if (idx === -1) {
+      throw new CLIError("Invalid inline source format. Expected: inline:<target>:<content>");
+    }
+    return { type: "inline", target: rest.substring(0, idx), content: rest.substring(idx + 1) };
+  }
+  
+  // github:<url>:<target> — split on last colon since URLs contain colons
+  if (value.startsWith("github:")) {
+    const rest = value.substring(7);
+    const idx = rest.lastIndexOf(":");
+    if (idx === -1) {
+      throw new CLIError("Invalid github source format. Expected: github:<url>:<target>");
+    }
+    return { type: "github", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
+  }
+  
+  // gcs:<source>:<target> — split on last colon
+  if (value.startsWith("gcs:")) {
+    const rest = value.substring(4);
+    const idx = rest.lastIndexOf(":");
+    if (idx === -1) {
+      throw new CLIError("Invalid gcs source format. Expected: gcs:<source>:<target>");
+    }
+    return { type: "gcs", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
+  }
+  
+  throw new CLIError(`Unknown source type in '${value}'\n\n  Available: inline, github, gcs`);
+}
+
 export interface RunOptions {
   model?: string;
   agent?: string;
@@ -247,6 +286,7 @@ export interface RunOptions {
   editStrength?: number;
   mask?: string;
 
+  sources?: Source[];
   // Environment override (for agents test)
   environment?: object;
 }
@@ -278,8 +318,10 @@ export function buildInteractionRequest(opts: RunOptions): object {
     input: opts.input,
   };
 
-  // For known agent types, automatically enable the environment
-  if (opts.agent && ENVIRONMENT_ENABLED_AGENTS.includes(opts.agent)) {
+  // Environment: custom sources take priority over auto-enable
+  if (opts.sources && opts.sources.length > 0) {
+    body.environment = { config: { sources: opts.sources } };
+  } else if (opts.agent && ENVIRONMENT_ENABLED_AGENTS.includes(opts.agent)) {
     body.environment = { enabled: true };
   }
 

@@ -14,7 +14,7 @@
 - **Agent Lifecycle**: Scaffold (`init`), deploy (`create`), test, and delete custom agents.
 - **Deep Research**: Support for long-running Deep Research tasks with automatic polling and reconnection.
 - **Tools**: Integrate tools like Code Execution and Google Search.
-- **Environment Management**: Download snapshots of agent environments.
+- **Environment Management**: Download snapshots of agent environments and pass custom sources (inline, github, gcs) to agents.
 
 ## Installation
 

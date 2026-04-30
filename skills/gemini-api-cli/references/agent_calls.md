@@ -12,6 +12,22 @@ gemini-api run "Analyze this dataset for trends" --agent my-custom-agent
 
 If the agent requires files in its workspace, ensure they are provided or already uploaded.
 
+### Passing Environment Sources
+
+When using `--agent waverunner` (or a custom agent based on it), you can pass environment sources using the `--source` flag. This allows you to seed files or clone repositories into the agent's environment. Custom sources override the default auto-enabled environment.
+
+```bash
+gemini-api run "Generate a video" \
+  --agent waverunner \
+  --source "inline:/.agents/README.md:# Instructions" \
+  --source "github:https://github.com/user/repo:/.agents"
+```
+
+Supported source types:
+- `inline:<target>:<content>`: Creates a file with the specified content.
+- `github:<url>:<target>`: Clones a GitHub repository to the target path.
+- `gcs:<source>:<target>`: Copies files from Google Cloud Storage to the target path.
+
 ## Deep Research
 
 Deep Research is a specialized agent designed for long-running, complex research tasks. You can invoke it using the specific agent ID listed in the models/agents table.
