@@ -32,7 +32,7 @@ describe("streaming (live API)", () => {
     const textBlock = result.outputs.find(o => o.type === "text");
     expect(textBlock).toBeDefined();
     expect((textBlock as any).text).toContain("streaming-works");
-  });
+  }, 30000);
 
   test("code execution produces call + result blocks", async () => {
     if (!process.env.GEMINI_API_KEY) {
@@ -56,7 +56,7 @@ describe("streaming (live API)", () => {
     const codeResult = result.outputs.find(o => o.type === "code_execution_result");
     expect(codeCall).toBeDefined();
     expect(codeResult).toBeDefined();
-  }, 20000);
+  }, 60000);
 
   test("google search produces search call/result", async () => {
     if (!process.env.GEMINI_API_KEY) {
@@ -78,5 +78,5 @@ describe("streaming (live API)", () => {
 
     expect(result.status).toBe("completed");
     expect(result.outputs.length).toBeGreaterThan(0);
-  }, 30000);
+  }, 90000);
 });

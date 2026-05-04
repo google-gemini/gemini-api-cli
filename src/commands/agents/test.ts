@@ -89,6 +89,9 @@ Examples:
         if (sources.length > 0) {
           environment.config = environment.config || {};
           environment.config.sources = sources;
+        } else if (config.environment) {
+          // Use environment from agent.yaml (e.g. { enabled: true })
+          environment = config.environment;
         }
       }
 

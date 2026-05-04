@@ -32,7 +32,7 @@ describe("multimodal input (live API)", () => {
     const result = runCli('run "What color is this image?" --input image:test_input.png');
     expect(result.toLowerCase()).toMatch(/red|salmon|coral/);
     unlinkSync("test_input.png");
-  }, 60000);
+  }, 180000);
 
   test("missing input file errors clearly", () => {
     const result = runCli('run "Hello" --input image:nonexistent.png');
@@ -59,7 +59,7 @@ describe("image generation (live API)", () => {
     expect(existsSync("test_output.png")).toBe(true);
     expect(statSync("test_output.png").size).toBeGreaterThan(100);
     unlinkSync("test_output.png");
-  }, 60000);
+  }, 180000);
 });
 
 describe("TTS (live API)", () => {
@@ -84,7 +84,7 @@ describe("TTS (live API)", () => {
     expect(existsSync("test_tts.wav")).toBe(true);
     expect(statSync("test_tts.wav").size).toBeGreaterThan(100);
     unlinkSync("test_tts.wav");
-  }, 60000);
+  }, 180000);
 });
 
 describe("image editing (live API)", () => {
@@ -117,7 +117,7 @@ describe("image editing (live API)", () => {
       if (existsSync("test_edit_input.png")) unlinkSync("test_edit_input.png");
       if (existsSync("test_edit_output.png")) unlinkSync("test_edit_output.png");
     }
-  }, 60000);
+  }, 180000);
 });
 
 describe("image editing (dry-run)", () => {

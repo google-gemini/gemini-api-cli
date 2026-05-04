@@ -280,7 +280,7 @@ base_agent: waverunner
 
 # Optional
 description: "A data analyst agent"
-system_instruction: "You are a helpful assistant."
+instructions: "You are a helpful assistant."
 
 # Tools
 tools:
@@ -297,11 +297,45 @@ environment:
 
 ### `.env`
 
-Credentials file. If it contains non-empty values, it's inlined during `agents test` and `agents create` to `/credentials/.env` in the agent environment.
+Credentials file. If it contains non-empty values, it's inlined during `agents test` and `agents create` to `/credentials/.env` in the agent environment. The agent can then `source /credentials/.env` to load the values.
 
 ### `AGENTS.md`
 
-Agent instructions in markdown. Uploaded to the remote environment and loaded before running. Use for long instructions — easier to read, diff, and version than `system_instruction`.
+Agent instructions in markdown. Uploaded to the remote environment and loaded before running. Use for long instructions — easier to read, diff, and version than `instructions` in `agent.yaml`.
+
+### `workspace/`
+
+Files seeded into the remote environment at `/.agents/workspace/`. All files in this directory are inlined into the API request when running `agents test` or `agents create`.
+
+**File handling:**
+
+| File type | How it's sent | Example extensions |
+|---|---|---|
+| Text files | Inlined as UTF-8 strings | `.md`, `.py`, `.csv`, `.json`, `.yaml` |
+| Binary files | Base64-encoded with `"encoding": "base64"` | `.pdf`, `.png`, `.jpg`, `.mp3`, `.wav`, `.zip` |
+| Files > 1 MB | Skipped | — |
+
+Binary files are automatically detected by extension. The following are treated as binary:
+- Images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tiff`, `.heic`, `.heif`
+- Audio: `.wav`, `.mp3`, `.aac`, `.ogg`, `.flac`, `.opus`, `.m4a`
+- Video: `.mp4`, `.mov`, `.avi`, `.webm`, `.wmv`
+- Documents: `.pdf`
+- Archives: `.zip`, `.tar`, `.gz`, `.bz2`, `.xz`, `.7z`
+
+### `environment` (in `agent.yaml`)
+
+Controls the sandbox environment for the agent:
+
+```yaml
+# Enable a managed sandbox environment
+environment:
+  enabled: true
+
+# OR reuse an existing environment by ID
+# base_environment: env_abc123
+```
+
+When `environment.enabled` is `true`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
 
 ---
 

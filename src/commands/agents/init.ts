@@ -85,6 +85,7 @@ Examples:
       base_agent: baseAgent,
       description: `Scaffolded agent ${name}`,
       tools: [{ type: "code_execution" }],
+      environment: { enabled: true },
     };
 
     fs.writeFileSync(

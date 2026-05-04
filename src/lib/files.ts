@@ -150,6 +150,24 @@ export interface InlineFile {
   type: "inline";
   target: string;
   content: string;
+  encoding?: "base64";
+}
+
+// Extensions that should be read as binary (base64) rather than UTF-8 text
+const BINARY_EXTENSIONS = new Set([
+  // From MIME_TYPES
+  ...Object.keys(MIME_TYPES),
+  // Archives
+  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+  // Executables / compiled
+  ".wasm", ".so", ".dylib", ".dll", ".exe",
+  // Other binary
+  ".bin", ".dat", ".db", ".sqlite",
+]);
+
+function isBinaryFile(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return BINARY_EXTENSIONS.has(ext);
 }
 
 export async function collectInlineFiles(
@@ -193,12 +211,23 @@ export async function collectInlineFiles(
         const info = await stat(fullPath);
         if (info.size > 1_048_576) continue;
 
-        try {
-          const content = await readFile(fullPath, "utf-8");
-          const target = prefix + rel;
-          files.push({ type: "inline", target, content });
-        } catch {
-          // Skip
+        const target = prefix + rel;
+
+        if (isBinaryFile(fullPath)) {
+          try {
+            const buffer = await readFile(fullPath);
+            const content = buffer.toString("base64");
+            files.push({ type: "inline", target, content, encoding: "base64" });
+          } catch {
+            // Skip unreadable binary files
+          }
+        } else {
+          try {
+            const content = await readFile(fullPath, "utf-8");
+            files.push({ type: "inline", target, content });
+          } catch {
+            // Skip unreadable text files
+          }
         }
       }
     }
