@@ -5,8 +5,6 @@
 > [!CAUTION]
 > **Disclaimer**: This is not a supported Google product.
 
-**Status:** Under development.
-
 ## Features
 
 - **Model Interactions**: Run prompts against Gemini models with support for streaming, system instructions, and service tiers.
