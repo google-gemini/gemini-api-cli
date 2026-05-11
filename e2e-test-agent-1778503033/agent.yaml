@@ -1,7 +1,0 @@
-id: e2e-test-agent-1778503033
-base_agent: waverunner
-description: Scaffolded agent e2e-test-agent-1778503033
-tools:
-  - type: code_execution
-environment:
-  enabled: true
