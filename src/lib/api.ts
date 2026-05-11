@@ -61,6 +61,10 @@ export async function apiRequest<T>(
     "x-server-timeout": "600",
   };
 
+  if (path.includes("/interactions")) {
+    headers["Api-Revision"] = "2026-05-20";
+  }
+
   const response = await fetch(url, {
     method,
     headers,
@@ -170,6 +174,10 @@ export async function apiStreamRequest(
     "x-goog-api-key": ctx.apiKey,
     "x-server-timeout": "600",
   };
+
+  if (path.includes("/interactions")) {
+    headers["Api-Revision"] = "2026-05-20";
+  }
 
   const response = await fetch(url, {
     method: "POST",
@@ -337,7 +345,7 @@ export function buildInteractionRequest(opts: RunOptions): object {
 
   // Environment: custom sources take priority over auto-enable
   if (opts.sources && opts.sources.length > 0) {
-    body.environment = { config: { sources: opts.sources } };
+    body.environment = { type: "remote", sources: opts.sources };
   } else if (opts.agent && !isDeepResearchAgent(opts.agent)) {
     body.environment = { enabled: true };
   }

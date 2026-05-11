@@ -44,11 +44,22 @@ const ConfigSchema = z.object({
   sources: z.array(SourceSchema),
 });
 
+const RemoteEnvironmentSchema = z.object({
+  type: z.literal("remote"),
+  sources: z.array(SourceSchema),
+});
+
 export const EnvironmentSchema = z.union([
   z.object({ enabled: z.boolean() }),
   z.object({ env_id: z.string() }),
   z.object({ config: ConfigSchema }),
+  RemoteEnvironmentSchema,
 ]);
+
+const ExampleSchema = z.object({
+  title: z.string(),
+  prompt: z.string(),
+});
 
 export const AgentConfigSchema = z.object({
   id: z.string(),
@@ -56,9 +67,14 @@ export const AgentConfigSchema = z.object({
   description: z.string().optional(),
   instructions: z.string().optional(),
   tools: z.array(ToolSchema).optional(),
-  base_environment: z.union([z.string(), z.object({ config: ConfigSchema })]).optional(),
+  base_environment: z.union([
+    z.string(),
+    z.object({ config: ConfigSchema }),
+    RemoteEnvironmentSchema,
+  ]).optional(),
   sources: z.array(SourceSchema).optional(),
   environment: EnvironmentSchema.optional(),
+  examples: z.array(ExampleSchema).optional(),
 }).strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;

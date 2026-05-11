@@ -1,0 +1,8 @@
+id: test-agent-examples
+base_agent: waverunner
+description: Agent with examples
+examples:
+  - title: "Write a poem"
+    prompt: "Write a short poem about coding"
+  - title: "Explain AI"
+    prompt: "Explain artificial intelligence in simple terms"

@@ -25,6 +25,10 @@ export function printCurl(
   curl += `  -H "x-goog-api-key: ${apiKey}" \\\n`;
   curl += `  -H "x-server-timeout: 600"`;
 
+  if (url.includes("/interactions")) {
+    curl += ` \\\n  -H "Api-Revision: 2026-05-20"`;
+  }
+
   if (body) {
     // Escape single quotes in body for bash
     const bodyStr = JSON.stringify(body, null, 2).replace(/'/g, "'\\''");
@@ -68,11 +72,35 @@ export class HumanStreamRenderer {
     return type in prefixes ? prefixes[type] : `[${type}]`;
   }
 
+  handleStepEvent(event: StreamEvent) {
+    if (event.type === "step.start") {
+      const stepType = event.data.step?.type || "unknown";
+      this.stdout.write(`${"[step]".padEnd(this.colWidth)}▸ ${stepType} started\n`);
+      
+      // Print content if available in step.start (e.g. for short responses)
+      if (event.data.step?.type === "model_output" && Array.isArray(event.data.step.content)) {
+        for (const c of event.data.step.content) {
+          if (c.type === "text" && c.text) {
+            this.stdout.write(`${"[text]".padEnd(this.colWidth)}${c.text}\n`);
+          }
+        }
+      }
+      
+      if (event.data.step?.type === "code_execution_result" && event.data.step.result) {
+        this.stdout.write(`${"[result]".padEnd(this.colWidth)}${event.data.step.result}\n`);
+      }
+    } else if (event.type === "step.stop") {
+      const stepType = event.data.step?.type || "unknown";
+      const status = event.data.step?.status || "completed";
+      this.stdout.write(`${"[step]".padEnd(this.colWidth)}▪ ${stepType} ${status}\n`);
+    }
+  }
+
   handleEvent(event: StreamEvent, type: string, block?: ContentBlock) {
-    if (event.type !== "content.delta") return;
+    if (event.type !== "content.delta" && event.type !== "step.delta") return;
     if (type === "thought" || type === "thought_summary" || type === "thought_signature") return;
 
-    const index = event.data.index;
+    const index = event.data.index ?? event.data.step_index;
     const delta = event.data.delta;
 
     if (this.currentBlockIndex !== index) {

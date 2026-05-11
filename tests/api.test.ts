@@ -14,6 +14,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { resolveContext, buildInteractionRequest, apiRequest } from "../src/lib/api";
+import { printCurl } from "../src/lib/output";
 import { CLIError } from "../src/lib/errors";
 
 describe("resolveContext", () => {
@@ -66,6 +67,41 @@ describe("buildInteractionRequest", () => {
     });
     expect(body).toHaveProperty("agent", "my-agent");
     expect(body).not.toHaveProperty("model");
+  });
+  test("sources produce environment with type:'remote' instead of config wrapper", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      sources: [
+        { type: "gcs", source: "gs://bucket/path", target: "/target" },
+      ],
+    }) as any;
+    expect(body.environment).toEqual({
+      type: "remote",
+      sources: [{ type: "gcs", source: "gs://bucket/path", target: "/target" }],
+    });
+    expect(body.environment.config).toBeUndefined();
+  });
+});
+
+describe("Api-Revision header", () => {
+  test("printCurl includes Api-Revision header for /interactions URL", () => {
+    const output: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => output.push(args.join(" "));
+    printCurl("POST", "https://example.com/v1beta/interactions", "test-key", { input: "Hello" });
+    console.log = origLog;
+    const curl = output.join("\n");
+    expect(curl).toContain('Api-Revision: 2026-05-20');
+  });
+
+  test("printCurl does NOT include Api-Revision for non-interactions URL", () => {
+    const output: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => output.push(args.join(" "));
+    printCurl("GET", "https://example.com/v1beta/agents", "test-key");
+    console.log = origLog;
+    const curl = output.join("\n");
+    expect(curl).not.toContain('Api-Revision');
   });
 });
 

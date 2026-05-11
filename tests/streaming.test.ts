@@ -37,8 +37,7 @@ describe("streaming (live API)", () => {
 
     // Check events arrived
     expect(events.length).toBeGreaterThan(0);
-    expect(events[0].type).toBe("interaction.start");
-    expect(events.some(e => e.type === "content.delta")).toBe(true);
+    expect(events[0].type).toBe("interaction.created");
     
     // Check reassembled result
     expect(result.status).toBe("completed");
@@ -66,8 +65,8 @@ describe("streaming (live API)", () => {
       onComplete: () => {},
     });
 
-    const codeCall = result.outputs.find(o => o.type === "code_execution_call");
-    const codeResult = result.outputs.find(o => o.type === "code_execution_result");
+    const codeCall = result.steps.find(s => s.type === "code_execution_call");
+    const codeResult = result.steps.find(s => s.type === "code_execution_result");
     expect(codeCall).toBeDefined();
     expect(codeResult).toBeDefined();
   }, 60000);
@@ -91,6 +90,81 @@ describe("streaming (live API)", () => {
     });
 
     expect(result.status).toBe("completed");
-    expect(result.outputs.length).toBeGreaterThan(0);
+    expect(result.steps.length).toBeGreaterThan(0);
   }, 90000);
+});
+
+// Mock-data unit tests for step events (no live API required)
+describe("step event parsing", () => {
+  function mockSSEResponse(events: object[]): Response {
+    const lines = events.map(e => `data: ${JSON.stringify(e)}`).join("\n") + "\ndata: [DONE]\n";
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(lines));
+        controller.close();
+      },
+    });
+    return new Response(stream);
+  }
+
+  test("step.start creates step entry", async () => {
+    const response = mockSSEResponse([
+      { event_type: "interaction.start", interaction: { id: "test-123", status: "in_progress" } },
+      { event_type: "step.start", index: 0, step: { type: "thinking", status: "in_progress" } },
+      { event_type: "step.stop", index: 0, step: { type: "thinking", status: "completed" } },
+      { event_type: "interaction.complete", interaction: { id: "test-123", status: "completed" } },
+    ]);
+
+    const events: StreamEvent[] = [];
+    const result = await processStream(response, {
+      onEvent: (e) => events.push(e),
+      onComplete: () => {},
+    });
+
+    expect(result.steps.length).toBe(1);
+    expect(result.steps[0].type).toBe("thinking");
+    expect(result.steps[0].status).toBe("completed");
+    expect(events.some(e => e.type === "step.start")).toBe(true);
+    expect(events.some(e => e.type === "step.stop")).toBe(true);
+  });
+
+  test("step.delta accumulates text", async () => {
+    const response = mockSSEResponse([
+      { event_type: "interaction.start", interaction: { id: "test-456", status: "in_progress" } },
+      { event_type: "step.start", index: 0, step: { type: "tool_use" } },
+      { event_type: "step.delta", index: 0, delta: { text: "Searching " } },
+      { event_type: "step.delta", index: 0, delta: { text: "the web..." } },
+      { event_type: "step.stop", index: 0, step: { type: "tool_use", status: "completed" } },
+      { event_type: "interaction.complete", interaction: { id: "test-456", status: "completed" } },
+    ]);
+
+    const result = await processStream(response, {
+      onEvent: () => {},
+      onComplete: () => {},
+    });
+
+    expect(result.steps[0].text).toBe("Searching the web...");
+    expect(result.steps[0].type).toBe("tool_use");
+  });
+
+  test("multiple steps are tracked independently", async () => {
+    const response = mockSSEResponse([
+      { event_type: "interaction.start", interaction: { id: "test-789", status: "in_progress" } },
+      { event_type: "step.start", index: 0, step: { type: "thinking" } },
+      { event_type: "step.stop", index: 0, step: { type: "thinking", status: "completed" } },
+      { event_type: "step.start", index: 1, step: { type: "tool_use" } },
+      { event_type: "step.stop", index: 1, step: { type: "tool_use", status: "completed" } },
+      { event_type: "interaction.complete", interaction: { id: "test-789", status: "completed" } },
+    ]);
+
+    const result = await processStream(response, {
+      onEvent: () => {},
+      onComplete: () => {},
+    });
+
+    expect(result.steps.length).toBe(2);
+    expect(result.steps[0].type).toBe("thinking");
+    expect(result.steps[1].type).toBe("tool_use");
+  });
 });

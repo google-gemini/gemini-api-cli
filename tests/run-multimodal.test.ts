@@ -123,7 +123,11 @@ describe("image editing (live API)", () => {
     writeFileSync("test_edit_input.png", png);
     
     try {
-      runCli('run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --model gemini-3-pro-image-preview');
+      const result = runCli('run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --model gemini-3-pro-image-preview');
+      
+      if (!existsSync("test_edit_output.png")) {
+        console.error("Image editing failed. Output:", result);
+      }
       
       expect(existsSync("test_edit_output.png")).toBe(true);
       expect(statSync("test_edit_output.png").size).toBeGreaterThan(100);

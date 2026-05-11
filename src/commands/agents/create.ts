@@ -66,7 +66,7 @@ Examples:
       */
 
       if (config.instructions) {
-        body.instructions = { parts: [{ text: config.instructions }] };
+        body.system_instruction = config.instructions;
       }
 
       // Handle base_environment
@@ -85,9 +85,10 @@ Examples:
         }
 
         if (sources.length > 0) {
-          body.base_environment = body.base_environment || {};
-          body.base_environment.config = body.base_environment.config || {};
-          body.base_environment.config.sources = sources;
+          body.base_environment = {
+            type: "remote",
+            sources: sources,
+          };
         }
 
         // Handle .env credential injection
@@ -97,7 +98,7 @@ Examples:
             const keys = getEnvKeys(envFile.content);
             if (keys.length > 0) {
               const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
-              body.instructions = (body.instructions || "") + note;
+              body.system_instruction = (body.system_instruction || "") + note;
             }
           }
         }

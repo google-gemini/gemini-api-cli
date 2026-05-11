@@ -314,10 +314,23 @@ Examples:
     } else {
       const renderer = new HumanStreamRenderer();
       const activeBlocks = new Map<number, string>();
+      const activeSteps = new Map<number, string>();
       
       await processStream(response, {
         onEvent: (event, block) => {
-          if (event.type === "content.start") {
+          if (event.type === "step.start" || event.type === "step.stop") {
+            renderer.handleStepEvent(event);
+            if (event.type === "step.start") {
+              const index = event.data.index ?? event.data.step_index;
+              if (index !== undefined) {
+                activeSteps.set(index, event.data.step?.type || "text");
+              }
+            }
+          } else if (event.type === "step.delta") {
+            const index = event.data.index ?? event.data.step_index;
+            const type = activeSteps.get(index) || "text";
+            renderer.handleEvent(event, type, block);
+          } else if (event.type === "content.start") {
             activeBlocks.set(event.data.index, event.data.content.type);
           } else if (event.type === "content.delta") {
             const type = activeBlocks.get(event.data.index) || "text";
@@ -360,6 +373,7 @@ async function runDeepResearch(
   let result: StreamResult = {
     status: "in_progress",
     outputs: [],
+    steps: [],
     interactionId: "",
   };
 

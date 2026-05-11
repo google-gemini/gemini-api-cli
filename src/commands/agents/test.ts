@@ -101,8 +101,7 @@ Examples:
         }
 
         if (sources.length > 0) {
-          environment.config = environment.config || {};
-          environment.config.sources = sources;
+          environment = { type: "remote", sources: sources };
         } else if (config.environment) {
           // Use environment from agent.yaml (e.g. { enabled: true })
           environment = config.environment;
@@ -148,7 +147,9 @@ Examples:
         
         await processStream(response, {
           onEvent: (event, block) => {
-            if (event.type === "content.start") {
+            if (event.type === "step.start" || event.type === "step.stop") {
+              renderer.handleStepEvent(event);
+            } else if (event.type === "content.start") {
               activeBlocks.set(event.data.index, event.data.content.type);
             } else if (event.type === "content.delta") {
               const type = activeBlocks.get(event.data.index) || "text";

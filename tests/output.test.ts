@@ -63,8 +63,8 @@ describe("output modes", () => {
       expect(() => JSON.parse(line)).not.toThrow();
     }
     const events = lines.map(l => JSON.parse(l));
-    expect(events.some(e => e.event_type === "interaction.start")).toBe(true);
-    expect(events.some(e => e.event_type === "interaction.complete")).toBe(true);
+    expect(events.some(e => e.event_type === "interaction.created")).toBe(true);
+    expect(events.some(e => e.event_type === "interaction.completed")).toBe(true);
     // Summary NOT in stderr or stdout in json mode
     expect(stderr).not.toContain("✓ completed");
     
