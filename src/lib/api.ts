@@ -33,13 +33,11 @@ export function resolveContext(flags: SharedFlags): CLIContext {
   const apiKey = flags.apiKey ?? process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new CLIError(
-      "No API key found.\n\n  Try:\n    export GEMINI_API_KEY=\"your-api-key\"\n    gemini-api run \"Hello\" --api-key \"your-api-key\""
+      'No API key found.\n\n  Try:\n    export GEMINI_API_KEY="your-api-key"\n    gemini-api run "Hello" --api-key "your-api-key"',
     );
   }
 
-  const baseUrl = flags.baseUrl 
-    ?? process.env.GEMINI_API_BASE_URL 
-    ?? DEFAULT_BASE_URL;
+  const baseUrl = flags.baseUrl ?? process.env.GEMINI_API_BASE_URL ?? DEFAULT_BASE_URL;
 
   return { apiKey, baseUrl };
 }
@@ -88,9 +86,11 @@ export async function apiRequest<T>(
     if (response.status === 401) {
       throw new CLIError(`${errorMsg}\n\n  Try:\n    export GEMINI_API_KEY="your-api-key"`);
     }
-    
+
     if (response.status === 400) {
-       throw new CLIError(`${errorMsg}\n\n  Try:\n    gemini-api run "Hello" --model gemini-3-flash-preview`);
+      throw new CLIError(
+        `${errorMsg}\n\n  Try:\n    gemini-api run "Hello" --model gemini-3-flash-preview`,
+      );
     }
 
     throw new CLIError(errorMsg);
@@ -186,7 +186,7 @@ export async function apiStreamRequest(
   });
 
   if (!response.ok) {
-     let errorMsg = `API error (${response.status})`;
+    let errorMsg = `API error (${response.status})`;
     try {
       const errorData = await response.json();
       if (response.status === 400) {
@@ -213,11 +213,20 @@ export interface Tool {
 
 export function parseToolFlag(value: string): Tool {
   // Simple tool types
-  if (["code_execution", "google_search", "url_context", "computer_use", 
-       "file_search", "google_maps", "retrieval"].includes(value)) {
+  if (
+    [
+      "code_execution",
+      "google_search",
+      "url_context",
+      "computer_use",
+      "file_search",
+      "google_maps",
+      "retrieval",
+    ].includes(value)
+  ) {
     return { type: value };
   }
-  
+
   // mcp_server:name:url
   if (value.startsWith("mcp_server:")) {
     const firstColon = value.indexOf(":");
@@ -232,7 +241,7 @@ export function parseToolFlag(value: string): Tool {
     }
     return { type: "mcp_server", name, url };
   }
-  
+
   // function:name:schema
   if (value.startsWith("function:")) {
     const [_, name, ...rest] = value.split(":");
@@ -247,8 +256,10 @@ export function parseToolFlag(value: string): Tool {
       throw new CLIError(`Invalid JSON in function schema: ${(e as Error).message}`);
     }
   }
-  
-  throw new CLIError(`Unknown tool: '${value}'\n\n  Available: code_execution, google_search, url_context, computer_use, mcp_server, file_search, google_maps, retrieval, function`);
+
+  throw new CLIError(
+    `Unknown tool: '${value}'\n\n  Available: code_execution, google_search, url_context, computer_use, mcp_server, file_search, google_maps, retrieval, function`,
+  );
 }
 
 export interface Source {
@@ -266,7 +277,7 @@ export function parseSourceFlag(value: string): Source {
     }
     return { type: "inline", target: rest.substring(0, idx), content: rest.substring(idx + 1) };
   }
-  
+
   // github:<url>:<target> — split on last colon since URLs contain colons
   if (value.startsWith("github:")) {
     const rest = value.substring(7);
@@ -276,7 +287,7 @@ export function parseSourceFlag(value: string): Source {
     }
     return { type: "github", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
   }
-  
+
   // gcs:<source>:<target> — split on last colon
   if (value.startsWith("gcs:")) {
     const rest = value.substring(4);
@@ -286,7 +297,7 @@ export function parseSourceFlag(value: string): Source {
     }
     return { type: "gcs", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
   }
-  
+
   throw new CLIError(`Unknown source type in '${value}'\n\n  Available: inline, github, gcs`);
 }
 
@@ -318,7 +329,7 @@ export interface RunOptions {
 
 // Agents that automatically get `environment: { enabled: true }` when used
 // via `gemini-api run --agent <name>` (i.e., without an agent.yaml config).
-const ENVIRONMENT_ENABLED_AGENTS = ["waverunner"];
+const _ENVIRONMENT_ENABLED_AGENTS = ["waverunner"];
 
 // Known agent name prefixes. Everything else is treated as a model name.
 const AGENT_PREFIXES = ["waverunner", "deep-research"];
@@ -329,13 +340,13 @@ const DEEP_RESEARCH_PREFIX = "deep-research";
 /** Returns true if the base_agent value is an agent name (not a model). */
 export function isAgentName(name?: string): boolean {
   if (!name) return false;
-  return AGENT_PREFIXES.some(prefix => name === prefix || name.startsWith(prefix + "-"));
+  return AGENT_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}-`));
 }
 
 /** Returns true if the agent is a Deep Research agent. */
 export function isDeepResearchAgent(agent?: string): boolean {
   if (!agent) return false;
-  return agent === DEEP_RESEARCH_PREFIX || agent.startsWith(DEEP_RESEARCH_PREFIX + "-");
+  return agent === DEEP_RESEARCH_PREFIX || agent.startsWith(`${DEEP_RESEARCH_PREFIX}-`);
 }
 
 export function buildInteractionRequest(opts: RunOptions): object {
@@ -375,21 +386,22 @@ export function buildInteractionRequest(opts: RunOptions): object {
 
   // Generation Config
   const generationConfig: any = {};
-  
+
   if (opts.toolChoice) generationConfig.tool_choice = opts.toolChoice;
-  
+
   if (opts.voice || opts.language) {
     const speechConfig: any = {};
     if (opts.voice) speechConfig.voice = opts.voice;
     if (opts.language) speechConfig.language = opts.language;
     generationConfig.speech_config = [speechConfig];
   }
-  
+
   if (opts.aspectRatio || opts.imageSize || opts.editStrength !== undefined || opts.mask) {
     generationConfig.image_config = {};
     if (opts.aspectRatio) generationConfig.image_config.aspect_ratio = opts.aspectRatio;
     if (opts.imageSize) generationConfig.image_config.image_size = opts.imageSize;
-    if (opts.editStrength !== undefined) generationConfig.image_config.edit_strength = opts.editStrength;
+    if (opts.editStrength !== undefined)
+      generationConfig.image_config.edit_strength = opts.editStrength;
     if (opts.mask) generationConfig.image_config.mask = opts.mask;
   }
 

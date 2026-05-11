@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 
 // Skip: citty uses consola for --help output, which suppresses stdout

@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
-import { resolveContext, apiStreamRequest } from "../src/lib/api";
-import { processStream, StreamEvent } from "../src/lib/stream";
+import { describe, expect, test } from "bun:test";
+import { apiStreamRequest, resolveContext } from "../src/lib/api";
+import { processStream, type StreamEvent } from "../src/lib/stream";
 
 describe("streaming (live API)", () => {
   test("text streaming produces complete result", async () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const ctx = resolveContext({});
     const response = await apiStreamRequest(ctx, "/interactions", {
@@ -38,19 +38,19 @@ describe("streaming (live API)", () => {
     // Check events arrived
     expect(events.length).toBeGreaterThan(0);
     expect(events[0].type).toBe("interaction.created");
-    
+
     // Check reassembled result
     expect(result.status).toBe("completed");
     expect(result.outputs.length).toBeGreaterThan(0);
-    const textBlock = result.outputs.find(o => o.type === "text");
+    const textBlock = result.outputs.find((o) => o.type === "text");
     expect(textBlock).toBeDefined();
     expect((textBlock as any).text).toContain("streaming-works");
   }, 30000);
 
   test("code execution produces call + result blocks", async () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const ctx = resolveContext({});
     const response = await apiStreamRequest(ctx, "/interactions", {
@@ -65,16 +65,16 @@ describe("streaming (live API)", () => {
       onComplete: () => {},
     });
 
-    const codeCall = result.steps.find(s => s.type === "code_execution_call");
-    const codeResult = result.steps.find(s => s.type === "code_execution_result");
+    const codeCall = result.steps.find((s) => s.type === "code_execution_call");
+    const codeResult = result.steps.find((s) => s.type === "code_execution_result");
     expect(codeCall).toBeDefined();
     expect(codeResult).toBeDefined();
   }, 60000);
 
   test("google search produces search call/result", async () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const ctx = resolveContext({});
     const response = await apiStreamRequest(ctx, "/interactions", {
@@ -97,7 +97,7 @@ describe("streaming (live API)", () => {
 // Mock-data unit tests for step events (no live API required)
 describe("step event parsing", () => {
   function mockSSEResponse(events: object[]): Response {
-    const lines = events.map(e => `data: ${JSON.stringify(e)}`).join("\n") + "\ndata: [DONE]\n";
+    const lines = `${events.map((e) => `data: ${JSON.stringify(e)}`).join("\n")}\ndata: [DONE]\n`;
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
@@ -125,8 +125,8 @@ describe("step event parsing", () => {
     expect(result.steps.length).toBe(1);
     expect(result.steps[0].type).toBe("thinking");
     expect(result.steps[0].status).toBe("completed");
-    expect(events.some(e => e.type === "step.start")).toBe(true);
-    expect(events.some(e => e.type === "step.stop")).toBe(true);
+    expect(events.some((e) => e.type === "step.start")).toBe(true);
+    expect(events.some((e) => e.type === "step.stop")).toBe(true);
   });
 
   test("step.delta accumulates text", async () => {

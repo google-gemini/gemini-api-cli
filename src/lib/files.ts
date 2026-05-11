@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, dirname, join, relative } from "node:path";
+import { dirname, extname, join, relative } from "node:path";
 
 export interface Content {
   type: string;
@@ -24,7 +24,7 @@ export interface Content {
 
 export function inputToContentBlock(input: string): Content {
   const [type, pathOrUrl] = input.split(":", 2);
-  
+
   if (type === "url") {
     return {
       type: "url",
@@ -32,12 +32,12 @@ export function inputToContentBlock(input: string): Content {
       mime_type: "text/plain",
     };
   }
-  
+
   try {
     const data = readFileSync(pathOrUrl);
     const base64 = data.toString("base64");
     const mimeType = detectMimeType(pathOrUrl);
-    
+
     return {
       type,
       data: base64,
@@ -62,7 +62,7 @@ const MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
   ".bmp": "image/bmp",
   ".tiff": "image/tiff",
-  
+
   // Audio
   ".wav": "audio/wav",
   ".mp3": "audio/mp3",
@@ -74,7 +74,7 @@ const MIME_TYPES: Record<string, string> = {
   ".m4a": "audio/m4a",
   ".l16": "audio/l16",
   ".opus": "audio/opus",
-  
+
   // Video
   ".mp4": "video/mp4",
   ".mov": "video/mov",
@@ -83,7 +83,7 @@ const MIME_TYPES: Record<string, string> = {
   ".webm": "video/webm",
   ".wmv": "video/wmv",
   ".3gpp": "video/3gpp",
-  
+
   // Documents
   ".pdf": "application/pdf",
 };
@@ -106,13 +106,18 @@ export function mimeTypeToExt(mimeType: string): string | undefined {
   return undefined;
 }
 
-function getWavHeader(pcmLength: number, sampleRate: number = 24000, numChannels: number = 1, bitsPerSample: number = 16): Buffer {
+function getWavHeader(
+  pcmLength: number,
+  sampleRate: number = 24000,
+  numChannels: number = 1,
+  bitsPerSample: number = 16,
+): Buffer {
   const header = Buffer.alloc(44);
-  
+
   header.write("RIFF", 0);
   header.writeUInt32LE(36 + pcmLength, 4);
   header.write("WAVE", 8);
-  
+
   header.write("fmt ", 12);
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
@@ -121,10 +126,10 @@ function getWavHeader(pcmLength: number, sampleRate: number = 24000, numChannels
   header.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
   header.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
   header.writeUInt16LE(bitsPerSample, 34);
-  
+
   header.write("data", 36);
   header.writeUInt32LE(pcmLength, 40);
-  
+
   return header;
 }
 
@@ -140,20 +145,24 @@ export function saveMediaOutputs(outputs: any[], interactionId: string, requeste
           const ext = mimeTypeToExt(mimeType) || "bin";
           filename = `output/${interactionId}_${i}.${ext}`;
         }
-        
+
         const dir = dirname(filename);
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
-        
+
         const buffer = Buffer.from(data, "base64");
-        if (block.type === "audio" && mimeType === "audio/l16" && filename.toLowerCase().endsWith(".wav")) {
+        if (
+          block.type === "audio" &&
+          mimeType === "audio/l16" &&
+          filename.toLowerCase().endsWith(".wav")
+        ) {
           const header = getWavHeader(buffer.length);
           writeFileSync(filename, Buffer.concat([header, buffer]));
         } else {
           writeFileSync(filename, buffer);
         }
-        
+
         console.log(`[${block.type}] Saved to ${filename} (${mimeType})`);
       }
     }
@@ -172,11 +181,23 @@ const BINARY_EXTENSIONS = new Set([
   // From MIME_TYPES
   ...Object.keys(MIME_TYPES),
   // Archives
-  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".xz",
+  ".7z",
   // Executables / compiled
-  ".wasm", ".so", ".dylib", ".dll", ".exe",
+  ".wasm",
+  ".so",
+  ".dylib",
+  ".dll",
+  ".exe",
   // Other binary
-  ".bin", ".dat", ".db", ".sqlite",
+  ".bin",
+  ".dat",
+  ".db",
+  ".sqlite",
 ]);
 
 function isBinaryFile(filePath: string): boolean {
@@ -188,7 +209,7 @@ export async function collectInlineFiles(
   dir: string,
   basePath: string = process.env.AGENTS_WORKSPACE_PATH ?? "/.agents/",
 ): Promise<InlineFile[]> {
-  const prefix = basePath.endsWith("/") ? basePath : basePath + "/";
+  const prefix = basePath.endsWith("/") ? basePath : `${basePath}/`;
   const files: InlineFile[] = [];
 
   async function walk(currentDir: string): Promise<void> {
@@ -203,7 +224,8 @@ export async function collectInlineFiles(
       const fullPath = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
-        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".gemini") continue;
+        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".gemini")
+          continue;
         await walk(fullPath);
         continue;
       }

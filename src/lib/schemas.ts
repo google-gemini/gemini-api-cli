@@ -14,13 +14,11 @@
 
 import { z } from "zod";
 
-export const ToolSchema = z.object({
-  type: z.enum([
-    "code_execution",
-    "google_search",
-    "url_context",
-  ]),
-}).passthrough();
+export const ToolSchema = z
+  .object({
+    type: z.enum(["code_execution", "google_search", "url_context"]),
+  })
+  .passthrough();
 
 const SourceSchema = z.discriminatedUnion("type", [
   z.object({
@@ -61,21 +59,21 @@ const ExampleSchema = z.object({
   prompt: z.string(),
 });
 
-export const AgentConfigSchema = z.object({
-  id: z.string(),
-  base_agent: z.literal("waverunner").optional(),
-  description: z.string().optional(),
-  instructions: z.string().optional(),
-  tools: z.array(ToolSchema).optional(),
-  base_environment: z.union([
-    z.string(),
-    z.object({ config: ConfigSchema }),
-    RemoteEnvironmentSchema,
-  ]).optional(),
-  sources: z.array(SourceSchema).optional(),
-  environment: EnvironmentSchema.optional(),
-  examples: z.array(ExampleSchema).optional(),
-}).strict();
+export const AgentConfigSchema = z
+  .object({
+    id: z.string(),
+    base_agent: z.literal("waverunner").optional(),
+    description: z.string().optional(),
+    instructions: z.string().optional(),
+    tools: z.array(ToolSchema).optional(),
+    base_environment: z
+      .union([z.string(), z.object({ config: ConfigSchema }), RemoteEnvironmentSchema])
+      .optional(),
+    sources: z.array(SourceSchema).optional(),
+    environment: EnvironmentSchema.optional(),
+    examples: z.array(ExampleSchema).optional(),
+  })
+  .strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

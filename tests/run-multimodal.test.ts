@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
-import { writeFileSync, unlinkSync, existsSync, statSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
+import { existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 describe("multimodal input (live API)", () => {
   const runCli = (args: string, input?: string) => {
@@ -31,18 +31,19 @@ describe("multimodal input (live API)", () => {
   };
 
   function createTestPng() {
-    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const base64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     return Buffer.from(base64, "base64");
   }
 
   test("image input is processed", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const png = createTestPng();
     writeFileSync("test_input.png", png);
-    
+
     const result = runCli('run "What color is this image?" --input image:test_input.png');
     expect(result.toLowerCase()).toMatch(/red|salmon|coral/);
     unlinkSync("test_input.png");
@@ -66,10 +67,12 @@ describe("image generation (live API)", () => {
 
   test("image output is saved to file", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
-    runCli('run "Generate a simple blue square" --model gemini-3-pro-image-preview --output test_output.png');
+    runCli(
+      'run "Generate a simple blue square" --model gemini-3-pro-image-preview --output test_output.png',
+    );
     expect(existsSync("test_output.png")).toBe(true);
     expect(statSync("test_output.png").size).toBeGreaterThan(100);
     unlinkSync("test_output.png");
@@ -88,10 +91,12 @@ describe("TTS (live API)", () => {
 
   test("audio output is saved to file", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
-    const result = runCli('run "Hello world" --model gemini-3.1-flash-tts-preview --voice Kore --output test_tts.wav');
+    const result = runCli(
+      'run "Hello world" --model gemini-3.1-flash-tts-preview --voice Kore --output test_tts.wav',
+    );
     if (!existsSync("test_tts.wav")) {
       console.error("TTS failed. Output:", result);
     }
@@ -113,22 +118,25 @@ describe("image editing (live API)", () => {
 
   test("image editing produces output file", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
-    
+
     // Create a test image
-    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const base64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     const png = Buffer.from(base64, "base64");
     writeFileSync("test_edit_input.png", png);
-    
+
     try {
-      const result = runCli('run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --model gemini-3-pro-image-preview');
-      
+      const result = runCli(
+        'run "Make this image green" --input image:test_edit_input.png --response-modality image --output test_edit_output.png --model gemini-3-pro-image-preview',
+      );
+
       if (!existsSync("test_edit_output.png")) {
         console.error("Image editing failed. Output:", result);
       }
-      
+
       expect(existsSync("test_edit_output.png")).toBe(true);
       expect(statSync("test_edit_output.png").size).toBeGreaterThan(100);
     } finally {
@@ -152,12 +160,12 @@ describe("image editing (dry-run)", () => {
     // Create dummy files
     writeFileSync("tmp_input.png", "dummy content");
     writeFileSync("tmp_mask.png", "dummy content");
-    
+
     try {
       const result = runCli(
-        'run "Edit this image" --input image:tmp_input.png --response-modality image --edit-strength 0.5 --mask tmp_mask.png --dry-run'
+        'run "Edit this image" --input image:tmp_input.png --response-modality image --edit-strength 0.5 --mask tmp_mask.png --dry-run',
       );
-      
+
       expect(result).toContain('"edit_strength": 0.5');
       expect(result).toContain('"mask":');
     } finally {

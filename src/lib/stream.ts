@@ -12,12 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { CLIError, APIError } from "./errors";
+import { APIError, CLIError } from "./errors";
 
 export interface StreamEvent {
-  type: "interaction.created" | "content.start" | "content.delta" | "content.stop" | "step.start" | "step.delta" | "step.stop" | "interaction.completed" | "interaction.status_update" | "error";
+  type:
+    | "interaction.created"
+    | "content.start"
+    | "content.delta"
+    | "content.stop"
+    | "step.start"
+    | "step.delta"
+    | "step.stop"
+    | "interaction.completed"
+    | "interaction.status_update"
+    | "error";
   data: any;
-  raw: string;  // Original SSE JSON for --json mode
+  raw: string; // Original SSE JSON for --json mode
 }
 
 export interface Usage {
@@ -36,16 +46,16 @@ export interface StepInfo {
 export interface StreamResult {
   interactionId: string;
   status: string;
-  outputs: ContentBlock[];  // Reassembled content blocks
-  steps: StepInfo[];        // Accumulated step data
+  outputs: ContentBlock[]; // Reassembled content blocks
+  steps: StepInfo[]; // Accumulated step data
   usage?: Usage;
   created?: string;
   updated?: string;
   environmentId?: string;
-  lastEventId?: string;  // For deep-research stream reconnection
+  lastEventId?: string; // For deep-research stream reconnection
 }
 
-export type ContentBlock = 
+export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
   | { type: "audio"; data: string; mimeType: string }
@@ -67,16 +77,15 @@ export type ContentBlock =
   | { type: "mcp_server_tool_result"; result: unknown; callId: string }
   | { type: "file_search_result"; result: unknown; callId: string }
   | { type: "google_maps_result"; result: unknown; callId: string }
-  | { type: "text_annotation"; annotations: unknown[] }
-;
+  | { type: "text_annotation"; annotations: unknown[] };
 
 export async function processStream(
   response: Response,
   callbacks: {
-    onEvent: (event: StreamEvent, block?: ContentBlock) => void;       // Called for each SSE event
-    onComplete: (result: StreamResult) => void;   // Called when stream ends
+    onEvent: (event: StreamEvent, block?: ContentBlock) => void; // Called for each SSE event
+    onComplete: (result: StreamResult) => void; // Called when stream ends
     onBlockComplete?: (block: ContentBlock) => void; // Called when a block is complete
-  }
+  },
 ): Promise<StreamResult> {
   if (!response.body) {
     throw new CLIError("Response body is null");
@@ -121,7 +130,10 @@ export async function processStream(
               raw: dataStr,
             };
             handleEvent(event, result, contentBlocks);
-            const block = event.data && event.data.index !== undefined ? contentBlocks.get(event.data.index) : undefined;
+            const block =
+              event.data && event.data.index !== undefined
+                ? contentBlocks.get(event.data.index)
+                : undefined;
             callbacks.onEvent(event, block);
 
             if (event.type === "content.stop") {
@@ -132,8 +144,7 @@ export async function processStream(
                 callbacks.onBlockComplete?.(block);
               }
             }
-
-          } catch (e) {
+          } catch (_e) {
             // Malformed SSE lines are handled gracefully
             // console.warn("Failed to parse SSE data:", dataStr, e);
           }
@@ -154,7 +165,7 @@ export async function processStream(
           };
           callbacks.onEvent(event);
           handleEvent(event, result, contentBlocks);
-        } catch (e) {
+        } catch (_e) {
           // Ignore
         }
       }
@@ -198,7 +209,11 @@ export async function processStream(
   return result;
 }
 
-function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Map<number, ContentBlock>) {
+function handleEvent(
+  event: StreamEvent,
+  result: StreamResult,
+  contentBlocks: Map<number, ContentBlock>,
+) {
   const data = event.data;
 
   if (data.interaction) {
@@ -221,7 +236,7 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
   if (event.type === "content.start") {
     const index = data.index;
     const content = data.content;
-    if (content && content.type) {
+    if (content?.type) {
       const block: any = { type: content.type };
       if (content.name) block.name = content.name;
       contentBlocks.set(index, block);
@@ -355,7 +370,7 @@ function handleEvent(event: StreamEvent, result: StreamResult, contentBlocks: Ma
         if (delta.text) step.text = (step.text || "") + delta.text;
         if (delta.type) step.type = delta.type;
         if (delta.status) step.status = delta.status;
-        
+
         // Also append media data to contentBlocks if available
         const block = contentBlocks.get(index);
         if (block) {

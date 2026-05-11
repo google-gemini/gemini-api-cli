@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { defineCommand } from "citty";
 import * as yaml from "js-yaml";
-import { execSync } from "node:child_process";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -77,7 +77,9 @@ Examples:
       try {
         // Simple git clone for now if it looks like a git URL or github repo
         if (fromTemplate.startsWith("http") || fromTemplate.startsWith("git@")) {
-          execSync(`source ~/.bash_profile && git clone ${fromTemplate} ${name}`, { stdio: "inherit" });
+          execSync(`source ~/.bash_profile && git clone ${fromTemplate} ${name}`, {
+            stdio: "inherit",
+          });
           console.log(`✓ Scaffolded from template ${fromTemplate}`);
           return;
         } else {
@@ -102,11 +104,7 @@ Examples:
       environment: { enabled: true },
     };
 
-    fs.writeFileSync(
-      path.join(name, "agent.yaml"),
-      yaml.dump(agentConfig),
-      "utf-8"
-    );
+    fs.writeFileSync(path.join(name, "agent.yaml"), yaml.dump(agentConfig), "utf-8");
 
     const STARTER_AGENTS_MD = `# Agent Instructions
 
@@ -123,11 +121,7 @@ This file is uploaded to the agent environment and merged with system_instructio
 
 `;
 
-    fs.writeFileSync(
-      path.join(name, "AGENTS.md"),
-      STARTER_AGENTS_MD,
-      "utf-8"
-    );
+    fs.writeFileSync(path.join(name, "AGENTS.md"), STARTER_AGENTS_MD, "utf-8");
 
     fs.writeFileSync(
       path.join(name, ".env"),
@@ -135,7 +129,7 @@ This file is uploaded to the agent environment and merged with system_instructio
 # Add your environment variables here, e.g.:
 # KEY=VALUE
 `,
-      "utf-8"
+      "utf-8",
     );
 
     console.log(`✓ Initialized agent project in ${name}/`);

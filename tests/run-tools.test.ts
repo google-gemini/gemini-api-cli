@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 
 describe("tools (live API)", () => {
@@ -31,7 +31,7 @@ describe("tools (live API)", () => {
       return;
     }
     const result = runCli(
-      'run "Use code execution to calculate 2+2 and return only the number" --tool code_execution'
+      'run "Use code execution to calculate 2+2 and return only the number" --tool code_execution',
     );
     expect(result).toContain("4");
     expect(result).not.toContain("API error");
@@ -40,7 +40,7 @@ describe("tools (live API)", () => {
   test("google_search works", () => {
     if (!process.env.GEMINI_API_KEY) return;
     const result = runCli(
-      'run "What is the current population of Tokyo? Use search." --tool google_search'
+      'run "What is the current population of Tokyo? Use search." --tool google_search',
     );
     expect(result).toContain("✓ completed");
     expect(result).not.toContain("API error");
@@ -49,7 +49,7 @@ describe("tools (live API)", () => {
   test("multiple tools", () => {
     if (!process.env.GEMINI_API_KEY) return;
     const result = runCli(
-      'run "Search for the GDP of France then calculate GDP per capita" --tool google_search --tool code_execution'
+      'run "Search for the GDP of France then calculate GDP per capita" --tool google_search --tool code_execution',
     );
     expect(result).toContain("✓ completed");
     expect(result).not.toContain("API error");
@@ -62,15 +62,13 @@ describe("tools (live API)", () => {
   });
 
   test("dry-run includes tools in curl", () => {
-    const result = runCli(
-      'run "Hello" --tool code_execution --dry-run --api-key fake'
-    );
+    const result = runCli('run "Hello" --tool code_execution --dry-run --api-key fake');
     expect(result).toContain("code_execution");
   });
 
   test("dry-run includes complex tools in curl", () => {
     const result = runCli(
-      'run "Hello" --tool \'mcp_server:weather:https://example.com/mcp\' --tool \'function:get_weather:{"type":"object","properties":{"location":{"type":"string"}}}\' --dry-run --api-key fake'
+      'run "Hello" --tool \'mcp_server:weather:https://example.com/mcp\' --tool \'function:get_weather:{"type":"object","properties":{"location":{"type":"string"}}}\' --dry-run --api-key fake',
     );
     expect(result).toContain("mcp_server");
     expect(result).toContain("weather");
@@ -82,7 +80,7 @@ describe("tools (live API)", () => {
 
   test("dry-run includes tool-choice in curl", () => {
     const result = runCli(
-      'run "Hello" --tool code_execution --tool-choice any --dry-run --api-key fake'
+      'run "Hello" --tool code_execution --tool-choice any --dry-run --api-key fake',
     );
     expect(result).toContain("tool_choice");
     expect(result).toContain("any");

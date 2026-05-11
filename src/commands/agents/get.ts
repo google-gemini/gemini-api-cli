@@ -13,11 +13,11 @@
 // limitations under the License.
 
 import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
-import { CLIError } from "../../lib/errors";
 import * as yaml from "js-yaml";
+import { apiRequest, resolveContext } from "../../lib/api";
+import { CLIError } from "../../lib/errors";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
