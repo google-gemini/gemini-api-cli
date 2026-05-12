@@ -26,7 +26,7 @@ export default defineCommand({
 
 Examples:
   gemini-api agents init my-agent
-  gemini-api agents init my-agent --base-agent waverunner`,
+  gemini-api agents init my-agent --base-agent antigravity-preview-05-2026`,
   },
   args: {
     ...globalFlags,
@@ -38,7 +38,7 @@ Examples:
     "base-agent": {
       type: "string",
       description: "Base model to set in agent.yaml",
-      default: "waverunner",
+      default: "antigravity-preview-05-2026",
     },
     "from-template": {
       type: "string",

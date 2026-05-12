@@ -87,7 +87,7 @@ This repository includes a skill for AI agents to understand how to use this CLI
 - [Gemini API CLI Skill](./skills/gemini-api-cli/SKILL.md) — Comprehensive guide for agents, covering:
   - Normal model calls (text, multi-turn, tools)
   - Agent lifecycle management (init, create, test, delete)
-  - Agent calls (invoking Waverunner and Deep Research)
+  - Agent calls (invoking antigravity-preview-05-2026 and Deep Research)
   - Genmedia (image generation, editing, TTS, music)
 
 

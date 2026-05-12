@@ -329,10 +329,10 @@ export interface RunOptions {
 
 // Agents that automatically get `environment: { enabled: true }` when used
 // via `gemini-api run --agent <name>` (i.e., without an agent.yaml config).
-const _ENVIRONMENT_ENABLED_AGENTS = ["waverunner"];
+const _ENVIRONMENT_ENABLED_AGENTS = ["antigravity-preview-05-2026"];
 
 // Known agent name prefixes. Everything else is treated as a model name.
-const AGENT_PREFIXES = ["waverunner", "deep-research"];
+const AGENT_PREFIXES = ["antigravity-preview-05-2026", "deep-research"];
 
 // Deep Research agent prefixes — these get background:true and agent_config auto-injected.
 const DEEP_RESEARCH_PREFIX = "deep-research";

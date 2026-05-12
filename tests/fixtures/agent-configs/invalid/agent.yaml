@@ -1,4 +1,4 @@
 # Missing required 'id' field
-base_agent: waverunner
+base_agent: antigravity-preview-05-2026
 tools:
   - type: invalid_tool_type

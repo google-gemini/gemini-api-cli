@@ -135,8 +135,8 @@ gemini-api run "Hello my name is gemini, i am a large language model from google
 # With tools
 gemini-api run "What is the weather?" --tool google_search --tool code_execution
 
-# With sources (e.g. Waverunner)
-gemini-api run "Generate test" --agent waverunner --source "inline:/.agents/README.md:# Instructions" --source "github:https://github.com/user/repo:/.agents"
+# With sources (e.g. antigravity-preview-05-2026)
+gemini-api run "Generate test" --agent antigravity-preview-05-2026 --source "inline:/.agents/README.md:# Instructions" --source "github:https://github.com/user/repo:/.agents"
 
 # Multi-turn
 gemini-api run "Remember the word: banana"
@@ -159,14 +159,14 @@ Scaffold a new agent project.
 
 ```bash
 gemini-api agents init my-agent
-gemini-api agents init my-agent --base-agent waverunner
+gemini-api agents init my-agent --base-agent antigravity-preview-05-2026
 gemini-api agents init my-agent --from-template https://github.com/google-gemini/Gemini-API-Agent-Templates/tree/main/customer-data-analysis-agent
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `<name>` | positional | — | Agent directory name |
-| `--base-agent` | string | `waverunner` | Base model (only 'waverunner' is supported) |
+| `--base-agent` | string | `antigravity-preview-05-2026` | Base model (only 'antigravity-preview-05-2026' is supported) |
 | `--from-template` | string | — | Git or GCS URL to scaffold from |
 
 #### `gemini-api agents create`
@@ -276,7 +276,7 @@ my-agent/
 ```yaml
 # Required
 id: my-agent
-base_agent: waverunner
+base_agent: antigravity-preview-05-2026
 
 # Optional
 description: "A data analyst agent"

@@ -2,9 +2,9 @@
 
 This reference covers how to interact with Gemini Agents using the `gemini-api run` command.
 
-## Waverunner (Custom Agents)
+## antigravity-preview-05-2026 (Custom Agents)
 
-When you create a custom agent (which defaults to using `waverunner` as the base agent), you interact with it using the `--agent` flag followed by the agent ID.
+When you create a custom agent (which defaults to using `antigravity-preview-05-2026` as the base agent), you interact with it using the `--agent` flag followed by the agent ID.
 
 ```bash
 gemini-api run "Analyze this dataset for trends" --agent my-custom-agent
@@ -14,11 +14,11 @@ If the agent requires files in its workspace, ensure they are provided or alread
 
 ### Passing Environment Sources
 
-When using `--agent waverunner` (or a custom agent based on it), you can pass environment sources using the `--source` flag. This allows you to seed files or clone repositories into the agent's environment. Custom sources override the default auto-enabled environment.
+When using `--agent antigravity-preview-05-2026` (or a custom agent based on it), you can pass environment sources using the `--source` flag. This allows you to seed files or clone repositories into the agent's environment. Custom sources override the default auto-enabled environment.
 
 ```bash
 gemini-api run "Generate a video" \
-  --agent waverunner \
+  --agent antigravity-preview-05-2026 \
   --source "inline:/.agents/README.md:# Instructions" \
   --source "github:https://github.com/user/repo:/.agents"
 ```

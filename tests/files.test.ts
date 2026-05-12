@@ -25,7 +25,7 @@ describe("files (live API)", () => {
     }
 
     // 1. Create a file in the environment
-    const runCmd = `source ~/.bash_profile && bun run src/cli.ts run "Write 'hello world' to /tmp/test.txt" --agent waverunner 2>&1`;
+    const runCmd = `source ~/.bash_profile && bun run src/cli.ts run "Write 'hello world' to /tmp/test.txt" --agent antigravity-preview-05-2026 2>&1`;
     let output = "";
     try {
       output = execSync(runCmd, { encoding: "utf-8", shell: "/bin/bash" });
