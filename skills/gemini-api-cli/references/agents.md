@@ -31,7 +31,7 @@ To add a skill to your agent, place the skill files (e.g., `SKILL.md`, `referenc
 
 Required fields:
 - `id`: Agent identifier
-- `base_agent`: Base model (Supported only: `waverunner`)
+- `base_agent`: Base model (Supported only: `antigravity-preview-05-2026`)
 
 Optional fields:
 - `description`: Description of the agent

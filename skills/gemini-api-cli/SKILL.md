@@ -20,7 +20,7 @@ For detailed usage and examples, see the following references:
 
 - **Normal Model Calls**: See [references/model_calls.md](references/model_calls.md) for text generation, multi-turn conversations, and tool usage.
 - **Agents (Lifecycle)**: See [references/agents.md](references/agents.md) for creating, testing, and managing agents.
-- **Agent Calls**: See [references/agent_calls.md](references/agent_calls.md) for invoking Waverunner and Deep Research agents.
+- **Agent Calls**: See [references/agent_calls.md](references/agent_calls.md) for invoking antigravity-preview-05-2026 and Deep Research agents.
 - **Genmedia**: See [references/genmedia.md](references/genmedia.md) for image generation, image editing, and text-to-speech.
 
 ## Basic Usage

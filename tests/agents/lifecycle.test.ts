@@ -30,7 +30,7 @@ describe("agents lifecycle", () => {
   };
 
   test("init creates directory", () => {
-    runCli(`agents init ${agentName} --base-agent waverunner`);
+    runCli(`agents init ${agentName} --base-agent antigravity-preview-05-2026`);
     expect(fs.existsSync(`${agentName}/agent.yaml`)).toBe(true);
     expect(fs.existsSync(`${agentName}/AGENTS.md`)).toBe(true);
     expect(fs.existsSync(`${agentName}/skills`)).toBe(true);
@@ -43,31 +43,26 @@ describe("agents lifecycle", () => {
   });
 
   test("create deploys agent", () => {
-    // Add instructions to agent.yaml to see if it fixes 400
-    const yamlPath = `${agentName}/agent.yaml`;
-    const content = fs.readFileSync(yamlPath, "utf-8");
-    fs.writeFileSync(yamlPath, content + "\ninstructions: You are a helpful assistant.\n");
-
     const result = runCli(`agents create --path ./${agentName}`);
     console.log("Create result:", result);
     expect(result).toContain("Created agent");
   });
 
   // Blocked: depends on create succeeding
-  test.skip("list shows deployed agent — blocked: depends on create", () => {
+  test("list shows deployed agent", () => {
     const result = runCli("agents list");
     expect(result).toContain(agentName);
   });
 
   // Blocked: depends on create succeeding
-  test.skip("get shows agent details — blocked: depends on create", () => {
+  test("get shows agent details", () => {
     const result = runCli(`agents get ${agentName} --json`);
     const agent = JSON.parse(result);
     expect(agent.id || agent.name).toContain(agentName);
   });
 
   // Blocked: depends on create succeeding
-  test.skip("delete removes agent — blocked: depends on create", () => {
+  test("delete removes agent", () => {
     const result = runCli(`agents delete ${agentName} --force`);
     expect(result).toContain("Deleted agent");
   });

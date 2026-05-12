@@ -65,9 +65,7 @@ Examples:
       if (config.metadata) body.metadata = config.metadata;
       */
 
-      if (config.instructions) {
-        body.instructions = { parts: [{ text: config.instructions }] };
-      }
+      // Instructions are handled via AGENTS.md file in environment
 
       // Handle base_environment
       if (baseEnvOverride) {
@@ -90,17 +88,7 @@ Examples:
           body.base_environment.config.sources = sources;
         }
 
-        // Handle .env credential injection
-        if (inlineFiles.length > 0) {
-          const envFile = inlineFiles.find((f) => f.target === "/credentials/.env");
-          if (envFile) {
-            const keys = getEnvKeys(envFile.content);
-            if (keys.length > 0) {
-              const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
-              body.instructions = (body.instructions || "") + note;
-            }
-          }
-        }
+        // Credential injection note removed as instructions are not supported in body
       }
 
       const url = "/agents";

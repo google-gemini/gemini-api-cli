@@ -24,7 +24,7 @@ $CLI files download env_fake123 --dry-run
 
 # live
 echo "Creating test file in environment..."
-RESULT=$($CLI run "Write 'hello world' to test.txt" --agent waverunner --json 2>&1)
+RESULT=$($CLI run "Write 'hello world' to test.txt" --agent antigravity-preview-05-2026 --json 2>&1)
 ENV_ID=$(echo "$RESULT" | grep -o '"environment_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$ENV_ID" ]; then

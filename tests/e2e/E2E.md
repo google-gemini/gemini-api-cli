@@ -407,7 +407,7 @@ $CLI agents init "$AGENT_NAME"
 $CLI agents create --path "./$AGENT_NAME" --dry-run
 ```
 
-**Assert:** Output contains `curl -X POST`, `/agents`, `"name":`, `"base_agent": "waverunner"`.
+**Assert:** Output contains `curl -X POST`, `/agents`, `"name":`, `"base_agent": "antigravity-preview-05-2026"`.
 
 ---
 
@@ -534,26 +534,26 @@ $CLI agents test --prompt "Hello" --path "./$AGENT_NAME"
 rm -rf "$AGENT_NAME"
 ```
 
-**Assert (dry-run):** Output contains `curl`, `/interactions`, `"agent": "waverunner"`.
+**Assert (dry-run):** Output contains `curl`, `/interactions`, `"agent": "antigravity-preview-05-2026"`.
 **Assert (live):** Output contains `✓ completed`.
 
 ---
 
 ## 7. Agent Interactions
 
-### CUJ-31: Run with deployed agent (waverunner)
+### CUJ-31: Run with deployed agent (antigravity-preview-05-2026)
 
-Interact with the base waverunner agent.
+Interact with the base antigravity-preview-05-2026 agent.
 
 ```bash
 # dry-run
-$CLI run "What is 2+2?" --agent waverunner --dry-run
+$CLI run "What is 2+2?" --agent antigravity-preview-05-2026 --dry-run
 
 # live
-$CLI run "What is 2+2?" --agent waverunner
+$CLI run "What is 2+2?" --agent antigravity-preview-05-2026
 ```
 
-**Assert (dry-run):** Output contains `"agent": "waverunner"`, `"environment": {"enabled": true}`.
+**Assert (dry-run):** Output contains `"agent": "antigravity-preview-05-2026"`, `"environment": {"enabled": true}`.
 **Assert (live):** Output contains `✓ completed`, environment_id.
 
 ---
@@ -581,13 +581,13 @@ Multi-turn agent interaction that reuses an environment.
 
 ```bash
 # dry-run
-$CLI run "Continue" --agent waverunner --previous-interaction-id fake_int --dry-run
+$CLI run "Continue" --agent antigravity-preview-05-2026 --previous-interaction-id fake_int --dry-run
 
 # live (two-step)
-RESULT=$($CLI run "Write 'hello' to /tmp/test.txt" --agent waverunner --json 2>&1)
+RESULT=$($CLI run "Write 'hello' to /tmp/test.txt" --agent antigravity-preview-05-2026 --json 2>&1)
 INT_ID=$(echo "$RESULT" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-$CLI run "Read /tmp/test.txt and tell me what it says" --agent waverunner --previous-interaction-id "$INT_ID"
+$CLI run "Read /tmp/test.txt and tell me what it says" --agent antigravity-preview-05-2026 --previous-interaction-id "$INT_ID"
 ```
 
 **Assert (dry-run):** Output contains `"previous_interaction_id"`.
@@ -681,7 +681,7 @@ Graceful error for unknown agent names.
 $CLI run "Hello" --agent invalid_agent
 ```
 
-**Assert:** Output contains `Unknown agent`, lists available agent types (e.g., `waverunner`).
+**Assert:** Output contains `Unknown agent`, lists available agent types (e.g., `antigravity-preview-05-2026`).
 
 ---
 
@@ -764,7 +764,7 @@ ls .gemini/logs/
 | [28](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_28.sh) | Agent delete | Agents |
 | [29](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_29.sh) | Agent full lifecycle | Agents |
 | [30](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_30.sh) | Agent test | Agents |
-| [31](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_31.sh) | Waverunner agent | Agent Run |
+| [31](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_31.sh) | antigravity-preview-05-2026 agent | Agent Run |
 | [32](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_32.sh) | Custom agent | Agent Run |
 | [33](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_33.sh) | Agent env persistence | Agent Run |
 | [34](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_34.sh) | Deep Research | Agent Run |

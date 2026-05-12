@@ -20,7 +20,7 @@ describe("AgentConfigSchema", () => {
   test("valid minimal config", () => {
     const result = AgentConfigSchema.safeParse({
       id: "my-agent",
-      base_agent: "waverunner",
+      base_agent: "antigravity-preview-05-2026",
     });
     expect(result.success).toBe(true);
   });
@@ -28,7 +28,7 @@ describe("AgentConfigSchema", () => {
   test("valid full config", () => {
     const result = AgentConfigSchema.safeParse({
       id: "my-agent",
-      base_agent: "waverunner",
+      base_agent: "antigravity-preview-05-2026",
       description: "Test agent",
       instructions: "You are helpful",
       tools: [
@@ -63,7 +63,7 @@ describe("AgentConfigSchema", () => {
 
   test("missing id fails", () => {
     const result = AgentConfigSchema.safeParse({
-      base_agent: "waverunner",
+      base_agent: "antigravity-preview-05-2026",
     });
     expect(result.success).toBe(false);
   });

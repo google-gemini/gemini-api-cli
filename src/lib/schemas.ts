@@ -52,7 +52,7 @@ export const EnvironmentSchema = z.union([
 
 export const AgentConfigSchema = z.object({
   id: z.string(),
-  base_agent: z.literal("waverunner").optional(),
+  base_agent: z.literal("antigravity-preview-05-2026").optional(),
   description: z.string().optional(),
   instructions: z.string().optional(),
   tools: z.array(ToolSchema).optional(),

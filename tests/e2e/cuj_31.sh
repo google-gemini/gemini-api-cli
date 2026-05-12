@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# CUJ-31: Run with deployed agent (waverunner)
+# CUJ-31: Run with deployed agent (antigravity-preview-05-2026)
 source ~/.bash_profile
 CLI="bun run src/cli.ts"
 mkdir -p tmp
 
-echo "=== Running CUJ-31: Run with deployed agent (waverunner) ==="
+echo "=== Running CUJ-31: Run with deployed agent (antigravity-preview-05-2026) ==="
 
 # dry-run
-$CLI run "What is 2+2?" --agent waverunner --dry-run
+$CLI run "What is 2+2?" --agent antigravity-preview-05-2026 --dry-run
 
 # live
-$CLI run "What is 2+2?" --agent waverunner
+$CLI run "What is 2+2?" --agent antigravity-preview-05-2026
