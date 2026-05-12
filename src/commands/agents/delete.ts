@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
-import { CLIError } from "../../lib/errors";
 import * as readline from "node:readline";
+import { defineCommand } from "citty";
+import { apiRequest, resolveContext } from "../../lib/api";
+import { CLIError } from "../../lib/errors";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -47,12 +47,12 @@ Examples:
       const ctx = resolveContext(args);
       const id = args.id;
       const force = args.force;
-      
+
       if (!id || id.trim() === "") {
         printError("Error: Agent ID cannot be empty.");
         process.exit(1);
       }
-      
+
       const url = `/agents/${id}`;
 
       if (args["dry-run"]) {
@@ -85,7 +85,7 @@ Examples:
           (answer) => {
             rl.close();
             resolve(answer.toLowerCase() === "y");
-          }
+          },
         );
       });
 

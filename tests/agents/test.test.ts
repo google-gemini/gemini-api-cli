@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
-import { execSync } from "child_process";
+import { describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 
 describe("gemini-api agents test", () => {
   const runCli = (args: string) => {
@@ -27,11 +27,11 @@ describe("gemini-api agents test", () => {
 
   test("test runs interaction with local config fixture", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const result = runCli(
-      `agents test --prompt "Say exactly: agent-test-pass" --path ./tests/fixtures/agent-configs/valid`
+      `agents test --prompt "Say exactly: agent-test-pass" --path ./tests/fixtures/agent-configs/valid`,
     );
     expect(result).toContain("agent-test-pass");
   }, 60000);

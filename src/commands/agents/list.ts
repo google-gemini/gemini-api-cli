@@ -13,10 +13,10 @@
 // limitations under the License.
 
 import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
+import { apiRequest, resolveContext } from "../../lib/api";
 import { CLIError } from "../../lib/errors";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -53,20 +53,16 @@ Examples:
           return;
         }
 
-        console.log("Name".padEnd(15) + "Base Agent".padEnd(15) + "Created");
-        console.log("─".repeat(14) + "  " + "─".repeat(14) + "  " + "─".repeat(12));
+        console.log(`${"Name".padEnd(15) + "Base Agent".padEnd(15)}Created`);
+        console.log(`${"─".repeat(14)}  ${"─".repeat(14)}  ${"─".repeat(12)}`);
 
         for (const agent of agents) {
           const name = agent.id || agent.name || "";
           const baseAgent = agent.base_agent || "";
           const created = agent.created_time || agent.createTime || "";
-          const createdDate = created ? new Date(created).toISOString().split('T')[0] : "";
+          const createdDate = created ? new Date(created).toISOString().split("T")[0] : "";
 
-          console.log(
-            name.padEnd(15) + 
-            baseAgent.padEnd(15) + 
-            createdDate
-          );
+          console.log(name.padEnd(15) + baseAgent.padEnd(15) + createdDate);
         }
       }
     } catch (error) {

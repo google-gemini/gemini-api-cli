@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { resolve, join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { parseYaml } from "./yaml";
-import { AgentConfigSchema, type AgentConfig } from "./schemas";
+import { join, resolve } from "node:path";
 import { ConfigError } from "./errors";
+import { type AgentConfig, AgentConfigSchema } from "./schemas";
+import { parseYaml } from "./yaml";
 
 export interface LoadedAgent {
   config: AgentConfig;
@@ -26,21 +26,21 @@ export interface LoadedAgent {
 export async function loadAgent(dir: string): Promise<LoadedAgent> {
   const absDir = resolve(dir);
   const yamlPath = join(absDir, "agent.yaml");
-  
+
   try {
     // Read file
     const raw = await readFile(yamlPath, "utf-8");
     const parsed = parseYaml(raw);
-    
+
     // Validate with Zod
     const result = AgentConfigSchema.safeParse(parsed);
     if (!result.success) {
-      const errors = result.error.issues.map(i => 
-        `  - ${i.path.join(".")}: ${i.message}`
-      ).join("\n");
+      const errors = result.error.issues
+        .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+        .join("\n");
       throw new ConfigError(`Invalid agent.yaml:\n${errors}`);
     }
-    
+
     return { config: result.data, dir: absDir };
   } catch (error) {
     if (error instanceof ConfigError) {

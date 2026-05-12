@@ -16,14 +16,31 @@
 
 import { readFileSync } from "node:fs";
 import { defineCommand } from "citty";
-import { globalFlags } from "../lib/shared-args";
-import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, apiGetRequest, apiGetStreamRequest, isDeepResearchAgent, isAgentName, type RunOptions, type Tool, type Source, parseToolFlag, parseSourceFlag } from "../lib/api";
-import { processStream } from "../lib/stream";
-import { printCurl, HumanStreamRenderer, printCompletionSummary, printError, printBlock, printPollingStatus } from "../lib/output";
+import {
+  apiGetRequest,
+  apiRequest,
+  apiStreamRequest,
+  buildInteractionRequest,
+  isDeepResearchAgent,
+  parseSourceFlag,
+  parseToolFlag,
+  type RunOptions,
+  resolveContext,
+  type Source,
+  type Tool,
+} from "../lib/api";
 import { inputToContentBlock, saveMediaOutputs } from "../lib/files";
-import { CLIError } from "../lib/errors";
 import { logRequest, logResponse } from "../lib/logger";
-import type { StreamResult, StreamEvent, ContentBlock } from "../lib/stream";
+import {
+  HumanStreamRenderer,
+  printCompletionSummary,
+  printCurl,
+  printError,
+  printPollingStatus,
+} from "../lib/output";
+import { globalFlags } from "../lib/shared-args";
+import type { StreamResult } from "../lib/stream";
+import { processStream } from "../lib/stream";
 
 const DEEP_RESEARCH_POLL_INTERVAL_MS = 10_000;
 
@@ -79,11 +96,13 @@ Examples:
     },
     tool: {
       type: "string",
-      description: "Tool declaration (can be specified multiple times): code_execution, google_search, mcp_server:name:url, function:name:schema",
+      description:
+        "Tool declaration (can be specified multiple times): code_execution, google_search, mcp_server:name:url, function:name:schema",
     },
     source: {
       type: "string",
-      description: "Environment source (can be specified multiple times): inline:<target>:<content>, github:<url>:<target>, gcs:<source>:<target>",
+      description:
+        "Environment source (can be specified multiple times): inline:<target>:<content>, github:<url>:<target>, gcs:<source>:<target>",
     },
     "tool-choice": {
       type: "string",
@@ -151,8 +170,8 @@ Examples:
 
     if (!prompt) {
       printError("Missing prompt.", [
-        "gemini-api run \"Your prompt here\"",
-        "echo \"Your prompt\" | gemini-api run -"
+        'gemini-api run "Your prompt here"',
+        'echo "Your prompt" | gemini-api run -',
       ]);
       process.exit(1);
     }
@@ -190,7 +209,7 @@ Examples:
     }
 
     // Parse tools
-    let tools: Tool[] | undefined = undefined;
+    let tools: Tool[] | undefined;
     if (toolStrings.length > 0) {
       tools = [];
       for (const toolStr of toolStrings) {
@@ -210,15 +229,13 @@ Examples:
     }
 
     // Parse sources
-    let sources: Source[] | undefined = undefined;
+    let sources: Source[] | undefined;
     if (sourceStrings.length > 0) {
       sources = [];
       for (const sourceStr of sourceStrings) {
         sources.push(parseSourceFlag(sourceStr));
       }
     }
-
-
 
     let interactionInput: any = prompt;
 
@@ -236,7 +253,7 @@ Examples:
       interactionInput = parts;
     }
 
-    let maskData: string | undefined = undefined;
+    let maskData: string | undefined;
     if (args.mask) {
       try {
         const data = readFileSync(args.mask as string);
@@ -250,7 +267,7 @@ Examples:
       }
     }
 
-    let environment: any = undefined;
+    let environment: any;
     if (args.environment) {
       if (args.environment === "remote") {
         environment = { enabled: true };
@@ -271,7 +288,9 @@ Examples:
       stream: !isDeepResearchAgent(args.agent as string | undefined),
       toolChoice: args["tool-choice"] as string | undefined,
 
-      responseModalities: args["response-modality"] ? [args["response-modality"] as string] : undefined,
+      responseModalities: args["response-modality"]
+        ? [args["response-modality"] as string]
+        : undefined,
       responseMimeType: args["response-mime-type"] as string | undefined,
       voice: args.voice as string | undefined,
       language: args.language as string | undefined,
@@ -299,7 +318,7 @@ Examples:
 
     // Standard model/agent streaming
     const response = await apiStreamRequest(ctx, "/interactions", body);
-    
+
     if (args.json) {
       await processStream(response, {
         onEvent: (event) => {
@@ -314,10 +333,23 @@ Examples:
     } else {
       const renderer = new HumanStreamRenderer();
       const activeBlocks = new Map<number, string>();
-      
+      const activeSteps = new Map<number, string>();
+
       await processStream(response, {
         onEvent: (event, block) => {
-          if (event.type === "content.start") {
+          if (event.type === "step.start" || event.type === "step.stop") {
+            renderer.handleStepEvent(event);
+            if (event.type === "step.start") {
+              const index = event.data.index ?? event.data.step_index;
+              if (index !== undefined) {
+                activeSteps.set(index, event.data.step?.type || "text");
+              }
+            }
+          } else if (event.type === "step.delta") {
+            const index = event.data.index ?? event.data.step_index;
+            const type = activeSteps.get(index) || "text";
+            renderer.handleEvent(event, type, block);
+          } else if (event.type === "content.start") {
             activeBlocks.set(event.data.index, event.data.content.type);
           } else if (event.type === "content.delta") {
             const type = activeBlocks.get(event.data.index) || "text";
@@ -341,7 +373,7 @@ Examples:
 
 /**
  * Run a Deep Research agent with streaming and automatic reconnection.
- * 
+ *
  * Deep Research tasks can take minutes. The SSE connection may drop (e.g., after
  * the 600s server timeout). This function handles:
  * 1. Initial POST to start the task (stream=true, background=true)
@@ -357,9 +389,10 @@ async function runDeepResearch(
 ): Promise<void> {
   let interactionId = "";
   let isComplete = false;
-  let result: StreamResult = {
+  const result: StreamResult = {
     status: "in_progress",
     outputs: [],
+    steps: [],
     interactionId: "",
   };
 
@@ -383,13 +416,13 @@ async function runDeepResearch(
     printPollingStatus(elapsedSeconds);
 
     // Wait before polling
-    await new Promise(resolve => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS));
 
     // Check interaction status via GET
     try {
       const status = await apiGetRequest<any>(ctx, `/interactions/${interactionId}`);
       retryCount = 0; // Reset retry count on success
-      
+
       if (status.status === "completed" || status.status === "failed") {
         isComplete = true;
         result.status = status.status;
@@ -419,16 +452,18 @@ async function runDeepResearch(
         isComplete = true;
         break;
       }
-    } catch (error) {
+    } catch (_error) {
       retryCount++;
       const elapsedSeconds = (performance.now() - startTime) / 1000;
-      console.error(`⟳ Polling failed, retrying (${retryCount}/${maxRetries})... (${Math.round(elapsedSeconds)}s elapsed)`);
+      console.error(
+        `⟳ Polling failed, retrying (${retryCount}/${maxRetries})... (${Math.round(elapsedSeconds)}s elapsed)`,
+      );
       if (retryCount >= maxRetries) {
         printError(`Failed to poll status after ${maxRetries} attempts.`);
         process.exit(1);
       }
       // Wait longer on failure
-      await new Promise(resolve => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS * 2));
+      await new Promise((resolve) => setTimeout(resolve, DEEP_RESEARCH_POLL_INTERVAL_MS * 2));
     }
   }
 

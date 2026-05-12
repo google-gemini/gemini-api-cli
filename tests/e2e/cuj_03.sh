@@ -20,7 +20,7 @@ mkdir -p tmp
 echo "=== Running CUJ-03: Specify a model explicitly ==="
 
 # dry-run
-$CLI run "Hello" --model gemini-3.1-pro-preview --dry-run
+$CLI run "Hello" --model gemini-3.1-flash-lite-preview --dry-run
 
 # live
-$CLI run "Hello" --model gemini-3.1-pro-preview
+$CLI run "Hello" --model gemini-3.1-flash-lite-preview

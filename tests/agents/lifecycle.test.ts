@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect, afterAll } from "bun:test";
-import { execSync } from "child_process";
+import { afterAll, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 
 describe("agents lifecycle", () => {
@@ -43,6 +43,10 @@ describe("agents lifecycle", () => {
   });
 
   test("create deploys agent", () => {
+    // Add instructions to agent.yaml to see if it fixes 400
+    const yamlPath = `${agentName}/agent.yaml`;
+    const content = fs.readFileSync(yamlPath, "utf-8");
+    fs.writeFileSync(yamlPath, `${content}\ninstructions: You are a helpful assistant.\n`);
     const result = runCli(`agents create --path ./${agentName}`);
     console.log("Create result:", result);
     expect(result).toContain("Created agent");

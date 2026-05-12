@@ -14,13 +14,11 @@
 
 import { z } from "zod";
 
-export const ToolSchema = z.object({
-  type: z.enum([
-    "code_execution",
-    "google_search",
-    "url_context",
-  ]),
-}).passthrough();
+export const ToolSchema = z
+  .object({
+    type: z.enum(["code_execution", "google_search", "url_context"]),
+  })
+  .passthrough();
 
 const SourceSchema = z.discriminatedUnion("type", [
   z.object({
@@ -44,22 +42,38 @@ const ConfigSchema = z.object({
   sources: z.array(SourceSchema),
 });
 
+const RemoteEnvironmentSchema = z.object({
+  type: z.literal("remote"),
+  sources: z.array(SourceSchema),
+});
+
 export const EnvironmentSchema = z.union([
   z.object({ enabled: z.boolean() }),
   z.object({ env_id: z.string() }),
   z.object({ config: ConfigSchema }),
+  RemoteEnvironmentSchema,
 ]);
 
-export const AgentConfigSchema = z.object({
-  id: z.string(),
-  base_agent: z.literal("antigravity-preview-05-2026").optional(),
-  description: z.string().optional(),
-  instructions: z.string().optional(),
-  tools: z.array(ToolSchema).optional(),
-  base_environment: z.union([z.string(), z.object({ config: ConfigSchema })]).optional(),
-  sources: z.array(SourceSchema).optional(),
-  environment: EnvironmentSchema.optional(),
-}).strict();
+const ExampleSchema = z.object({
+  title: z.string(),
+  prompt: z.string(),
+});
+
+export const AgentConfigSchema = z
+  .object({
+    id: z.string(),
+    base_agent: z.literal("antigravity-preview-05-2026").optional(),
+    description: z.string().optional(),
+    instructions: z.string().optional(),
+    tools: z.array(ToolSchema).optional(),
+    base_environment: z
+      .union([z.string(), z.object({ config: ConfigSchema }), RemoteEnvironmentSchema])
+      .optional(),
+    sources: z.array(SourceSchema).optional(),
+    environment: EnvironmentSchema.optional(),
+    examples: z.array(ExampleSchema).optional(),
+  })
+  .strict();
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 

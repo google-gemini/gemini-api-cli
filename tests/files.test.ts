@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -59,7 +59,7 @@ describe("files (live API)", () => {
     // which is what we expect if the endpoint is broken as the comment said.
     // But let's assert what we expect on success.
     expect(downloadOutput).toContain("Saved snapshot");
-    
+
     // Cleanup
     const snapshotDir = path.join("./tmp", `snapshot_${envId}`);
     if (fs.existsSync(snapshotDir)) {

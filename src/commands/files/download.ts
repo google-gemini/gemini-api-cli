@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
-import { CLIError } from "../../lib/errors";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { defineCommand } from "citty";
+import { resolveContext } from "../../lib/api";
+import { CLIError } from "../../lib/errors";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -66,14 +66,14 @@ Examples:
 
       console.log(`Downloading snapshot for environment ${envId}...`);
       const response = await fetch(fullUrl, { headers });
-      
+
       if (!response.ok) {
         throw new CLIError(`Failed to download snapshot: ${response.statusText}`);
       }
 
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      
+
       const snapshotPath = path.join(outputDir, `snapshot_${envId}.tar`);
       fs.writeFileSync(snapshotPath, buffer);
       console.log(`✓ Saved snapshot to ${snapshotPath}`);

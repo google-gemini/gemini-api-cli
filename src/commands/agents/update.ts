@@ -13,11 +13,12 @@
 // limitations under the License.
 
 import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
+import { apiRequest, resolveContext, type Source } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
 import { CLIError, ConfigError } from "../../lib/errors";
+import { collectInlineFiles, getEnvKeys } from "../../lib/files";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -50,9 +51,52 @@ Examples:
 
       const { config } = await loadAgent(agentDir);
 
-      const body: any = {
-        ...config,
+      const body: Record<string, unknown> = {
+        name: config.id,
+        base_agent: config.base_agent,
       };
+
+      if (config.instructions) {
+        body.system_instruction = config.instructions;
+      }
+
+      // Handle base_environment
+      if (config.base_environment) {
+        body.base_environment = config.base_environment;
+      } else {
+        // Collect and inline files from the agent directory
+        const inlineFiles = await collectInlineFiles(agentDir);
+
+        const sources: Source[] = [...inlineFiles] as unknown as Source[];
+        if (config.sources) {
+          sources.push(...config.sources);
+        }
+
+        // Also merge sources from environment.sources (e.g. gcs, github)
+        const env = config.environment as Record<string, unknown> | undefined;
+        if (env && env.type === "remote" && Array.isArray(env.sources)) {
+          sources.push(...(env.sources as Source[]));
+        }
+
+        if (sources.length > 0) {
+          body.base_environment = {
+            type: "remote",
+            sources: sources,
+          };
+        }
+
+        // Handle .env credential injection
+        if (inlineFiles.length > 0) {
+          const envFile = inlineFiles.find((f) => f.target === "/credentials/.env");
+          if (envFile) {
+            const keys = getEnvKeys(envFile.content);
+            if (keys.length > 0) {
+              const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
+              body.system_instruction = (body.system_instruction || "") + note;
+            }
+          }
+        }
+      }
 
       const url = `/agents/${id}`;
 
