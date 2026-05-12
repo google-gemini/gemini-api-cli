@@ -68,6 +68,12 @@ Examples:
           sources.push(...config.sources);
         }
 
+        // Also merge sources from environment.sources (e.g. gcs, github)
+        const env = config.environment as Record<string, unknown> | undefined;
+        if (env && env.type === "remote" && Array.isArray(env.sources)) {
+          sources.push(...(env.sources as Source[]));
+        }
+
         if (sources.length > 0) {
           body.base_environment = {
             type: "remote",
