@@ -13,16 +13,26 @@
 // limitations under the License.
 
 import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
+import {
+  apiStreamRequest,
+  buildInteractionRequest,
+  isAgentName,
+  type RunOptions,
+  resolveContext,
+  type Source,
+} from "../../lib/api";
 import { loadAgent } from "../../lib/config";
-import { resolveContext, buildInteractionRequest, apiStreamRequest, apiRequest, type RunOptions, parseToolFlag, type Tool, isAgentName } from "../../lib/api";
-import { processStream } from "../../lib/stream";
-import { printCurl, HumanStreamRenderer, printCompletionSummary, printError } from "../../lib/output";
 import { CLIError, ConfigError } from "../../lib/errors";
-import { logRequest, logResponse } from "../../lib/logger";
 import { collectInlineFiles, getEnvKeys } from "../../lib/files";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { logRequest, logResponse } from "../../lib/logger";
+import {
+  HumanStreamRenderer,
+  printCompletionSummary,
+  printCurl,
+  printError,
+} from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
+import { processStream } from "../../lib/stream";
 
 export default defineCommand({
   meta: {
@@ -58,7 +68,7 @@ Examples:
     try {
       const agentDir = args.path as string;
       const prompt = args.prompt as string;
-      
+
       const sharedFlags = {
         apiKey: (args["api-key"] || args.apiKey) as string | undefined,
         baseUrl: (args["base-url"] || args.baseUrl) as string | undefined,
@@ -91,18 +101,23 @@ Examples:
       }
 
       // Build environment config
-      let environment: any = {};
+      let environment: Record<string, unknown> = {};
       if (args.environment) {
         environment = { env_id: args.environment };
       } else {
-        const sources: any[] = [...inlineFiles];
+        const sources: Source[] = [...inlineFiles] as unknown as Source[];
         if (config.sources) {
           sources.push(...config.sources);
         }
 
+        // Also merge sources from environment.sources (e.g. gcs, github)
+        const env = config.environment as Record<string, unknown> | undefined;
+        if (env && env.type === "remote" && Array.isArray(env.sources)) {
+          sources.push(...(env.sources as Source[]));
+        }
+
         if (sources.length > 0) {
-          environment.config = environment.config || {};
-          environment.config.sources = sources;
+          environment = { type: "remote", sources: sources };
         } else if (config.environment) {
           // Use environment from agent.yaml (e.g. { enabled: true })
           environment = config.environment;
@@ -132,9 +147,9 @@ Examples:
       }
 
       const startTime = performance.now();
-      
+
       const response = await apiStreamRequest(ctx, "/interactions", body);
-      
+
       if (args.json) {
         await processStream(response, {
           onEvent: (event) => {
@@ -145,10 +160,12 @@ Examples:
       } else {
         const renderer = new HumanStreamRenderer();
         const activeBlocks = new Map<number, string>();
-        
+
         await processStream(response, {
           onEvent: (event, block) => {
-            if (event.type === "content.start") {
+            if (event.type === "step.start" || event.type === "step.stop") {
+              renderer.handleStepEvent(event);
+            } else if (event.type === "content.start") {
               activeBlocks.set(event.data.index, event.data.content.type);
             } else if (event.type === "content.delta") {
               const type = activeBlocks.get(event.data.index) || "text";

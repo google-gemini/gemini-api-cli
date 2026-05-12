@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { test, describe, expect } from "bun:test";
-import { AgentConfigSchema } from "../src/lib/schemas";
+import { describe, expect, test } from "bun:test";
 import { loadAgent } from "../src/lib/config";
+import { AgentConfigSchema } from "../src/lib/schemas";
 
 describe("AgentConfigSchema", () => {
   test("valid minimal config", () => {
@@ -31,10 +31,7 @@ describe("AgentConfigSchema", () => {
       base_agent: "waverunner",
       description: "Test agent",
       instructions: "You are helpful",
-      tools: [
-        { type: "code_execution" },
-        { type: "google_search" },
-      ],
+      tools: [{ type: "code_execution" }, { type: "google_search" }],
     });
     expect(result.success).toBe(true);
   });
@@ -52,9 +49,7 @@ describe("AgentConfigSchema", () => {
       id: "my-agent",
       base_environment: {
         config: {
-          sources: [
-            { type: "gcs", source: "gs://bucket/path", target: "/target" },
-          ],
+          sources: [{ type: "gcs", source: "gs://bucket/path", target: "/target" }],
         },
       },
     });
@@ -88,6 +83,54 @@ describe("AgentConfigSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test("valid config with examples", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      base_agent: "waverunner",
+      examples: [
+        { title: "Write a poem", prompt: "Write a short poem about coding" },
+        { title: "Explain AI", prompt: "Explain artificial intelligence" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.examples).toHaveLength(2);
+      expect(result.data.examples?.[0].title).toBe("Write a poem");
+      expect(result.data.examples?.[0].prompt).toBe("Write a short poem about coding");
+    }
+  });
+
+  test("examples with missing prompt fails", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      examples: [
+        { title: "Write a poem" }, // missing prompt
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("examples with missing title fails", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      examples: [
+        { prompt: "Write something" }, // missing title
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("valid base_environment with type:remote format", () => {
+    const result = AgentConfigSchema.safeParse({
+      id: "my-agent",
+      base_environment: {
+        type: "remote",
+        sources: [{ type: "gcs", source: "gs://bucket/path", target: "/target" }],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("loadAgent", () => {
@@ -110,5 +153,12 @@ describe("loadAgent", () => {
 
   test("throws ConfigError for empty yaml", async () => {
     expect(loadAgent("./tests/fixtures/agent-configs/empty")).rejects.toThrow();
+  });
+
+  test("loads agent.yaml with examples from fixture", async () => {
+    const agent = await loadAgent("./tests/fixtures/agent-configs/with-examples");
+    expect(agent.config.id).toBe("test-agent-examples");
+    expect(agent.config.examples).toHaveLength(2);
+    expect(agent.config.examples?.[0].title).toBe("Write a poem");
   });
 });

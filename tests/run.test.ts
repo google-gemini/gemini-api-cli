@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, test, expect } from "bun:test";
-import { execSync } from "child_process";
+import { describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 
 describe("gemini-api run", () => {
   // Helper to run CLI
@@ -32,8 +32,8 @@ describe("gemini-api run", () => {
 
   test("basic text interaction returns response", () => {
     if (!process.env.GEMINI_API_KEY) {
-        console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-        return;
+      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
+      return;
     }
     const result = runCli('run "Say exactly: pong"');
     expect(result).toContain("pong");
@@ -44,19 +44,19 @@ describe("gemini-api run", () => {
     if (!process.env.GEMINI_API_KEY) return;
     const result = runCli('run "Say hi" --json');
     const lines = result.trim().split("\n");
-    const events = lines.map(l => {
-      try {
-        return JSON.parse(l);
-      } catch (e) {
-        return null;
-      }
-    }).filter(e => e !== null);
-    
+    const events = lines
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch (_e) {
+          return null;
+        }
+      })
+      .filter((e) => e !== null);
+
     expect(events.length).toBeGreaterThan(0);
     expect(events[0].event_type).toBeDefined();
   });
-
-
 
   test("streaming returns text incrementally", () => {
     if (!process.env.GEMINI_API_KEY) return;
@@ -68,7 +68,7 @@ describe("gemini-api run", () => {
 
   test("stdin input works", () => {
     if (!process.env.GEMINI_API_KEY) return;
-    const fs = require("fs");
+    const fs = require("node:fs");
     if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
     fs.writeFileSync("tmp/tmp_prompt.txt", "Say exactly: stdin-works");
     const cmd = `bun run src/cli.ts run - < tmp/tmp_prompt.txt`;
@@ -90,7 +90,7 @@ describe("gemini-api run", () => {
           intId = data.interaction.id;
           break;
         }
-      } catch (e) {
+      } catch (_e) {
         // Ignore
       }
     }
@@ -98,12 +98,14 @@ describe("gemini-api run", () => {
     expect(intId).toBeTruthy();
 
     // Second turn
-    const r2 = runCli(`run "What word did I ask you to remember?" --previous-interaction-id ${intId}`);
+    const r2 = runCli(
+      `run "What word did I ask you to remember?" --previous-interaction-id ${intId}`,
+    );
     expect(r2.toLowerCase()).toContain("banana");
   }, 60000);
 
   test("missing prompt shows error", () => {
-    const result = runCli('run');
+    const result = runCli("run");
     expect(result).toContain("Missing prompt");
   });
 });

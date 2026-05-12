@@ -1,26 +1,10 @@
-// Copyright 2026 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 import { defineCommand } from "citty";
-import { globalFlags } from "../../lib/shared-args";
+import { apiRequest, resolveContext, type Source } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
-import { resolveContext, apiRequest } from "../../lib/api";
-import { printCurl, printError } from "../../lib/output";
 import { CLIError, ConfigError } from "../../lib/errors";
 import { collectInlineFiles, getEnvKeys } from "../../lib/files";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { printCurl, printError } from "../../lib/output";
+import { globalFlags } from "../../lib/shared-args";
 
 export default defineCommand({
   meta: {
@@ -52,7 +36,7 @@ Examples:
 
       const { config } = await loadAgent(agentDir);
 
-      const body: any = {
+      const body: Record<string, unknown> = {
         name: config.id,
         base_agent: config.base_agent,
       };
@@ -66,7 +50,7 @@ Examples:
       */
 
       if (config.instructions) {
-        body.instructions = { parts: [{ text: config.instructions }] };
+        body.system_instruction = config.instructions;
       }
 
       // Handle base_environment
@@ -78,16 +62,23 @@ Examples:
       } else {
         // Collect and inline files from the agent directory
         const inlineFiles = await collectInlineFiles(agentDir);
-        
-        const sources: any[] = [...inlineFiles];
+
+        const sources: Source[] = [...inlineFiles] as unknown as Source[];
         if (config.sources) {
           sources.push(...config.sources);
         }
 
+        // Also merge sources from environment.sources (e.g. gcs, github)
+        const env = config.environment as Record<string, unknown> | undefined;
+        if (env && env.type === "remote" && Array.isArray(env.sources)) {
+          sources.push(...(env.sources as Source[]));
+        }
+
         if (sources.length > 0) {
-          body.base_environment = body.base_environment || {};
-          body.base_environment.config = body.base_environment.config || {};
-          body.base_environment.config.sources = sources;
+          body.base_environment = {
+            type: "remote",
+            sources: sources,
+          };
         }
 
         // Handle .env credential injection
@@ -97,7 +88,7 @@ Examples:
             const keys = getEnvKeys(envFile.content);
             if (keys.length > 0) {
               const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
-              body.instructions = (body.instructions || "") + note;
+              body.system_instruction = (body.system_instruction || "") + note;
             }
           }
         }
@@ -116,7 +107,7 @@ Examples:
         console.log(JSON.stringify(response, null, 2));
       } else {
         console.log(`✓ Created agent: ${response.name || response.id}`);
-        const agentId = response.id || (response.name ? response.name.split('/').pop() : 'unknown');
+        const agentId = response.id || (response.name ? response.name.split("/").pop() : "unknown");
         console.log(`  agent_id: ${agentId}`);
         console.log(`  base_agent: ${response.base_agent}`);
         if (response.environment) {
