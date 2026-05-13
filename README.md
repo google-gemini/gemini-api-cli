@@ -2,9 +2,6 @@
 
 > An experimental CLI for the Gemini API.
 
-> [!CAUTION]
-> **Disclaimer**: This is not a supported Google product.
-
 ## Features
 
 - **Model Interactions**: Run prompts against Gemini models with support for streaming, system instructions, and service tiers.
@@ -98,6 +95,14 @@ This repository includes a skill for AI agents to understand how to use this CLI
 - [tests/e2e/E2E.md](./tests/e2e/E2E.md) — End-to-End Test Plan
 
 
-## License
+## Licensing & Disclaimer
 
-Apache-2.0 — See [LICENSE](./LICENSE)
+Copyright 2026 Google LLC  
+
+All software is licensed under the Apache License, Version 2.0 (Apache 2.0); you may not use this file except in compliance with the Apache 2.0 license. You may obtain a copy of the Apache 2.0 license at: [https://www.apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+
+All other materials are licensed under the Creative Commons Attribution 4.0 International License (CC-BY). You may obtain a copy of the CC-BY license at: [https://creativecommons.org/licenses/by/4.0/legalcode](https://creativecommons.org/licenses/by/4.0/legalcode)
+
+Unless required by applicable law or agreed to in writing, all software and materials distributed here under the Apache 2.0 or CC-BY licenses are distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the licenses for the specific language governing permissions and limitations under those licenses.
+
+This is not an official Google product.
