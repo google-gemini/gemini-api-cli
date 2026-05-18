@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import { apiRequest, resolveContext, type Source, normalizeSources, validateSources } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
-import { collectInlineFiles, getEnvKeys } from "../../lib/files";
+import { collectInlineFiles } from "../../lib/files";
 import { printCurl, printError } from "../../lib/output";
 import { globalFlags } from "../../lib/shared-args";
 
@@ -91,19 +91,13 @@ Examples:
             type: "remote",
             sources: normalized,
           };
-        }
-
-        // Handle .env credential injection
-        if (inlineFiles.length > 0) {
-          const envFile = inlineFiles.find((f) => f.target === "/credentials/.env");
-          if (envFile) {
-            const keys = getEnvKeys(envFile.content);
-            if (keys.length > 0) {
-              const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
-              body.system_instruction = (body.system_instruction || "") + note;
-            }
+          const envObj = config.environment as any;
+          if (envObj && typeof envObj === "object" && envObj.network) {
+            (body.base_environment as any).network = envObj.network;
           }
         }
+
+
       }
 
       const url = "/agents";

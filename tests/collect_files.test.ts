@@ -29,7 +29,7 @@ describe("collectInlineFiles filtering", () => {
 
     // Allowed files
     fs.writeFileSync(path.join(testDir, "AGENTS.md"), "agents content");
-    fs.writeFileSync(path.join(testDir, ".env"), "KEY=VALUE");
+
     fs.writeFileSync(path.join(testDir, "workspace", "file1.txt"), "file1 content");
     fs.writeFileSync(path.join(testDir, "skills", "skill1.js"), "skill1 content");
 
@@ -51,7 +51,7 @@ describe("collectInlineFiles filtering", () => {
     const targets = files.map((f) => f.target);
     console.log("Collected targets:", targets);
 
-    expect(targets).toContain("/credentials/.env");
+
     expect(targets).toContain("/.agents/AGENTS.md");
     expect(targets).toContain("/.agents/workspace/file1.txt");
     expect(targets).toContain("/.agents/skills/skill1.js");
@@ -62,7 +62,7 @@ describe("collectInlineFiles filtering", () => {
     expect(targets).not.toContain("/.agents/ignored_dir/file2.txt");
     expect(targets).not.toContain("/.agents/package.json");
 
-    // Total expected allowed files is 4
-    expect(files.length).toBe(4);
+    // Total expected allowed files is 3
+    expect(files.length).toBe(3);
   });
 });

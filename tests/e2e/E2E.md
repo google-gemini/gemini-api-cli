@@ -731,6 +731,23 @@ ls .gemini/logs/
 
 ---
 
+### CUJ-45: Agent test with network transform (dry-run)
+
+Verify that outbound network configurations and secure header transform secrets are preserved and serialized correctly in local agent test dry-runs.
+
+```bash
+# Setup
+$CLI agents init test-agent
+# (Configure custom network transforms in test-agent/agent.yaml)
+
+# dry-run test
+$CLI agents test --prompt "Hello" --path "./test-agent" --dry-run
+```
+
+**Assert:** Output contains the parsed `network` block with its associated domains and injected header structures (e.g. `Authorization`).
+
+---
+
 ## Summary Table
 
 | # | CUJ | Category | 
@@ -778,3 +795,5 @@ ls .gemini/logs/
 | [42](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_42.sh) | Completion summary | UX |
 | [43](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_43.sh) | Interaction logging | UX |
 | [44](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_44.sh) | Invalid agent | Error |
+| [45](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_45.sh) | Network transform dry-run | Agent Run |
+

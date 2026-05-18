@@ -69,7 +69,6 @@ describe("agents create inlining integration", () => {
     console.log("Inlined targets in dry-run:", targets);
 
     // Allowed
-    expect(targets).toContain("/credentials/.env");
     expect(targets).toContain("/.agents/AGENTS.md");
     expect(targets).toContain("/.agents/workspace/allowed.txt");
     expect(targets).toContain("/.agents/skills/sub/allowed_skill.js");
@@ -79,7 +78,7 @@ describe("agents create inlining integration", () => {
     expect(targets).not.toContain("/.agents/ignored_at_root.txt");
     expect(targets).not.toContain("/.agents/ignored_dir/file.txt");
 
-    // Total expected sources is 4
-    expect(sources.length).toBe(4);
+    // Total expected sources is 3
+    expect(sources.length).toBe(3);
   });
 });

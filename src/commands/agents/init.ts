@@ -104,7 +104,37 @@ Examples:
       environment: "remote",
     };
 
-    fs.writeFileSync(path.join(name, "agent.yaml"), yaml.dump(agentConfig), "utf-8");
+    const baseYaml = yaml.dump(agentConfig);
+    const helperComments = `
+# --- Advanced Environment Configuration (Optional) ---
+# Uncomment and customize to configure GCS/GitHub sources, external network access,
+# and secret credentials via header transforms.
+#
+# environment:
+#   type: "remote"
+#   # Sources to copy or clone into the environment on startup
+#   sources:
+#     - type: "gcs"
+#       source: "gs://my-bucket-name/folder/"
+#       target: ".agents/workspace"
+#     - type: "github"
+#       source: "https://github.com/my-username/my-repo"
+#       target: ".agents/workspace/repo"
+#
+#   # Configure outbound network policies and inject secrets securely
+#   network:
+#     allowlist:
+#       - domain: "api.github.com"
+#         transform:
+#           Authorization: "Bearer your-github-token"
+#       - domain: "storage.googleapis.com"
+#         transform:
+#           Authorization: "Bearer your-gcloud-oauth-token"
+#       - domain: "*.wikipedia.org"
+#       # Optional catch-all entry to allow other traffic without header injection
+#       - domain: "*"
+`;
+    fs.writeFileSync(path.join(name, "agent.yaml"), baseYaml + helperComments, "utf-8");
 
     const STARTER_AGENTS_MD = `# Agent Instructions
 
@@ -123,21 +153,11 @@ This file is uploaded to the agent environment and merged with system_instructio
 
     fs.writeFileSync(path.join(name, "AGENTS.md"), STARTER_AGENTS_MD, "utf-8");
 
-    fs.writeFileSync(
-      path.join(name, ".env"),
-      `# Configurations for your agent
-# Add your environment variables here, e.g.:
-# KEY=VALUE
-`,
-      "utf-8",
-    );
-
     console.log(`✓ Initialized agent project in ${name}/`);
     console.log();
     console.log(`  ${name}/`);
     console.log(`  ├── agent.yaml       # Agent configuration`);
     console.log(`  ├── AGENTS.md        # System instructions`);
-    console.log(`  ├── .env             # Configurations`);
     console.log(`  ├── skills/          # Custom skills`);
     console.log(`  └── workspace/       # Files seeded into environment`);
     console.log();
