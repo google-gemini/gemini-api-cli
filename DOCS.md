@@ -337,6 +337,35 @@ environment: remote
 
 When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
 
+You can also specify a structured config object to configure GCS/GitHub `sources`, establish `network` allowlists, and inject secret credentials securely via header `transform` rules:
+
+```yaml
+environment:
+  type: "remote"
+  # Sources to copy or clone into the environment on startup
+  sources:
+    - type: "gcs"
+      source: "gs://my-bucket-name/folder/"
+      target: ".agents/workspace"
+    - type: "github"
+      source: "https://github.com/my-username/my-repo"
+      target: ".agents/workspace/repo"
+
+  # Outbound network security policies and headers injection (secrets)
+  network:
+    allowlist:
+      - domain: "api.github.com"
+        transform:
+          # Injects Authorization header dynamically at egress proxy level
+          Authorization: "Bearer your-github-token"
+      - domain: "storage.googleapis.com"
+        transform:
+          Authorization: "Bearer your-gcloud-oauth-token"
+      - domain: "*.wikipedia.org"
+      # Catch-all rule (optional) to allow other traffic without header injection
+      - domain: "*"
+```
+
 ---
 
 ## Tools

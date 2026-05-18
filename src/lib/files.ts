@@ -240,15 +240,7 @@ export async function collectInlineFiles(
         const rel = relative(dir, fullPath);
         if (rel === "agent.yaml") continue;
 
-        if (rel === ".env") {
-          try {
-            const content = await readFile(fullPath, "utf-8");
-            files.push({ type: "inline", target: "/credentials/.env", content });
-          } catch {
-            // Ignore
-          }
-          continue;
-        }
+
 
         // If we are in the root directory, only allow AGENTS.md
         if (currentDir === dir) {
@@ -286,20 +278,4 @@ export async function collectInlineFiles(
   return files;
 }
 
-export function getEnvKeys(content: string): string[] {
-  const keys: string[] = [];
-  const lines = content.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("#") || trimmed === "") continue;
-    const match = trimmed.match(/^([^=]+)=(.*)$/);
-    if (match) {
-      const key = match[1]?.trim();
-      const value = match[2]?.trim();
-      if (key && value && value !== "") {
-        keys.push(key);
-      }
-    }
-  }
-  return keys;
-}
+

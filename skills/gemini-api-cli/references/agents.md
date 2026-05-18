@@ -39,7 +39,21 @@ Optional fields:
 - `description`: Description of the agent
 - `system_instruction`: Short system instruction (prefer `AGENTS.md` for long instructions)
 - `tools`: List of tools (e.g., `code_execution`, `google_search`)
-- `environment`: `"remote"` or `base_environment: <env_id>`
+- `environment`: `"remote"`, a base environment ID, or a structured config object to configure sources, network allowlists, and secrets injection:
+  ```yaml
+  environment:
+    type: "remote"
+    sources:
+      - type: "gcs"
+        source: "gs://my-bucket/folder/"
+        target: ".agents/workspace"
+    network:
+      allowlist:
+        - domain: "api.github.com"
+          transform:
+            Authorization: "Bearer your-github-token"
+        - domain: "*" # Catch-all
+  ```
 
 ## Testing an Agent Locally
 

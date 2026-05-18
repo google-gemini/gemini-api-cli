@@ -34,7 +34,6 @@ describe("agents lifecycle", () => {
     expect(fs.existsSync(`${agentName}/agent.yaml`)).toBe(true);
     expect(fs.existsSync(`${agentName}/AGENTS.md`)).toBe(true);
     expect(fs.existsSync(`${agentName}/skills`)).toBe(true);
-    expect(fs.existsSync(`${agentName}/.env`)).toBe(true);
   });
 
   test("init is idempotent", () => {

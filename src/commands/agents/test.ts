@@ -25,7 +25,7 @@ import {
 } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
-import { collectInlineFiles, getEnvKeys } from "../../lib/files";
+import { collectInlineFiles } from "../../lib/files";
 import { logRequest, logResponse } from "../../lib/logger";
 import {
   HumanStreamRenderer,
@@ -90,19 +90,7 @@ Examples:
       // merged with the system instruction on the server side.
       let systemInstruction = config.instructions;
 
-      // Update system instructions if .env was inlined
-      const envFile = inlineFiles.find((f) => f.target === "/credentials/.env");
-      if (envFile) {
-        const keys = getEnvKeys(envFile.content);
-        if (keys.length > 0) {
-          const note = `\n\nNote: Credentials are stored in /credentials/.env. They are not available as environment variables yet. Please add them as environment variables if you want to use them in your Skills. Available variables: ${keys.join(", ")}.`;
-          if (systemInstruction) {
-            systemInstruction += note;
-          } else {
-            systemInstruction = note;
-          }
-        }
-      }
+
 
       // Build environment config
       let environment: any;
@@ -125,6 +113,10 @@ Examples:
 
         if (normalized && normalized.length > 0) {
           environment = { type: "remote", sources: normalized };
+          const envObj = config.environment as any;
+          if (envObj && typeof envObj === "object" && envObj.network) {
+            environment.network = envObj.network;
+          }
         } else if (config.environment) {
           if (typeof config.environment === "string") {
             environment = config.environment;
