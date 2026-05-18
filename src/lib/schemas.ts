@@ -36,21 +36,34 @@ const SourceSchema = z.discriminatedUnion("type", [
     source: z.string(),
     target: z.string(),
   }),
+  z.object({
+    type: z.literal("repository"),
+    source: z.string(),
+    target: z.string(),
+  }),
 ]);
 
-const ConfigSchema = z.object({
-  sources: z.array(SourceSchema),
+
+const NetworkRuleSchema = z.object({
+  domain: z.string(),
+  transform: z.record(z.string()).optional(),
 });
+
+const NetworkConfigSchema = z.union([
+  z.literal("disabled"),
+  z.object({
+    allowlist: z.array(NetworkRuleSchema),
+  }),
+]);
 
 const RemoteEnvironmentSchema = z.object({
   type: z.literal("remote"),
-  sources: z.array(SourceSchema),
+  sources: z.array(SourceSchema).optional(),
+  network: NetworkConfigSchema.optional(),
 });
 
 export const EnvironmentSchema = z.union([
-  z.object({ enabled: z.boolean() }),
-  z.object({ env_id: z.string() }),
-  z.object({ config: ConfigSchema }),
+  z.string(), // Supports "remote" or "env_xyz"
   RemoteEnvironmentSchema,
 ]);
 
@@ -67,7 +80,7 @@ export const AgentConfigSchema = z
     instructions: z.string().optional(),
     tools: z.array(ToolSchema).optional(),
     base_environment: z
-      .union([z.string(), z.object({ config: ConfigSchema }), RemoteEnvironmentSchema])
+      .union([z.string(), RemoteEnvironmentSchema])
       .optional(),
     sources: z.array(SourceSchema).optional(),
     environment: EnvironmentSchema.optional(),

@@ -101,7 +101,7 @@ Examples:
       base_agent: baseAgent,
       description: `Scaffolded agent ${name}`,
       tools: [{ type: "code_execution" }],
-      environment: { enabled: true },
+      environment: "remote",
     };
 
     fs.writeFileSync(path.join(name, "agent.yaml"), yaml.dump(agentConfig), "utf-8");

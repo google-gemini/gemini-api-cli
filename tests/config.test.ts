@@ -44,13 +44,13 @@ describe("AgentConfigSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("valid base_environment with config sources", () => {
+  test("valid base_environment with remote sources and network", () => {
     const result = AgentConfigSchema.safeParse({
       id: "my-agent",
       base_environment: {
-        config: {
-          sources: [{ type: "gcs", source: "gs://bucket/path", target: "/target" }],
-        },
+        type: "remote",
+        sources: [{ type: "gcs", source: "gs://bucket/path", target: "/target" }],
+        network: { allowlist: [{ domain: "example.com" }] },
       },
     });
     expect(result.success).toBe(true);
@@ -87,7 +87,7 @@ describe("AgentConfigSchema", () => {
   test("valid config with examples", () => {
     const result = AgentConfigSchema.safeParse({
       id: "my-agent",
-      base_agent: "waverunner",
+      base_agent: "antigravity-preview-05-2026",
       examples: [
         { title: "Write a poem", prompt: "Write a short poem about coding" },
         { title: "Explain AI", prompt: "Explain artificial intelligence" },

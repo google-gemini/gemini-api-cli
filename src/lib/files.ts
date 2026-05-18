@@ -224,6 +224,12 @@ export async function collectInlineFiles(
       const fullPath = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
+        // Only walk into 'workspace' and 'skills' from the root directory
+        if (currentDir === dir) {
+          if (entry.name !== "workspace" && entry.name !== "skills") {
+            continue;
+          }
+        }
         if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".gemini")
           continue;
         await walk(fullPath);
@@ -242,6 +248,13 @@ export async function collectInlineFiles(
             // Ignore
           }
           continue;
+        }
+
+        // If we are in the root directory, only allow AGENTS.md
+        if (currentDir === dir) {
+          if (rel !== "AGENTS.md") {
+            continue;
+          }
         }
 
         const info = await stat(fullPath);

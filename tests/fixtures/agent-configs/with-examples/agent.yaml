@@ -1,5 +1,5 @@
 id: test-agent-examples
-base_agent: waverunner
+base_agent: antigravity-preview-05-2026
 description: Agent with examples
 examples:
   - title: "Write a poem"

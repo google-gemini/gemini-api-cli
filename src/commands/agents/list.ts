@@ -34,7 +34,7 @@ Examples:
   async run({ args }) {
     try {
       const ctx = resolveContext(args);
-      const url = "/agents";
+      const url = "/agents?pageSize=100";
 
       if (args["dry-run"]) {
         printCurl("GET", `${ctx.baseUrl}${url}`, ctx.apiKey);

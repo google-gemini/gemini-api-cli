@@ -78,6 +78,111 @@ describe("buildInteractionRequest", () => {
     });
     expect(body.environment.config).toBeUndefined();
   });
+
+  test("github type source is normalized to repository", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      sources: [{ type: "github", source: "https://github.com/foo/bar", target: "/app" }],
+    }) as any;
+    expect(body.environment).toEqual({
+      type: "remote",
+      sources: [{ type: "repository", source: "https://github.com/foo/bar", target: "/app" }],
+    });
+  });
+
+  test("repository type source is parsed correctly", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      sources: [{ type: "repository", source: "https://github.com/foo/bar", target: "/app" }],
+    }) as any;
+    expect(body.environment).toEqual({
+      type: "remote",
+      sources: [{ type: "repository", source: "https://github.com/foo/bar", target: "/app" }],
+    });
+  });
+
+  test("direct environment mapping for strings", () => {
+    const bodyRemote = buildInteractionRequest({
+      input: "Hello",
+      environment: "remote",
+    }) as any;
+    expect(bodyRemote.environment).toBe("remote");
+
+    const bodyEnv = buildInteractionRequest({
+      input: "Hello",
+      environment: "env_xyz123",
+    }) as any;
+    expect(bodyEnv.environment).toBe("env_xyz123");
+  });
+
+  test("network configuration is preserved and sources normalized in object environments", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      environment: {
+        type: "remote",
+        sources: [{ type: "github", source: "https://github.com/foo/bar", target: "/app" }],
+        network: "disabled",
+      },
+    }) as any;
+    expect(body.environment).toEqual({
+      type: "remote",
+      sources: [{ type: "repository", source: "https://github.com/foo/bar", target: "/app" }],
+      network: "disabled",
+    });
+  });
+
+  test("outbound network config with allowlist", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      environment: {
+        type: "remote",
+        network: {
+          allowlist: [{ domain: "api.github.com" }],
+        },
+      },
+    }) as any;
+    expect(body.environment.network).toEqual({
+      allowlist: [{ domain: "api.github.com" }],
+    });
+  });
+
+  test("outbound network config with allowlist and transform rules", () => {
+    const body = buildInteractionRequest({
+      input: "Hello",
+      environment: {
+        type: "remote",
+        network: {
+          allowlist: [
+            {
+              domain: "api.github.com",
+              transform: {
+                "X-Forwarded-For": "1.2.3.4",
+              },
+            },
+          ],
+        },
+      },
+    }) as any;
+    expect(body.environment.network).toEqual({
+      allowlist: [
+        {
+          domain: "api.github.com",
+          transform: {
+            "X-Forwarded-For": "1.2.3.4",
+          },
+        },
+      ],
+    });
+  });
+
+  test("throws error when custom source target is '/'", () => {
+    expect(() => {
+      buildInteractionRequest({
+        input: "Hello",
+        sources: [{ type: "gcs", source: "gs://bucket/path", target: "/" }],
+      });
+    }).toThrow('Invalid source target: "/". Custom sources cannot be mounted at root.');
+  });
 });
 
 describe("Api-Revision header", () => {

@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { apiRequest, resolveContext, type Source } from "../../lib/api";
+import { apiRequest, resolveContext, type Source, normalizeSources, validateSources } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
 import { collectInlineFiles, getEnvKeys } from "../../lib/files";
@@ -57,8 +57,17 @@ Examples:
       if (baseEnvOverride) {
         body.base_environment = baseEnvOverride;
       } else if (config.base_environment) {
-        // base_environment mode: skip file inlining, use the env_id directly
-        body.base_environment = config.base_environment;
+        if (typeof config.base_environment === "string") {
+          body.base_environment = config.base_environment;
+        } else if (typeof config.base_environment === "object") {
+          const baseEnvObj = config.base_environment as any;
+          if (baseEnvObj.sources) {
+            const normalizedBaseSources = normalizeSources(baseEnvObj.sources);
+            validateSources(normalizedBaseSources);
+            baseEnvObj.sources = normalizedBaseSources;
+          }
+          body.base_environment = baseEnvObj;
+        }
       } else {
         // Collect and inline files from the agent directory
         const inlineFiles = await collectInlineFiles(agentDir);
@@ -74,10 +83,13 @@ Examples:
           sources.push(...(env.sources as Source[]));
         }
 
-        if (sources.length > 0) {
+        const normalized = normalizeSources(sources);
+        validateSources(normalized);
+
+        if (normalized && normalized.length > 0) {
           body.base_environment = {
             type: "remote",
-            sources: sources,
+            sources: normalized,
           };
         }
 

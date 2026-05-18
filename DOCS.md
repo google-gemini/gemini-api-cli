@@ -264,11 +264,11 @@ gemini-api files download env_xyz789 --dry-run
 
 ```
 my-agent/
-├── agent.yaml       # Configuration
-├── AGENTS.md        # System instructions (uploaded to environment)
+├── agent.yaml       # Configuration (not inlined)
+├── AGENTS.md        # System instructions (inlined to /.agents/AGENTS.md)
 ├── .env             # Credentials (inlined to /credentials/.env)
-├── skills/          # Custom skills
-└── workspace/       # Files seeded into remote environment
+├── skills/          # Custom skills (all files inlined recursively)
+└── workspace/       # Files seeded into remote environment (all files inlined recursively)
 ```
 
 ### `agent.yaml`
@@ -288,8 +288,7 @@ tools:
   - type: google_search
 
 # Environment
-environment:
-  enabled: true
+environment: remote
 
 # OR derive from existing environment
 # base_environment: env_abc123
@@ -315,6 +314,8 @@ Files seeded into the remote environment at `/.agents/workspace/`. All files in 
 | Binary files | Base64-encoded with `"encoding": "base64"` | `.pdf`, `.png`, `.jpg`, `.mp3`, `.wav`, `.zip` |
 | Files > 1 MB | Skipped | — |
 
+> **Note:** Only `AGENTS.md`, `.env`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories are ignored.
+
 Binary files are automatically detected by extension. The following are treated as binary:
 - Images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tiff`, `.heic`, `.heif`
 - Audio: `.wav`, `.mp3`, `.aac`, `.ogg`, `.flac`, `.opus`, `.m4a`
@@ -328,14 +329,13 @@ Controls the sandbox environment for the agent:
 
 ```yaml
 # Enable a managed sandbox environment
-environment:
-  enabled: true
+environment: remote
 
 # OR reuse an existing environment by ID
 # base_environment: env_abc123
 ```
 
-When `environment.enabled` is `true`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
+When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
 
 ---
 

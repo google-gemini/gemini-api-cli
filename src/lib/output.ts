@@ -34,16 +34,20 @@ export function printCurl(method: string, url: string, apiKey: string, body?: un
 }
 
 export class HumanStreamRenderer {
-  private currentBlockIndex: number | null = null;
+  private currentStepIndex: number | null = null;
+  private currentStepType: string | null = null;
+  private currentStepName: string | null = null;
   private prefixPrinted = false;
+  private accumulatedArguments = "";
+  private accumulatedResult = "";
   private colWidth = 15;
-  private wasFunctionCall = false;
 
   constructor(private stdout: typeof process.stdout = process.stdout) {}
 
   private getPrefix(type: string): string {
     const prefixes: Record<string, string> = {
       text: "[text]",
+      thought: "[thought]",
       thought_summary: "[thought]",
       function_call: "[tool]",
       function_result: "[result]",
@@ -67,73 +71,94 @@ export class HumanStreamRenderer {
     return type in prefixes ? prefixes[type] : `[${type}]`;
   }
 
-  handleStepEvent(event: StreamEvent) {
-    if (event.type === "step.start") {
-      const stepType = event.data.step?.type || "unknown";
-      this.stdout.write(`${"[step]".padEnd(this.colWidth)}▸ ${stepType} started\n`);
+  handleStepStart(event: StreamEvent, block?: ContentBlock) {
+    const index = event.data.index ?? event.data.step_index;
+    if (index === undefined) return;
 
-      // Print content if available in step.start (e.g. for short responses)
-      if (event.data.step?.type === "model_output" && Array.isArray(event.data.step.content)) {
+    // Finalize previous step if index changed
+    if (this.currentStepIndex !== null && this.currentStepIndex !== index) {
+      this.finalizeStep();
+    }
+
+    this.currentStepIndex = index;
+    this.currentStepType = event.data.step?.type || "unknown";
+    this.currentStepName = event.data.step?.name || null;
+    this.prefixPrinted = false;
+    this.accumulatedArguments = "";
+    this.accumulatedResult = "";
+
+    if (this.currentStepType === "thought") {
+      const prefix = this.getPrefix("thought").padEnd(this.colWidth);
+      this.stdout.write(`${prefix}▸ thinking\n`);
+      this.prefixPrinted = true;
+    } else if (this.currentStepType === "model_output") {
+      if (Array.isArray(event.data.step?.content)) {
         for (const c of event.data.step.content) {
           if (c.type === "text" && c.text) {
-            this.stdout.write(`${"[text]".padEnd(this.colWidth)}${c.text}\n`);
+            const prefix = this.getPrefix("text").padEnd(this.colWidth);
+            this.stdout.write(`${prefix}${c.text}`);
+            this.prefixPrinted = true;
           }
         }
       }
-
-      if (event.data.step?.type === "code_execution_result" && event.data.step.result) {
-        this.stdout.write(`${"[result]".padEnd(this.colWidth)}${event.data.step.result}\n`);
-      }
-    } else if (event.type === "step.stop") {
-      const stepType = event.data.step?.type || "unknown";
-      const status = event.data.step?.status || "completed";
-      this.stdout.write(`${"[step]".padEnd(this.colWidth)}▪ ${stepType} ${status}\n`);
     }
   }
 
-  handleEvent(event: StreamEvent, type: string, block?: ContentBlock) {
-    if (event.type !== "content.delta" && event.type !== "step.delta") return;
-    if (type === "thought" || type === "thought_summary" || type === "thought_signature") return;
-
+  handleStepDelta(event: StreamEvent, block?: ContentBlock) {
     const index = event.data.index ?? event.data.step_index;
-    const delta = event.data.delta;
+    if (index === undefined || this.currentStepIndex !== index) return;
 
-    if (this.currentBlockIndex !== index) {
-      if (this.currentBlockIndex !== null) {
-        if (this.wasFunctionCall) {
-          this.stdout.write(")");
-        }
-        this.stdout.write("\n");
-      }
-      this.currentBlockIndex = index;
-      this.prefixPrinted = false;
-      this.wasFunctionCall = false;
+    const delta = event.data.delta;
+    if (!delta) return;
+
+    const type = this.currentStepType || "text";
+
+    if (type === "thought" || type === "thought_summary" || type === "thought_signature") {
+      return;
     }
 
-    const prefix = this.getPrefix(type);
-    let content = "";
+    if (type === "function_call" || type === "code_execution_call") {
+      if (delta.arguments) {
+        this.accumulatedArguments += typeof delta.arguments === "string"
+          ? delta.arguments
+          : JSON.stringify(delta.arguments);
+      }
+      if (delta.name) {
+        this.currentStepName = delta.name;
+      }
+      return;
+    }
 
-    if (delta.text) content = delta.text;
-    else if (delta.arguments)
-      content =
-        typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
-    else if (delta.code) content = delta.code;
-    else if (delta.result)
-      content = typeof delta.result === "string" ? delta.result : JSON.stringify(delta.result);
-    else if (delta.query) content = delta.query;
-    else if (delta.url) content = delta.url;
-    else if (delta.name) content = delta.name;
+    if (type === "function_result") {
+      if (delta.result) {
+        this.accumulatedResult += typeof delta.result === "string"
+          ? delta.result
+          : JSON.stringify(delta.result);
+      }
+      if (delta.name) {
+        this.currentStepName = delta.name;
+      }
+      return;
+    }
+
+    let content = "";
+    let prefixType = type;
+
+    if (type === "model_output") {
+      prefixType = "text";
+      if (delta.text) content = delta.text;
+    } else if (type === "code_execution_result") {
+      if (delta.result) content = delta.result;
+    } else {
+      if (delta.text) content = delta.text;
+      else if (delta.result) content = typeof delta.result === "string" ? delta.result : JSON.stringify(delta.result);
+    }
 
     if (content) {
+      const prefix = this.getPrefix(prefixType);
       if (prefix) {
         if (!this.prefixPrinted) {
           this.stdout.write(prefix.padEnd(this.colWidth));
-
-          if (block && (block as any).name) {
-            this.stdout.write(`${(block as any).name}(`);
-            this.wasFunctionCall = true;
-          }
-
           this.prefixPrinted = true;
         }
 
@@ -152,11 +177,130 @@ export class HumanStreamRenderer {
     }
   }
 
-  finish() {
-    if (this.wasFunctionCall) {
-      this.stdout.write(")");
+  handleStepStop(event: StreamEvent, block?: ContentBlock) {
+    const index = event.data.index ?? event.data.step_index;
+    if (index === undefined || this.currentStepIndex !== index) return;
+
+    this.finalizeStep();
+  }
+
+  private finalizeStep() {
+    if (this.currentStepIndex === null) return;
+
+    const type = this.currentStepType;
+    const name = this.currentStepName;
+
+    if (type === "thought") {
+      const prefix = this.getPrefix("thought").padEnd(this.colWidth);
+      this.stdout.write(`${prefix}▪ completed\n`);
+    } else if (type === "function_call") {
+      const prefix = this.getPrefix("function_call").padEnd(this.colWidth);
+      let argsObj: any = {};
+      try {
+        argsObj = JSON.parse(this.accumulatedArguments);
+      } catch {
+        argsObj = { raw: this.accumulatedArguments };
+      }
+
+      if (name === "write_file") {
+        const path = argsObj.path || "unknown";
+        this.stdout.write(`${prefix}${name}(path="${path}", content=<...>)` + "\n");
+      } else {
+        const argsStr = JSON.stringify(argsObj);
+        const truncatedArgs = argsStr.length > 100 ? argsStr.substring(0, 100) + "..." : argsStr;
+        this.stdout.write(`${prefix}${name || "unknown"}(${truncatedArgs})` + "\n");
+      }
+    } else if (type === "function_result") {
+      const prefix = this.getPrefix("function_result").padEnd(this.colWidth);
+      let resultObj: any = {};
+      try {
+        resultObj = JSON.parse(this.accumulatedResult);
+      } catch {
+        resultObj = this.accumulatedResult;
+      }
+
+      const resultStr = typeof resultObj === "string" ? resultObj : JSON.stringify(resultObj);
+      const truncatedResult = resultStr.length > 100 ? resultStr.substring(0, 100) + "..." : resultStr;
+      this.stdout.write(`${prefix}${name || "tool"}: ${truncatedResult}\n`);
+    } else if (type === "code_execution_call") {
+      const prefix = this.getPrefix("code_execution_call").padEnd(this.colWidth);
+      let argsObj: any = {};
+      try {
+        argsObj = JSON.parse(this.accumulatedArguments);
+      } catch {
+        argsObj = { code: this.accumulatedArguments };
+      }
+      const code = argsObj.code || argsObj.raw || "";
+      this.stdout.write(`${prefix}${code}\n`);
+    } else if (type === "model_output" || type === "code_execution_result") {
+      if (this.prefixPrinted) {
+        this.stdout.write("\n");
+      }
     }
-    this.stdout.write("\n");
+
+    this.currentStepIndex = null;
+    this.currentStepType = null;
+    this.currentStepName = null;
+    this.prefixPrinted = false;
+    this.accumulatedArguments = "";
+    this.accumulatedResult = "";
+  }
+
+  finish() {
+    this.finalizeStep();
+  }
+}
+
+/**
+ * Maps content.* SSE events to step.* events for the renderer.
+ * Some API endpoints still emit content.start/delta/stop; this function
+ * normalises them so the renderer only needs to handle step.* events.
+ */
+export function mapContentToStepEvent(event: StreamEvent): StreamEvent {
+  if (event.type === "content.start") {
+    return {
+      type: "step.start",
+      data: {
+        index: event.data.index,
+        step: { type: event.data.content?.type || "text", status: "in_progress" },
+      },
+      raw: event.raw,
+    };
+  }
+  if (event.type === "content.delta") {
+    return {
+      type: "step.delta",
+      data: {
+        index: event.data.index,
+        delta: event.data.delta,
+      },
+      raw: event.raw,
+    };
+  }
+  if (event.type === "content.stop") {
+    return {
+      type: "step.stop",
+      data: {
+        index: event.data.index,
+      },
+      raw: event.raw,
+    };
+  }
+  return event;
+}
+
+/** Dispatch a (possibly mapped) step event to the renderer. */
+export function renderStepEvent(
+  renderer: HumanStreamRenderer,
+  event: StreamEvent,
+  block?: ContentBlock,
+): void {
+  if (event.type === "step.start") {
+    renderer.handleStepStart(event, block);
+  } else if (event.type === "step.delta") {
+    renderer.handleStepDelta(event, block);
+  } else if (event.type === "step.stop") {
+    renderer.handleStepStop(event, block);
   }
 }
 

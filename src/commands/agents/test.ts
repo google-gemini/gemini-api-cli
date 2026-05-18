@@ -20,6 +20,8 @@ import {
   type RunOptions,
   resolveContext,
   type Source,
+  normalizeSources,
+  validateSources,
 } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
@@ -27,9 +29,11 @@ import { collectInlineFiles, getEnvKeys } from "../../lib/files";
 import { logRequest, logResponse } from "../../lib/logger";
 import {
   HumanStreamRenderer,
+  mapContentToStepEvent,
   printCompletionSummary,
   printCurl,
   printError,
+  renderStepEvent,
 } from "../../lib/output";
 import { globalFlags } from "../../lib/shared-args";
 import { processStream } from "../../lib/stream";
@@ -101,9 +105,9 @@ Examples:
       }
 
       // Build environment config
-      let environment: Record<string, unknown> = {};
+      let environment: any;
       if (args.environment) {
-        environment = { env_id: args.environment };
+        environment = args.environment;
       } else {
         const sources: Source[] = [...inlineFiles] as unknown as Source[];
         if (config.sources) {
@@ -116,11 +120,23 @@ Examples:
           sources.push(...(env.sources as Source[]));
         }
 
-        if (sources.length > 0) {
-          environment = { type: "remote", sources: sources };
+        const normalized = normalizeSources(sources);
+        validateSources(normalized);
+
+        if (normalized && normalized.length > 0) {
+          environment = { type: "remote", sources: normalized };
         } else if (config.environment) {
-          // Use environment from agent.yaml (e.g. { enabled: true })
-          environment = config.environment;
+          if (typeof config.environment === "string") {
+            environment = config.environment;
+          } else if (typeof config.environment === "object") {
+            const envObj = config.environment as any;
+            if (envObj.sources) {
+              const normalizedEnvSources = normalizeSources(envObj.sources);
+              validateSources(normalizedEnvSources);
+              envObj.sources = normalizedEnvSources;
+            }
+            environment = envObj;
+          }
         }
       }
 
@@ -136,7 +152,7 @@ Examples:
         tools: config.tools as any,
         previousInteractionId: args["previous-interaction-id"] as string | undefined,
         stream: true,
-        environment: Object.keys(environment).length > 0 ? environment : undefined,
+        environment: environment || undefined,
       };
 
       const body = buildInteractionRequest(runOpts);
@@ -159,18 +175,11 @@ Examples:
         });
       } else {
         const renderer = new HumanStreamRenderer();
-        const activeBlocks = new Map<number, string>();
 
         await processStream(response, {
           onEvent: (event, block) => {
-            if (event.type === "step.start" || event.type === "step.stop") {
-              renderer.handleStepEvent(event);
-            } else if (event.type === "content.start") {
-              activeBlocks.set(event.data.index, event.data.content.type);
-            } else if (event.type === "content.delta") {
-              const type = activeBlocks.get(event.data.index) || "text";
-              renderer.handleEvent(event, type, block);
-            }
+            const mapped = mapContentToStepEvent(event);
+            renderStepEvent(renderer, mapped, block);
           },
           onComplete: (result) => {
             renderer.finish();
