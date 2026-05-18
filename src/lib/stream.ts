@@ -371,12 +371,74 @@ function handleEvent(
         if (delta.type) step.type = delta.type;
         if (delta.status) step.status = delta.status;
 
-        // Also append media data to contentBlocks if available
-        const block = contentBlocks.get(index);
+        // Also append media/block data to contentBlocks if available
+        let block = contentBlocks.get(index);
+        if (!block && delta.type) {
+          let type: string | undefined;
+          if ([
+            "text",
+            "image",
+            "audio",
+            "video",
+            "document",
+            "function_call",
+            "code_execution_call",
+            "code_execution_result",
+            "thought_summary",
+            "thought_signature",
+            "url_context_call",
+            "google_search_call",
+            "mcp_server_tool_call",
+            "file_search_call",
+            "google_maps_call",
+            "function_result",
+            "url_context_result",
+            "google_search_result",
+            "mcp_server_tool_result",
+            "file_search_result",
+            "google_maps_result",
+            "text_annotation"
+          ].includes(delta.type)) {
+            type = delta.type;
+          } else if (delta.type === "thought") {
+            type = "thought_summary";
+          }
+
+          if (type) {
+            block = { type } as any;
+            contentBlocks.set(index, block);
+          }
+        }
+
         if (block) {
           if (delta.data) (block as any).data = ((block as any).data || "") + delta.data;
           if (delta.mime_type) (block as any).mimeType = delta.mime_type;
           if (delta.text) (block as any).text = ((block as any).text || "") + delta.text;
+          if (delta.signature) (block as any).signature = delta.signature;
+
+          // Tool call arguments
+          if (delta.name) (block as any).name = delta.name;
+          if (delta.arguments) {
+            if (typeof delta.arguments === "string") {
+              (block as any).arguments = ((block as any).arguments || "") + delta.arguments;
+            } else {
+              (block as any).arguments = delta.arguments;
+            }
+          }
+          if (delta.id) (block as any).id = delta.id;
+
+          // Results
+          if (delta.result) (block as any).result = ((block as any).result || "") + delta.result;
+          if (delta.is_error !== undefined) (block as any).isError = delta.is_error;
+          if (delta.call_id) (block as any).callId = delta.call_id;
+          if (delta.url) (block as any).url = delta.url;
+          if (delta.query) (block as any).query = delta.query;
+          if (delta.server) (block as any).server = delta.server;
+          if (delta.tool) (block as any).tool = delta.tool;
+          if (delta.annotations) {
+            (block as any).annotations = (block as any).annotations || [];
+            (block as any).annotations.push(...delta.annotations);
+          }
         }
       }
       result.steps[index] = step;

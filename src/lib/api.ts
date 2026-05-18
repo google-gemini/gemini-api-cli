@@ -267,6 +267,27 @@ export interface Source {
   [key: string]: string;
 }
 
+export function normalizeSource(source: Source): Source {
+  if (source.type === "github") {
+    return { ...source, type: "repository" };
+  }
+  return source;
+}
+
+export function normalizeSources(sources?: Source[]): Source[] | undefined {
+  if (!sources) return undefined;
+  return sources.map(normalizeSource);
+}
+
+export function validateSources(sources?: Source[]): void {
+  if (!sources) return;
+  for (const source of sources) {
+    if (source.target === "/") {
+      throw new CLIError('Invalid source target: "/". Custom sources cannot be mounted at root.');
+    }
+  }
+}
+
 export function parseSourceFlag(value: string): Source {
   // inline:<target>:<content>
   if (value.startsWith("inline:")) {
@@ -288,6 +309,16 @@ export function parseSourceFlag(value: string): Source {
     return { type: "github", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
   }
 
+  // repository:<url>:<target> — split on last colon since URLs contain colons
+  if (value.startsWith("repository:")) {
+    const rest = value.substring(11);
+    const idx = rest.lastIndexOf(":");
+    if (idx === -1) {
+      throw new CLIError("Invalid repository source format. Expected: repository:<url>:<target>");
+    }
+    return { type: "repository", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
+  }
+
   // gcs:<source>:<target> — split on last colon
   if (value.startsWith("gcs:")) {
     const rest = value.substring(4);
@@ -298,7 +329,7 @@ export function parseSourceFlag(value: string): Source {
     return { type: "gcs", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
   }
 
-  throw new CLIError(`Unknown source type in '${value}'\n\n  Available: inline, github, gcs`);
+  throw new CLIError(`Unknown source type in '${value}'\n\n  Available: inline, github, repository, gcs`);
 }
 
 export interface RunOptions {
@@ -324,7 +355,7 @@ export interface RunOptions {
 
   sources?: Source[];
   // Environment override (for agents test)
-  environment?: object;
+  environment?: string | object;
 }
 
 // Agents that automatically get `environment: { enabled: true }` when used
@@ -354,11 +385,26 @@ export function buildInteractionRequest(opts: RunOptions): object {
     input: opts.input,
   };
 
-  // Environment: custom sources take priority over auto-enable
-  if (opts.sources && opts.sources.length > 0) {
-    body.environment = { type: "remote", sources: opts.sources };
+  // Normalize and validate sources
+  const normalizedSources = normalizeSources(opts.sources);
+  validateSources(normalizedSources);
+
+  if (normalizedSources && normalizedSources.length > 0) {
+    body.environment = { type: "remote", sources: normalizedSources };
+  } else if (opts.environment) {
+    if (typeof opts.environment === "string") {
+      body.environment = opts.environment;
+    } else if (typeof opts.environment === "object") {
+      const envObj = opts.environment as any;
+      if (envObj.sources) {
+        const envSources = normalizeSources(envObj.sources);
+        validateSources(envSources);
+        envObj.sources = envSources;
+      }
+      body.environment = envObj;
+    }
   } else if (opts.agent && !isDeepResearchAgent(opts.agent)) {
-    body.environment = { enabled: true };
+    body.environment = "remote";
   }
 
   if (opts.model) body.model = opts.model;
@@ -380,9 +426,6 @@ export function buildInteractionRequest(opts: RunOptions): object {
       thinking_summaries: "auto",
     };
   }
-
-  // Environment override (from agents test command)
-  if (opts.environment) body.environment = opts.environment;
 
   // Generation Config
   const generationConfig: any = {};

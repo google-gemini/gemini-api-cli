@@ -33,10 +33,12 @@ import { inputToContentBlock, saveMediaOutputs } from "../lib/files";
 import { logRequest, logResponse } from "../lib/logger";
 import {
   HumanStreamRenderer,
+  mapContentToStepEvent,
   printCompletionSummary,
   printCurl,
   printError,
   printPollingStatus,
+  renderStepEvent,
 } from "../lib/output";
 import { globalFlags } from "../lib/shared-args";
 import type { StreamResult } from "../lib/stream";
@@ -88,6 +90,14 @@ Examples:
     environment: {
       type: "string",
       description: "Environment to use ('remote' or a specific env_id)",
+    },
+    network: {
+      type: "string",
+      description: "Disable network access ('disabled')",
+    },
+    "network-allowlist": {
+      type: "string",
+      description: "Comma-separated domain allowlist for network egress",
     },
     input: {
       type: "string",
@@ -269,11 +279,20 @@ Examples:
 
     let environment: any;
     if (args.environment) {
-      if (args.environment === "remote") {
-        environment = { enabled: true };
-      } else {
-        environment = { env_id: args.environment };
+      environment = args.environment;
+    }
+
+    if (args.network || args["network-allowlist"]) {
+      const envObj: any = { type: "remote" };
+      if (args.network === "disabled") {
+        envObj.network = "disabled";
+      } else if (args["network-allowlist"]) {
+        const domains = (args["network-allowlist"] as string).split(",").map((d) => d.trim());
+        envObj.network = {
+          allowlist: domains.map((domain) => ({ domain })),
+        };
       }
+      environment = envObj;
     }
 
     const runOpts: RunOptions = {
@@ -332,29 +351,11 @@ Examples:
       });
     } else {
       const renderer = new HumanStreamRenderer();
-      const activeBlocks = new Map<number, string>();
-      const activeSteps = new Map<number, string>();
 
       await processStream(response, {
         onEvent: (event, block) => {
-          if (event.type === "step.start" || event.type === "step.stop") {
-            renderer.handleStepEvent(event);
-            if (event.type === "step.start") {
-              const index = event.data.index ?? event.data.step_index;
-              if (index !== undefined) {
-                activeSteps.set(index, event.data.step?.type || "text");
-              }
-            }
-          } else if (event.type === "step.delta") {
-            const index = event.data.index ?? event.data.step_index;
-            const type = activeSteps.get(index) || "text";
-            renderer.handleEvent(event, type, block);
-          } else if (event.type === "content.start") {
-            activeBlocks.set(event.data.index, event.data.content.type);
-          } else if (event.type === "content.delta") {
-            const type = activeBlocks.get(event.data.index) || "text";
-            renderer.handleEvent(event, type, block);
-          }
+          const mapped = mapContentToStepEvent(event);
+          renderStepEvent(renderer, mapped, block);
         },
         onComplete: (result) => {
           renderer.finish();

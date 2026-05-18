@@ -131,6 +131,7 @@ describe("dry-run", () => {
   });
 
   test("agents create --dry-run prints curl", () => {
+    fs.rmSync("dry-run-test", { recursive: true, force: true });
     execSync("source ~/.bash_profile && bun run src/cli.ts agents init dry-run-test", {
       encoding: "utf-8",
       shell: "/bin/bash",
