@@ -25,5 +25,6 @@ $CLI run "Continue" --agent antigravity-preview-05-2026 --previous-interaction-i
 # live (two-step)
 RESULT=$($CLI run "Write 'hello' to tmp/test.txt" --agent antigravity-preview-05-2026 --json 2>&1)
 INT_ID=$(echo "$RESULT" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+ENV_ID=$(echo "$RESULT" | grep -o '"environment_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-$CLI run "Read tmp/test.txt and tell me what it says" --agent antigravity-preview-05-2026 --previous-interaction-id "$INT_ID"
+$CLI run "Read tmp/test.txt and tell me what it says" --agent antigravity-preview-05-2026 --previous-interaction-id "$INT_ID" --environment "$ENV_ID"
