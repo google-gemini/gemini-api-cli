@@ -17,7 +17,6 @@
     "build": "bun build ./src/cli.ts --outdir dist --target node --banner=\"#!/usr/bin/env node\"",
     "prepare": "node scripts/prepare.js",
     "compile": "bun build --compile ./src/cli.ts --outfile dist/gemini-api",
-    "local-install": "bash scripts/local-install.sh",
     "test": "bun test",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit"
