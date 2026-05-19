@@ -13,31 +13,37 @@
 
 ## Installation
 
-### From Source (via npm)
+### Via Install Script (Recommended)
+
+You can install the pre-compiled binary directly (no cloning required) using this single-line command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
+```
+
+### From Source (Standalone Binary)
+
+If you want to build and install the standalone binary locally (requires [Bun](https://bun.sh/)):
+
+```bash
+git clone https://github.com/google-gemini/gemini-api-cli.git
+cd gemini-api-cli
+bun run local-install
+```
+
+This will compile the binary for your platform and install it to `/usr/local/bin` (or `~/.local/bin` if not writable).
+
+### From Source (via npm/Node.js)
+
+If you don't have Bun, you can install it as a Node.js package (requires Node.js ≥ 22):
 
 ```bash
 git clone https://github.com/google-gemini/gemini-api-cli.git
 cd gemini-api-cli
 npm install -g .
-cd .. 
-
-# Install the skill for AI agents
-npx skills add ./gemini-api-cli/skills/gemini-api-cli -y
-
-rm -rf gemini-api-cli
 ```
 
-<!-- 
-### Via Install Script (Coming Soon)
-
-The easiest way to install will be via the install script once binaries are available:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
-```
--->
-
-### Quick Start (from source)
+### Quick Start (for development)
 
 ```bash
 # Install dependencies
@@ -46,8 +52,9 @@ bun install
 # Run in dev mode
 bun run dev -- run "Hello"
 
-# Build standalone binary
-bun run compile ./dist/gemini-api --version
+# Build standalone binary for current platform
+bun run compile
+./dist/gemini-api --version
 ```
 
 ## Commands
@@ -94,6 +101,15 @@ This repository includes a skill for AI agents to understand how to use this CLI
 - [DOCS.md](./DOCS.md) — Full user guide and reference
 - [tests/e2e/E2E.md](./tests/e2e/E2E.md) — End-to-End Test Plan
 
+
+## Releasing New Versions
+
+To release a new version and make the binaries available via the install script:
+
+1. Update the version in `package.json` and `src/cli.ts`.
+2. Commit and push the changes.
+3. Create a new Release on GitHub with a tag matching `v*` (e.g., `v0.2.0`).
+4. The **Release Binaries** GitHub workflow will automatically trigger, build the standalone binaries for all supported platforms, and upload them as assets to the release.
 
 ## Licensing & Disclaimer
 

@@ -11,12 +11,23 @@
 
 ### Via Install Script (Recommended)
 
-The easiest way to install is via the install script:
+You can install the pre-compiled binary directly (no cloning required) using this single-line command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
 ```
 
+### From Source (Standalone Binary)
+
+If you want to build and install the standalone binary locally (requires [Bun](https://bun.sh/)):
+
+```bash
+git clone https://github.com/google-gemini/gemini-api-cli.git
+cd gemini-api-cli
+bun run local-install
+```
+
+This will compile the binary for your platform and install it to `/usr/local/bin` (or `~/.local/bin` if not writable).
 
 ### From Source (via npm)
 
