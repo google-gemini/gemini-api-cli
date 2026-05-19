@@ -11,12 +11,11 @@
 
 ### Via Install Script (Recommended)
 
-The easiest way to install is via the install script:
+You can install the pre-compiled binary directly (no cloning required) using this single-line command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
 ```
-
 
 ### From Source (via npm)
 
