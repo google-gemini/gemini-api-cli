@@ -752,48 +752,48 @@ $CLI agents test --prompt "Hello" --path "./test-agent" --dry-run
 
 | # | CUJ | Category | 
 |---|-----|----------|
-| [01](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_01.sh) | Simple text (non-streaming) | Interactions |
-| [02](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_02.sh) | Simple text (streaming) | Interactions |
-| [03](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_03.sh) | Specify model | Interactions |
-| [04](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_04.sh) | JSON output | Interactions |
-| [06](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_06.sh) | System instruction | Interactions |
-| [07](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_07.sh) | Service tier | Interactions |
-| [08](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_08.sh) | Multi-turn | Conversations |
-| [09](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_09.sh) | Image understanding | Multimodal |
-| [10](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_10.sh) | Missing file error | Error |
-| [11](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_11.sh) | Image generation | Generation |
-| [12](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_12.sh) | Image config | Generation |
-| [13](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_13.sh) | TTS | Generation |
-| [14](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_14.sh) | Image editing | Generation |
-| [15](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_15.sh) | Edit strength + mask | Generation |
-| [16](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_16.sh) | Code execution | Tools |
-| [17](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_17.sh) | Google Search | Tools |
-| [18](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_18.sh) | URL context | Tools |
-| [19](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_19.sh) | Multiple tools | Tools |
-| [20](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_20.sh) | Invalid tool | Error |
-| [21](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_21.sh) | Agent init | Agents |
-| [22](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_22.sh) | Agent init idempotent | Agents |
-| [23](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_23.sh) | Agent create (dry) | Agents |
-| [24](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_24.sh) | Agent create (live) | Agents |
-| [25](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_25.sh) | Agent list | Agents |
-| [26](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_26.sh) | Agent list JSON | Agents |
-| [27](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_27.sh) | Agent get | Agents |
-| [28](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_28.sh) | Agent delete | Agents |
-| [29](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_29.sh) | Agent full lifecycle | Agents |
-| [30](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_30.sh) | Agent test | Agents |
-| [31](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_31.sh) | antigravity-preview-05-2026 agent | Agent Run |
-| [32](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_32.sh) | Custom agent | Agent Run |
-| [33](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_33.sh) | Agent env persistence | Agent Run |
-| [34](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_34.sh) | Deep Research | Agent Run |
-| [35](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_35.sh) | Files list | Files |
-| [36](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_36.sh) | Files download | Files |
-| [37](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_37.sh) | Missing prompt | Error |
-| [38](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_38.sh) | Missing API key | Error |
-| [39](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_39.sh) | Invalid model | Error |
-| [40](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_40.sh) | Missing agent.yaml | Error |
-| [41](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_41.sh) | Dry-run on all commands | UX |
-| [42](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_42.sh) | Completion summary | UX |
-| [43](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_43.sh) | Interaction logging | UX |
-| [44](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_44.sh) | Invalid agent | Error |
-| [45](file:///usr/local/google/home/philschmid/gemini-api-cli/tests/e2e/cuj_45.sh) | Network transform dry-run | Agent Run |
+| [01](./cuj_01.sh) | Simple text (non-streaming) | Interactions |
+| [02](./cuj_02.sh) | Simple text (streaming) | Interactions |
+| [03](./cuj_03.sh) | Specify model | Interactions |
+| [04](./cuj_04.sh) | JSON output | Interactions |
+| [06](./cuj_06.sh) | System instruction | Interactions |
+| [07](./cuj_07.sh) | Service tier | Interactions |
+| [08](./cuj_08.sh) | Multi-turn | Conversations |
+| [09](./cuj_09.sh) | Image understanding | Multimodal |
+| [10](./cuj_10.sh) | Missing file error | Error |
+| [11](./cuj_11.sh) | Image generation | Generation |
+| [12](./cuj_12.sh) | Image config | Generation |
+| [13](./cuj_13.sh) | TTS | Generation |
+| [14](./cuj_14.sh) | Image editing | Generation |
+| [15](./cuj_15.sh) | Edit strength + mask | Generation |
+| [16](./cuj_16.sh) | Code execution | Tools |
+| [17](./cuj_17.sh) | Google Search | Tools |
+| [18](./cuj_18.sh) | URL context | Tools |
+| [19](./cuj_19.sh) | Multiple tools | Tools |
+| [20](./cuj_20.sh) | Invalid tool | Error |
+| [21](./cuj_21.sh) | Agent init | Agents |
+| [22](./cuj_22.sh) | Agent init idempotent | Agents |
+| [23](./cuj_23.sh) | Agent create (dry) | Agents |
+| [24](./cuj_24.sh) | Agent create (live) | Agents |
+| [25](./cuj_25.sh) | Agent list | Agents |
+| [26](./cuj_26.sh) | Agent list JSON | Agents |
+| [27](./cuj_27.sh) | Agent get | Agents |
+| [28](./cuj_28.sh) | Agent delete | Agents |
+| [29](./cuj_29.sh) | Agent full lifecycle | Agents |
+| [30](./cuj_30.sh) | Agent test | Agents |
+| [31](./cuj_31.sh) | antigravity-preview-05-2026 agent | Agent Run |
+| [32](./cuj_32.sh) | Custom agent | Agent Run |
+| [33](./cuj_33.sh) | Agent env persistence | Agent Run |
+| [34](./cuj_34.sh) | Deep Research | Agent Run |
+| [35](./cuj_35.sh) | Files list | Files |
+| [36](./cuj_36.sh) | Files download | Files |
+| [37](./cuj_37.sh) | Missing prompt | Error |
+| [38](./cuj_38.sh) | Missing API key | Error |
+| [39](./cuj_39.sh) | Invalid model | Error |
+| [40](./cuj_40.sh) | Missing agent.yaml | Error |
+| [41](./cuj_41.sh) | Dry-run on all commands | UX |
+| [42](./cuj_42.sh) | Completion summary | UX |
+| [43](./cuj_43.sh) | Interaction logging | UX |
+| [44](./cuj_44.sh) | Invalid agent | Error |
+| [45](./cuj_45.sh) | Network transform dry-run | Agent Run |
 
