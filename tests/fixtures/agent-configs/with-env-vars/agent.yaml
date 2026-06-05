@@ -1,0 +1,13 @@
+id: test-agent-with-env-vars
+base_agent: antigravity-preview-05-2026
+description: Agent with environment variable placeholders
+environment:
+  type: remote
+  network:
+    allowlist:
+      - domain: api.github.com
+        transform:
+          Authorization: "Bearer ${GITHUB_TOKEN}"
+      - domain: generativelanguage.googleapis.com
+        transform:
+          x-goog-api-key: "${GEMINI_API_KEY}"

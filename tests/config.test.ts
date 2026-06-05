@@ -161,4 +161,28 @@ describe("loadAgent", () => {
     expect(agent.config.examples).toHaveLength(2);
     expect(agent.config.examples?.[0].title).toBe("Write a poem");
   });
+
+  test("loads agent.yaml with environment variable placeholders", async () => {
+    const agent = await loadAgent("./tests/fixtures/agent-configs/with-env-vars");
+    expect(agent.config.id).toBe("test-agent-with-env-vars");
+    expect(agent.config.environment).toEqual({
+      type: "remote",
+      network: {
+        allowlist: [
+          {
+            domain: "api.github.com",
+            transform: {
+              Authorization: "Bearer ${GITHUB_TOKEN}",
+            },
+          },
+          {
+            domain: "generativelanguage.googleapis.com",
+            transform: {
+              "x-goog-api-key": "${GEMINI_API_KEY}",
+            },
+          },
+        ],
+      },
+    });
+  });
 });
