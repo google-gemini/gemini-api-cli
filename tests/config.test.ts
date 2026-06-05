@@ -16,6 +16,14 @@ import { describe, expect, test } from "bun:test";
 import { loadAgent } from "../src/lib/config";
 import { AgentConfigSchema } from "../src/lib/schemas";
 
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
 describe("AgentConfigSchema", () => {
   test("valid minimal config", () => {
     const result = AgentConfigSchema.safeParse({
@@ -162,27 +170,125 @@ describe("loadAgent", () => {
     expect(agent.config.examples?.[0].title).toBe("Write a poem");
   });
 
-  test("loads agent.yaml with environment variable placeholders", async () => {
-    const agent = await loadAgent("./tests/fixtures/agent-configs/with-env-vars");
-    expect(agent.config.id).toBe("test-agent-with-env-vars");
-    expect(agent.config.environment).toEqual({
-      type: "remote",
-      network: {
-        allowlist: [
-          {
-            domain: "api.github.com",
-            transform: {
-              Authorization: "Bearer ${GITHUB_TOKEN}",
+  test("resolves agent.yaml environment variable placeholders from process env", async () => {
+    const oldGithubToken = process.env.GITHUB_TOKEN;
+    const oldGithubPat = process.env.GITHUB_PAT;
+    const oldGeminiApiKey = process.env.GEMINI_API_KEY;
+    try {
+      process.env.GITHUB_TOKEN = 'process-"github"-token';
+      process.env.GITHUB_PAT = "process-$&-github-pat";
+      process.env.GEMINI_API_KEY = "process-gemini-api-key";
+
+      const agent = await loadAgent("./tests/fixtures/agent-configs/with-env-vars");
+      expect(agent.config.id).toBe("test-agent-with-env-vars");
+      expect(agent.config.sources).toEqual([
+        {
+          type: "github",
+          source: "https://process-$&-github-pat@github.com/my-org/private-repo",
+          target: "/workspace/private-repo",
+        },
+      ]);
+      expect(agent.config.environment).toEqual({
+        type: "remote",
+        network: {
+          allowlist: [
+            {
+              domain: "api.github.com",
+              transform: {
+                Authorization: 'Bearer process-"github"-token',
+                "X-GitHub-Token": 'process-"github"-token',
+              },
             },
-          },
-          {
-            domain: "generativelanguage.googleapis.com",
-            transform: {
-              "x-goog-api-key": "${GEMINI_API_KEY}",
+            {
+              domain: "generativelanguage.googleapis.com",
+              transform: {
+                "x-goog-api-key": "process-gemini-api-key",
+                Authorization: "Bearer process-gemini-api-key",
+              },
             },
-          },
-        ],
-      },
-    });
+          ],
+        },
+      });
+    } finally {
+      restoreEnv("GITHUB_TOKEN", oldGithubToken);
+      restoreEnv("GITHUB_PAT", oldGithubPat);
+      restoreEnv("GEMINI_API_KEY", oldGeminiApiKey);
+    }
+  });
+
+  test("resolves agent.yaml environment variable placeholders from env file first", async () => {
+    const oldGithubToken = process.env.GITHUB_TOKEN;
+    const oldGithubPat = process.env.GITHUB_PAT;
+    const oldGeminiApiKey = process.env.GEMINI_API_KEY;
+    try {
+      process.env.GITHUB_TOKEN = "process-github-token";
+      process.env.GITHUB_PAT = "process-github-pat";
+      process.env.GEMINI_API_KEY = "process-gemini-api-key";
+
+      const agent = await loadAgent("./tests/fixtures/agent-configs/with-env-vars", {
+        envFile: "./tests/fixtures/agent-configs/with-env-vars/.env",
+      });
+      expect(agent.config.sources).toEqual([
+        {
+          type: "github",
+          source: "https://env-file-github-pat@github.com/my-org/private-repo",
+          target: "/workspace/private-repo",
+        },
+      ]);
+      expect(agent.config.environment).toEqual({
+        type: "remote",
+        network: {
+          allowlist: [
+            {
+              domain: "api.github.com",
+              transform: {
+                Authorization: "Bearer env-file-github-token",
+                "X-GitHub-Token": "env-file-github-token",
+              },
+            },
+            {
+              domain: "generativelanguage.googleapis.com",
+              transform: {
+                "x-goog-api-key": "env-file-gemini-api-key",
+                Authorization: "Bearer env-file-gemini-api-key",
+              },
+            },
+          ],
+        },
+      });
+    } finally {
+      restoreEnv("GITHUB_TOKEN", oldGithubToken);
+      restoreEnv("GITHUB_PAT", oldGithubPat);
+      restoreEnv("GEMINI_API_KEY", oldGeminiApiKey);
+    }
+  });
+
+  test("throws when agent.yaml references missing environment variables", async () => {
+    const oldGithubToken = process.env.GITHUB_TOKEN;
+    const oldGithubPat = process.env.GITHUB_PAT;
+    const oldGeminiApiKey = process.env.GEMINI_API_KEY;
+    try {
+      delete process.env.GITHUB_TOKEN;
+      delete process.env.GITHUB_PAT;
+      delete process.env.GEMINI_API_KEY;
+
+      await expect(loadAgent("./tests/fixtures/agent-configs/with-env-vars")).rejects.toThrow(
+        "Missing environment variable GITHUB_PAT",
+      );
+    } finally {
+      restoreEnv("GITHUB_TOKEN", oldGithubToken);
+      restoreEnv("GITHUB_PAT", oldGithubPat);
+      restoreEnv("GEMINI_API_KEY", oldGeminiApiKey);
+    }
+  });
+
+  test("throws a clear error when env file is missing", async () => {
+    await expect(
+      loadAgent("./tests/fixtures/agent-configs/valid", {
+        envFile: "./tests/fixtures/agent-configs/valid/missing.env",
+      }),
+    ).rejects.toThrow(
+      "Environment file not found: ./tests/fixtures/agent-configs/valid/missing.env",
+    );
   });
 });

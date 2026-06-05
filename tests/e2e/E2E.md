@@ -407,7 +407,7 @@ $CLI agents init "$AGENT_NAME"
 $CLI agents create --path "./$AGENT_NAME" --dry-run
 ```
 
-**Assert:** Output contains `curl -X POST`, `/agents`, `"name":`, `"base_agent": "antigravity-preview-05-2026"`.
+**Assert:** Output contains `curl -X POST`, `/agents`, `"id":`, `"base_agent": "antigravity-preview-05-2026"`.
 
 ---
 
@@ -796,4 +796,3 @@ $CLI agents test --prompt "Hello" --path "./test-agent" --dry-run
 | [43](./cuj_43.sh) | Interaction logging | UX |
 | [44](./cuj_44.sh) | Invalid agent | Error |
 | [45](./cuj_45.sh) | Network transform dry-run | Agent Run |
-

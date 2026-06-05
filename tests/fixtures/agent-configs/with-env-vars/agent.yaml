@@ -1,6 +1,10 @@
 id: test-agent-with-env-vars
 base_agent: antigravity-preview-05-2026
 description: Agent with environment variable placeholders
+sources:
+  - type: github
+    source: "https://${GITHUB_PAT}@github.com/my-org/private-repo"
+    target: "/workspace/private-repo"
 environment:
   type: remote
   network:
@@ -8,6 +12,8 @@ environment:
       - domain: api.github.com
         transform:
           Authorization: "Bearer ${GITHUB_TOKEN}"
+          X-GitHub-Token: "${GITHUB_TOKEN}"
       - domain: generativelanguage.googleapis.com
         transform:
           x-goog-api-key: "${GEMINI_API_KEY}"
+          Authorization: "Bearer ${GEMINI_API_KEY}"

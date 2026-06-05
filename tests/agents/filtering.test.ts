@@ -60,6 +60,7 @@ describe("agents create inlining integration", () => {
 
     const body = JSON.parse(bodyStr);
 
+    expect(body.id).toBe(agentName);
     expect(body.base_environment).toBeDefined();
     expect(body.base_environment.type).toBe("remote");
     expect(body.base_environment.sources).toBeDefined();

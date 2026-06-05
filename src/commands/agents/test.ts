@@ -67,12 +67,17 @@ Examples:
       type: "string",
       description: "Use existing environment",
     },
+    env: {
+      type: "string",
+      alias: "e",
+      description: "Load environment variables from a .env file",
+    },
   },
   async run({ args }) {
     try {
       const agentDir = args.path as string;
       const prompt = args.prompt as string;
-
+      const envFile = args.env as string | undefined;
       const sharedFlags = {
         apiKey: (args["api-key"] || args.apiKey) as string | undefined,
         baseUrl: (args["base-url"] || args.baseUrl) as string | undefined,
@@ -82,7 +87,7 @@ Examples:
 
       const ctx = resolveContext(sharedFlags);
 
-      const { config } = await loadAgent(agentDir);
+      const { config } = await loadAgent(agentDir, { envFile });
       const inlineFiles = await collectInlineFiles(agentDir);
 
       // system_instruction from agent.yaml is sent in the request body.
