@@ -15,6 +15,7 @@
 import { CLIError } from "./errors";
 
 export const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+export const DEFAULT_SERVER_TIMEOUT_SECONDS = 300000;
 
 export async function fetchWithTimeout(
   url: string,
@@ -76,7 +77,7 @@ export async function apiRequest<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "30000",
+    "x-server-timeout": DEFAULT_SERVER_TIMEOUT_SECONDS.toString(),
   };
 
   if (path.includes("/interactions")) {
@@ -193,7 +194,7 @@ export async function apiStreamRequest(
   const mergedHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "30000",
+    "x-server-timeout": DEFAULT_SERVER_TIMEOUT_SECONDS.toString(),
     ...headerOverrides,
   };
 

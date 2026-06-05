@@ -16,6 +16,7 @@ import { defineCommand } from "citty";
 import {
   apiStreamRequest,
   buildInteractionRequest,
+  DEFAULT_SERVER_TIMEOUT_SECONDS,
   isAgentName,
   normalizeSources,
   type RunOptions,
@@ -162,7 +163,7 @@ Examples:
 
       const body = buildInteractionRequest(runOpts);
 
-      const timeoutSeconds = parsedArgs.timeout ?? config.timeout ?? 300000;
+      const timeoutSeconds = parsedArgs.timeout ?? config.timeout ?? DEFAULT_SERVER_TIMEOUT_SECONDS;
       const headers = {
         "x-server-timeout": timeoutSeconds.toString(),
       };

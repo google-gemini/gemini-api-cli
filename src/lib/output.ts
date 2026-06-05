@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { DEFAULT_SERVER_TIMEOUT_SECONDS } from "./api";
 import type { ContentBlock, StreamEvent, StreamResult } from "./stream";
 
 export function printCurl(
@@ -21,7 +22,7 @@ export function printCurl(
   body?: unknown,
   headers?: Record<string, string>,
 ): void {
-  const serverTimeout = headers?.["x-server-timeout"] ?? "30000";
+  const serverTimeout = headers?.["x-server-timeout"] ?? DEFAULT_SERVER_TIMEOUT_SECONDS.toString();
   const apiRevision = url.includes("/interactions")
     ? ` \\\n  -H "Api-Revision: 2026-05-20"`
     : "";
