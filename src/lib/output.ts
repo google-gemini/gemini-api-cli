@@ -18,7 +18,7 @@ export function printCurl(method: string, url: string, apiKey: string, body?: un
   let curl = `curl -X ${method} "${url}" \\\n`;
   curl += `  -H "Content-Type: application/json" \\\n`;
   curl += `  -H "x-goog-api-key: ${apiKey}" \\\n`;
-  curl += `  -H "x-server-timeout: 600"`;
+  curl += `  -H "x-server-timeout: 30000"`;
 
   if (url.includes("/interactions")) {
     curl += ` \\\n  -H "Api-Revision: 2026-05-20"`;

@@ -76,7 +76,7 @@ export async function apiRequest<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "600",
+    "x-server-timeout": "30000",
   };
 
   if (path.includes("/interactions")) {
@@ -192,7 +192,7 @@ export async function apiStreamRequest(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "600",
+    "x-server-timeout": "30000",
   };
 
   if (path.includes("/interactions")) {
