@@ -1,6 +1,6 @@
 {
   "name": "@google/gemini-api-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI to access Gemini API",
   "license": "Apache-2.0",
   "type": "module",
