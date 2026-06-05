@@ -20,7 +20,7 @@ import { defineCommand, runMain } from "citty";
 const main = defineCommand({
   meta: {
     name: "gemini-api",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "CLI to access Gemini API",
   },
   subCommands: {

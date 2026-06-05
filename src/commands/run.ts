@@ -377,7 +377,7 @@ Examples:
  * Run a Deep Research agent with streaming and automatic reconnection.
  *
  * Deep Research tasks can take minutes. The SSE connection may drop (e.g., after
- * the 600s server timeout). This function handles:
+ * the 30000s server timeout). This function handles:
  * 1. Initial POST to start the task (stream=true, background=true)
  * 2. Processing stream events as they arrive
  * 3. If the connection drops while status is still in_progress, poll the

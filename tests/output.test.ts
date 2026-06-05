@@ -199,6 +199,63 @@ describe("HumanStreamRenderer Normal Mode (Concise)", () => {
 
     expect(output).toBe("");
   });
+
+  test("uses step type from block if step type was unknown at start", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
+
+    const renderer = new HumanStreamRenderer(mockStdout, false);
+
+    // 1. Code execution call starts with unknown type, but resolved in delta
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1 },
+      raw: "",
+    });
+    renderer.handleStepDelta(
+      {
+        type: "step.delta",
+        data: { index: 1, delta: { arguments: { code: "print(2 + 2)\n" } } },
+        raw: "",
+      },
+      {
+        type: "code_execution_call",
+        arguments: { code: "print(2 + 2)\n" },
+        id: "call_1",
+      }
+    );
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
+
+    expect(output).toBe("");
+
+    // 2. Code execution result starts and stops
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 2, step: { type: "code_execution_result" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 2, delta: { result: "4\n", is_error: false } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 2 },
+      raw: "",
+    });
+
+    expect(output).toBe('[code] print(2 + 2) -> "4"\n');
+  });
 });
 
 describe("HumanStreamRenderer Verbose Mode", () => {
