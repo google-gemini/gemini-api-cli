@@ -16,6 +16,26 @@ import { CLIError } from "./errors";
 
 export const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
+export async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 3000000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
 export interface CLIContext {
   apiKey: string;
   baseUrl: string;
@@ -63,7 +83,7 @@ export async function apiRequest<T>(
     headers["Api-Revision"] = "2026-05-20";
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -113,7 +133,7 @@ export async function apiGetRequest<T>(
     "x-goog-api-key": ctx.apiKey,
   };
 
-  const response = await fetch(url, { method: "GET", headers });
+  const response = await fetchWithTimeout(url, { method: "GET", headers });
 
   if (!response.ok) {
     let errorMsg = `API error (${response.status})`;
@@ -145,7 +165,7 @@ export async function apiGetStreamRequest(
     "x-goog-api-key": ctx.apiKey,
   };
 
-  const response = await fetch(url, { method: "GET", headers });
+  const response = await fetchWithTimeout(url, { method: "GET", headers });
 
   if (!response.ok) {
     let errorMsg = `API error (${response.status})`;
@@ -179,7 +199,7 @@ export async function apiStreamRequest(
     headers["Api-Revision"] = "2026-05-20";
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -329,7 +349,9 @@ export function parseSourceFlag(value: string): Source {
     return { type: "gcs", source: rest.substring(0, idx), target: rest.substring(idx + 1) };
   }
 
-  throw new CLIError(`Unknown source type in '${value}'\n\n  Available: inline, github, repository, gcs`);
+  throw new CLIError(
+    `Unknown source type in '${value}'\n\n  Available: inline, github, repository, gcs`,
+  );
 }
 
 export interface RunOptions {

@@ -31,4 +31,10 @@ export const globalFlags = {
     description: "Print curl and exit",
     default: false,
   },
+  verbose: {
+    type: "boolean" as const,
+    alias: "v",
+    description: "Verbose output (JSON lines per step, full details)",
+    default: false,
+  },
 };

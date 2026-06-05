@@ -51,7 +51,6 @@ describe("collectInlineFiles filtering", () => {
     const targets = files.map((f) => f.target);
     console.log("Collected targets:", targets);
 
-
     expect(targets).toContain("/.agents/AGENTS.md");
     expect(targets).toContain("/.agents/workspace/file1.txt");
     expect(targets).toContain("/.agents/skills/skill1.js");

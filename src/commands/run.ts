@@ -350,7 +350,8 @@ Examples:
         onComplete: () => {},
       });
     } else {
-      const renderer = new HumanStreamRenderer();
+      const verbose = args.verbose as boolean;
+      const renderer = new HumanStreamRenderer(process.stdout, verbose);
 
       await processStream(response, {
         onEvent: (event, block) => {
@@ -361,7 +362,7 @@ Examples:
           renderer.finish();
           saveMediaOutputs(result.outputs, result.interactionId, args.output as string | undefined);
           const latencySeconds = (performance.now() - startTime) / 1000;
-          printCompletionSummary(result, latencySeconds);
+          printCompletionSummary(result, latencySeconds, verbose);
           if (!args.json) {
             logRequest(result.interactionId, body);
             logResponse(result.interactionId, result);

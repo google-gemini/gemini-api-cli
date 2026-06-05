@@ -43,7 +43,6 @@ const SourceSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-
 const NetworkRuleSchema = z.object({
   domain: z.string(),
   transform: z.record(z.string()).optional(),
@@ -79,9 +78,7 @@ export const AgentConfigSchema = z
     description: z.string().optional(),
     instructions: z.string().optional(),
     tools: z.array(ToolSchema).optional(),
-    base_environment: z
-      .union([z.string(), RemoteEnvironmentSchema])
-      .optional(),
+    base_environment: z.union([z.string(), RemoteEnvironmentSchema]).optional(),
     sources: z.array(SourceSchema).optional(),
     environment: EnvironmentSchema.optional(),
     examples: z.array(ExampleSchema).optional(),

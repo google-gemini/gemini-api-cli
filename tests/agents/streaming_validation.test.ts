@@ -31,14 +31,32 @@ describe("gemini-api agents test streaming validation", () => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
               };
 
-              sendEvent({ event_type: "interaction.created", interaction: { id: "test-id", status: "in_progress" } });
-              sendEvent({ event_type: "step.start", index: 0, step: { type: "thought", status: "in_progress" } });
+              sendEvent({
+                event_type: "interaction.created",
+                interaction: { id: "test-id", status: "in_progress" },
+              });
+              sendEvent({
+                event_type: "step.start",
+                index: 0,
+                step: { type: "thought", status: "in_progress" },
+              });
               sendEvent({ event_type: "step.delta", index: 0, delta: { text: "Thinking delta" } });
-              sendEvent({ event_type: "step.stop", index: 0, step: { type: "thought", status: "completed" } });
+              sendEvent({
+                event_type: "step.stop",
+                index: 0,
+                step: { type: "thought", status: "completed" },
+              });
               sendEvent({ event_type: "content.start", index: 1, content: { type: "text" } });
-              sendEvent({ event_type: "content.delta", index: 1, delta: { text: "Content delta" } });
+              sendEvent({
+                event_type: "content.delta",
+                index: 1,
+                delta: { text: "Content delta" },
+              });
               sendEvent({ event_type: "content.stop", index: 1 });
-              sendEvent({ event_type: "interaction.completed", interaction: { id: "test-id", status: "completed" } });
+              sendEvent({
+                event_type: "interaction.completed",
+                interaction: { id: "test-id", status: "completed" },
+              });
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
               controller.close();
             },
@@ -48,7 +66,7 @@ describe("gemini-api agents test streaming validation", () => {
             headers: {
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache",
-              "Connection": "keep-alive",
+              Connection: "keep-alive",
             },
           });
         }
@@ -58,9 +76,22 @@ describe("gemini-api agents test streaming validation", () => {
 
     const baseUrl = `http://localhost:${server.port}`;
 
-    const child = spawn("bun", ["run", "src/cli.ts", "agents", "test", "--prompt", "Hello", "--path", "./tests/fixtures/agent-configs/valid"], {
-      env: { ...process.env, GEMINI_API_BASE_URL: baseUrl, GEMINI_API_KEY: "test-key" },
-    });
+    const child = spawn(
+      "bun",
+      [
+        "run",
+        "src/cli.ts",
+        "agents",
+        "test",
+        "--prompt",
+        "Hello",
+        "--path",
+        "./tests/fixtures/agent-configs/valid",
+      ],
+      {
+        env: { ...process.env, GEMINI_API_BASE_URL: baseUrl, GEMINI_API_KEY: "test-key" },
+      },
+    );
 
     let output = "";
     child.stdout.on("data", (data) => {
@@ -82,7 +113,7 @@ describe("gemini-api agents test streaming validation", () => {
 
     // Verify that "Content delta" is present
     expect(output).toContain("Content delta");
-    
+
     // Verify that "Thinking delta" is NOT present (this confirms the bug)
     expect(output).not.toContain("Thinking delta");
   }, 30000);

@@ -56,8 +56,8 @@ Outputs raw SSE events as JSONL (one event per line), useful for machine parsing
 gemini-api run "Hello" --json
 ```
 
-### Verbose (`--verbose`)
-Enables detailed request and response logging for debugging.
+### Verbose (`--verbose` / `-v`)
+Outputs complete JSON step objects line-by-line as they finish. Recommended for programmatic parsing by calling agents.
 ```bash
 gemini-api run "Hello" --verbose
 ```

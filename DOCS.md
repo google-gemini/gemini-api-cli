@@ -385,29 +385,43 @@ tools:
 
 ## Output Modes
 
-### Human (Default)
+### Normal (Default)
 
-Streaming text with typed block labels:
+Optimized for clean, readable output and valid Markdown parsing. Thoughts are concise, tool calls are consolidated into single lines, and the final response text is printed without leading indentation:
 
 ```
-[tool]         read_file({"path":"/credentials/.env"})
-[result]       # Configurations for your agent...
-[text]         I found the credentials file.
+[thought]
+[tool] write_file(path="hello.py") -> {"success":true}
+[code] python3 hello.py -> "Hello, World!"
+[text]
+I have created a Python script named `hello.py` and successfully executed it.
 
-✓ completed
-  interaction_id: v1_ChdZTlR3YVlfSE9zdjJ4TjhQbjVHQjhRdxIXWU5Ud2FZX0hPc3YyeE44UG41R0I4UXc
-  environment_id: 7a5c3831-cc50-48cf-9351-100aa7d1c3a8
-  latency: 15.8s
+Here is the content of `hello.py`:
+```python
+print("Hello, World!")
+```
+```
+
+### Verbose (`--verbose` / `-v`)
+
+Optimized for automated parsing by agents. Steps are output as completed single-line JSON objects, followed by the final `{interaction}` metadata as a JSON line:
+
+```json
+{"index":0,"type":"thought","status":"completed","thought":{"signature":"EvQBCvEBAQw5..."}}
+{"index":1,"type":"function_call","status":"completed","function_call":{"name":"write_file","arguments":{"path":"hello.py","content":"print(\"Hello, World!\")"}}}
+{"index":2,"type":"function_result","status":"completed","function_result":{"name":"write_file","result":{"success":true}}}
+{"interaction":{"id":"v1_ChdIcjRp...","status":"completed","usage":{"total_tokens":9131,"total_input_tokens":8970,"total_output_tokens":161},"object":"interaction"}}
 ```
 
 ### JSON (`--json`)
 
-Raw SSE events as JSONL (one event per line):
+Raw streamed SSE events as JSONL (one raw event per line):
 
 ```jsonl
-{"event_type":"interaction.start","interaction":{...}}
-{"event_type":"content.delta","index":0,"delta":{"type":"text","text":"Hello"}}
-{"event_type":"interaction.complete","interaction":{...}}
+{"event_type":"interaction.created","interaction":{...}}
+{"index":0,"step":{"type":"thought"},"event_type":"step.start"}
+{"index":0,"delta":{"signature":"EvQBC...","type":"thought_signature"},"event_type":"step.delta"}
+{"event_type":"interaction.completed","interaction":{...}}
 ```
 
 ### Dry Run (`--dry-run`)

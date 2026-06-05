@@ -375,38 +375,41 @@ function handleEvent(
         let block = contentBlocks.get(index);
         if (!block && delta.type) {
           let type: string | undefined;
-          if ([
-            "text",
-            "image",
-            "audio",
-            "video",
-            "document",
-            "function_call",
-            "code_execution_call",
-            "code_execution_result",
-            "thought_summary",
-            "thought_signature",
-            "url_context_call",
-            "google_search_call",
-            "mcp_server_tool_call",
-            "file_search_call",
-            "google_maps_call",
-            "function_result",
-            "url_context_result",
-            "google_search_result",
-            "mcp_server_tool_result",
-            "file_search_result",
-            "google_maps_result",
-            "text_annotation"
-          ].includes(delta.type)) {
+          if (
+            [
+              "text",
+              "image",
+              "audio",
+              "video",
+              "document",
+              "function_call",
+              "code_execution_call",
+              "code_execution_result",
+              "thought_summary",
+              "thought_signature",
+              "url_context_call",
+              "google_search_call",
+              "mcp_server_tool_call",
+              "file_search_call",
+              "google_maps_call",
+              "function_result",
+              "url_context_result",
+              "google_search_result",
+              "mcp_server_tool_result",
+              "file_search_result",
+              "google_maps_result",
+              "text_annotation",
+            ].includes(delta.type)
+          ) {
             type = delta.type;
           } else if (delta.type === "thought") {
             type = "thought_summary";
           }
 
           if (type) {
-            block = { type } as any;
-            contentBlocks.set(index, block);
+            const newBlock = { type } as ContentBlock;
+            block = newBlock;
+            contentBlocks.set(index, newBlock);
           }
         }
 
