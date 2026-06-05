@@ -220,6 +220,8 @@ export class HumanStreamRenderer {
 
     if (type === "function_call" || type === "code_execution_call") {
       if (delta.arguments) {
+        // Assume delta.arguments is streamed as string chunks containing JSON fragments.
+        // If it is pre-parsed or delivered as objects, concatenation will result in invalid JSON.
         this.accumulatedArguments +=
           typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
       }
@@ -505,6 +507,7 @@ export function printCompletionSummary(
         total_input_tokens: inTokens,
         total_output_tokens: outTokens,
         total_thought_tokens: result.usage.thoughtTokens || 0,
+        total_cached_tokens: result.usage.cachedTokens || 0,
       };
     }
     if (result.created) summaryObj.interaction.created = result.created;
@@ -524,7 +527,8 @@ export function printCompletionSummary(
       const inTokens = result.usage.inputTokens?.toLocaleString() ?? "0";
       const outTokens = result.usage.outputTokens?.toLocaleString() ?? "0";
       const thoughtTokens = result.usage.thoughtTokens?.toLocaleString() ?? "0";
-      console.log(`  tokens: in:${inTokens} out:${outTokens} thought:${thoughtTokens}`);
+      const cachedTokens = result.usage.cachedTokens !== undefined ? ` cached:${result.usage.cachedTokens.toLocaleString()}` : "";
+      console.log(`  tokens: in:${inTokens} out:${outTokens} thought:${thoughtTokens}${cachedTokens}`);
     }
     console.log(`  latency: ${latencySeconds.toFixed(1)}s`);
   }

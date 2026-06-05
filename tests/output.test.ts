@@ -254,6 +254,7 @@ describe("HumanStreamRenderer Verbose Mode", () => {
           inputTokens: 100,
           outputTokens: 50,
           thoughtTokens: 25,
+          cachedTokens: 10,
         },
       };
 
@@ -268,6 +269,7 @@ describe("HumanStreamRenderer Verbose Mode", () => {
       expect(parsed.interaction.usage.total_input_tokens).toBe(100);
       expect(parsed.interaction.usage.total_output_tokens).toBe(50);
       expect(parsed.interaction.usage.total_thought_tokens).toBe(25);
+      expect(parsed.interaction.usage.total_cached_tokens).toBe(10);
     } finally {
       console.log = originalLog;
     }

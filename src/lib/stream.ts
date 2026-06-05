@@ -34,6 +34,7 @@ export interface Usage {
   inputTokens?: number;
   outputTokens?: number;
   thoughtTokens?: number;
+  cachedTokens?: number;
 }
 
 export interface StepInfo {
@@ -461,6 +462,7 @@ function handleEvent(
         inputTokens: usage.total_input_tokens ?? usage.input_tokens,
         outputTokens: usage.total_output_tokens ?? usage.output_tokens,
         thoughtTokens: usage.total_thought_tokens ?? usage.thought_tokens,
+        cachedTokens: usage.total_cached_tokens ?? usage.cached_tokens,
       };
     }
   }

@@ -265,7 +265,6 @@ gemini-api files download env_xyz789 --dry-run
 my-agent/
 ├── agent.yaml       # Configuration (not inlined)
 ├── AGENTS.md        # System instructions (inlined to /.agents/AGENTS.md)
-├── .env             # Credentials (inlined to /credentials/.env)
 ├── skills/          # Custom skills (all files inlined recursively)
 └── workspace/       # Files seeded into remote environment (all files inlined recursively)
 ```
@@ -293,9 +292,7 @@ environment: remote
 # base_environment: env_abc123
 ```
 
-### `.env`
 
-Credentials file. If it contains non-empty values, it's inlined during `agents test` and `agents create` to `/credentials/.env` in the agent environment. The agent can then `source /credentials/.env` to load the values.
 
 ### `AGENTS.md`
 
@@ -313,7 +310,7 @@ Files seeded into the remote environment at `/.agents/workspace/`. All files in 
 | Binary files | Base64-encoded with `"encoding": "base64"` | `.pdf`, `.png`, `.jpg`, `.mp3`, `.wav`, `.zip` |
 | Files > 1 MB | Skipped | — |
 
-> **Note:** Only `AGENTS.md`, `.env`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories are ignored.
+> **Note:** Only `AGENTS.md`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories are ignored.
 
 Binary files are automatically detected by extension. The following are treated as binary:
 - Images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tiff`, `.heic`, `.heif`
@@ -334,7 +331,7 @@ environment: remote
 # base_environment: env_abc123
 ```
 
-When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
+When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files and skills are seeded into it before the agent runs.
 
 You can also specify a structured config object to configure GCS/GitHub `sources`, establish `network` allowlists, and inject secret credentials securely via header `transform` rules:
 
@@ -410,7 +407,7 @@ Optimized for automated parsing by agents. Steps are output as completed single-
 {"index":0,"type":"thought","status":"completed","thought":{"signature":"EvQBCvEBAQw5..."}}
 {"index":1,"type":"function_call","status":"completed","function_call":{"name":"write_file","arguments":{"path":"hello.py","content":"print(\"Hello, World!\")"}}}
 {"index":2,"type":"function_result","status":"completed","function_result":{"name":"write_file","result":{"success":true}}}
-{"interaction":{"id":"v1_ChdIcjRp...","status":"completed","usage":{"total_tokens":9131,"total_input_tokens":8970,"total_output_tokens":161},"object":"interaction"}}
+{"interaction":{"id":"v1_ChdIcjRp...","status":"completed","usage":{"total_tokens":9131,"total_input_tokens":8970,"total_output_tokens":161,"total_cached_tokens":0},"object":"interaction"}}
 ```
 
 ### JSON (`--json`)
