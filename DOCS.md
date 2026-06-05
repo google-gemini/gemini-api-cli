@@ -87,7 +87,7 @@ gemini-api run "Analyze my data" --agent my-data-analyst
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `<prompt>` | | positional | — | Input prompt. |
-| `--model` | `-m` | string | `gemini-3-flash-preview` | Model to use |
+| `--model` | `-m` | string | `gemini-3.5-flash` | Model to use |
 | `--agent` | `-a` | string | — | Agent to use (overrides `--model`) |
 | `--input` | `-i` | string[] | — | Multimodal input: `image:path`, `audio:path`, `video:path`, `document:path` |
 | `--output` | `-o` | string | — | Save generated media to file |
@@ -555,13 +555,14 @@ gemini-api agents create --dry-run
 
 | Model | Description |
 |---|---|
-| `gemini-3-flash-preview` | Frontier + search (default) |
+| `gemini-3.5-flash` | Frontier + search (default) |
 | `gemini-3.1-pro-preview` | SOTA reasoning + multimodal |
-| `gemini-3.1-pro-preview` | SOTA reasoning |
+| `gemini-3-flash-preview` | Gemini 3 Flash Preview |
+| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite |
 | `gemini-2.5-flash` | Hybrid reasoning, 1M context |
 | `gemini-2.5-pro` | SOTA coding + reasoning |
-| `gemini-3-pro-image-preview` | Image generation |
-| `gemini-3.1-flash-image-preview` | Flash image generation |
+| `gemini-3-pro-image` | Nano Banana Pro (image generation) |
+| `gemini-3.1-flash-image` | Nano Banana 2 (image generation) |
 | `gemini-2.5-flash-image` | Native image generation |
 | `gemini-3.1-flash-tts-preview` | Text-to-speech |
 | `gemini-2.5-flash-preview-tts` | TTS |

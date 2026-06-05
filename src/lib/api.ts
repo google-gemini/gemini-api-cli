@@ -109,7 +109,7 @@ export async function apiRequest<T>(
 
     if (response.status === 400) {
       throw new CLIError(
-        `${errorMsg}\n\n  Try:\n    gemini-api run "Hello" --model gemini-3-flash-preview`,
+        `${errorMsg}\n\n  Try:\n    gemini-api run "Hello" --model gemini-3.5-flash`,
       );
     }
 

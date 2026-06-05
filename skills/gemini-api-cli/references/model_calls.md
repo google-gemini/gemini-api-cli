@@ -4,7 +4,7 @@ This reference covers standard interactions with Gemini models using the `gemini
 
 ## Basic Prompting
 
-Run a simple prompt against the default model (`gemini-3-flash-preview`):
+Run a simple prompt against the default model (`gemini-3.5-flash`):
 
 ```bash
 gemini-api run "What is the capital of France?"
@@ -19,10 +19,9 @@ gemini-api run "Explain quantum computing" --model gemini-3.1-pro-preview
 ```
 
 Common models:
-- `gemini-3-flash-preview` (default)
+- `gemini-3.5-flash` (default)
 - `gemini-3.1-pro-preview`
-- `gemini-2.5-flash`
-- `gemini-2.5-pro`
+- `gemini-3.1-flash-lite`
 
 ## Multi-Turn Conversations
 

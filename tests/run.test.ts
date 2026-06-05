@@ -38,7 +38,7 @@ describe("gemini-api run", () => {
     const result = runCli('run "Say exactly: pong"');
     expect(result).toContain("pong");
     expect(result).toContain("interaction_id:");
-  });
+  }, 30000);
 
   test("--json outputs JSONL", () => {
     if (!process.env.GEMINI_API_KEY) return;
@@ -56,7 +56,7 @@ describe("gemini-api run", () => {
 
     expect(events.length).toBeGreaterThan(0);
     expect(events[0].event_type).toBeDefined();
-  });
+  }, 30000);
 
   test("streaming returns text incrementally", () => {
     if (!process.env.GEMINI_API_KEY) return;
@@ -64,7 +64,7 @@ describe("gemini-api run", () => {
     expect(result).toContain("1");
     expect(result).toContain("5");
     expect(result).toContain("✓ completed");
-  });
+  }, 30000);
 
   test("stdin input works", () => {
     if (!process.env.GEMINI_API_KEY) return;
@@ -75,7 +75,7 @@ describe("gemini-api run", () => {
     const result = execSync(cmd, { encoding: "utf-8" });
     expect(result).toContain("stdin-works");
     fs.unlinkSync("tmp/tmp_prompt.txt");
-  });
+  }, 30000);
 
   test("multi-turn with previous-interaction-id", () => {
     if (!process.env.GEMINI_API_KEY) return;

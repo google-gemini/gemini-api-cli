@@ -169,6 +169,36 @@ describe("HumanStreamRenderer Normal Mode (Concise)", () => {
 
     expect(output).toBe("[text]\nHello\nworld");
   });
+
+  test("does not render [text] header if there is no text output (e.g. media-only output)", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
+
+    const renderer = new HumanStreamRenderer(mockStdout, false);
+
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1, step: { type: "model_output" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 1, delta: { data: "base64bytes...", mime_type: "image/png" } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
+
+    expect(output).toBe("");
+  });
 });
 
 describe("HumanStreamRenderer Verbose Mode", () => {

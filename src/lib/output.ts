@@ -119,10 +119,14 @@ export class HumanStreamRenderer {
       this.stdout.write(`${prefix}\n`);
       this.prefixPrinted = true;
     } else if (this.currentStepType === "model_output") {
-      const prefix = this.getPrefix("text");
-      this.stdout.write(`${prefix}\n`);
-      this.prefixPrinted = true;
+      let hasText = false;
       if (Array.isArray(event.data.step?.content)) {
+        hasText = event.data.step.content.some((c: any) => c.type === "text" && c.text);
+      }
+      if (hasText) {
+        const prefix = this.getPrefix("text");
+        this.stdout.write(`${prefix}\n`);
+        this.prefixPrinted = true;
         for (const c of event.data.step.content) {
           if (c.type === "text" && c.text) {
             this.stdout.write(c.text);

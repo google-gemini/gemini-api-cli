@@ -66,7 +66,7 @@ Examples:
       type: "string",
       alias: "m",
       description: "Model to use",
-      default: "gemini-3-flash-preview",
+      default: "gemini-3.5-flash",
     },
     agent: {
       type: "string",
