@@ -20,11 +20,13 @@ import {
   normalizeSources,
   type RunOptions,
   resolveContext,
+  SharedFlags,
   type Source,
   validateSources,
 } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
+import { TestArgsSchema } from "../../lib/schemas";
 import { collectInlineFiles } from "../../lib/files";
 import { logRequest, logResponse } from "../../lib/logger";
 import {
@@ -67,20 +69,33 @@ Examples:
       type: "string",
       description: "Use existing environment",
     },
+    timeout: {
+      type: "string",
+      description: "Override timeout in seconds",
+    },
   },
   async run({ args }) {
     try {
-      const agentDir = args.path as string;
-      const prompt = args.prompt as string;
+      const parseResult = TestArgsSchema.safeParse(args);
+      if (!parseResult.success) {
+        const errors = parseResult.error.issues
+          .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+          .join("\n");
+        throw new CLIError(`Invalid arguments:\n${errors}`);
+      }
+      const parsedArgs = parseResult.data;
+
+      const agentDir = parsedArgs.path;
+      const prompt = parsedArgs.prompt;
 
       const sharedFlags = {
-        apiKey: (args["api-key"] || args.apiKey) as string | undefined,
-        baseUrl: (args["base-url"] || args.baseUrl) as string | undefined,
-        json: args.json as boolean,
-        dryRun: (args["dry-run"] || args.dryRun) as boolean,
+        apiKey: parsedArgs["api-key"],
+        baseUrl: parsedArgs["base-url"],
+        json: parsedArgs.json,
+        dryRun: parsedArgs["dry-run"],
       };
 
-      const ctx = resolveContext(sharedFlags);
+      const ctx = resolveContext(sharedFlags as SharedFlags);
 
       const { config } = await loadAgent(agentDir);
       const inlineFiles = await collectInlineFiles(agentDir);
@@ -92,8 +107,8 @@ Examples:
 
       // Build environment config
       let environment: any;
-      if (args.environment) {
-        environment = args.environment;
+      if (parsedArgs.environment) {
+        environment = parsedArgs.environment;
       } else {
         const sources: Source[] = [...inlineFiles] as unknown as Source[];
         if (config.sources) {
@@ -140,23 +155,28 @@ Examples:
         input: prompt,
         systemInstruction: systemInstruction,
         tools: config.tools as any,
-        previousInteractionId: args["previous-interaction-id"] as string | undefined,
+        previousInteractionId: parsedArgs["previous-interaction-id"],
         stream: true,
         environment: environment || undefined,
       };
 
       const body = buildInteractionRequest(runOpts);
 
-      if (args["dry-run"]) {
-        printCurl("POST", `${ctx.baseUrl}/interactions`, ctx.apiKey, body);
+      const timeoutSeconds = parsedArgs.timeout ?? config.timeout ?? 600;
+      const headers = {
+        "x-server-timeout": timeoutSeconds.toString(),
+      };
+
+      if (parsedArgs["dry-run"]) {
+        printCurl("POST", `${ctx.baseUrl}/interactions`, ctx.apiKey, body, headers);
         return;
       }
 
       const startTime = performance.now();
 
-      const response = await apiStreamRequest(ctx, "/interactions", body);
+      const response = await apiStreamRequest(ctx, "/interactions", body, headers);
 
-      if (args.json) {
+      if (parsedArgs.json) {
         await processStream(response, {
           onEvent: (event) => {
             console.log(event.raw);
@@ -164,7 +184,7 @@ Examples:
           onComplete: () => {},
         });
       } else {
-        const verbose = args.verbose as boolean;
+        const verbose = parsedArgs.verbose;
         const renderer = new HumanStreamRenderer(process.stdout, verbose);
 
         await processStream(response, {
@@ -176,7 +196,7 @@ Examples:
             renderer.finish();
             const latencySeconds = (performance.now() - startTime) / 1000;
             printCompletionSummary(result, latencySeconds, verbose);
-            if (!args.json) {
+            if (!parsedArgs.json) {
               logRequest(result.interactionId, body);
               logResponse(result.interactionId, result);
             }
