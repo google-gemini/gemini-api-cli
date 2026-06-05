@@ -162,7 +162,7 @@ Examples:
 
       const body = buildInteractionRequest(runOpts);
 
-      const timeoutSeconds = parsedArgs.timeout ?? config.timeout ?? 600;
+      const timeoutSeconds = parsedArgs.timeout ?? config.timeout ?? 300000;
       const headers = {
         "x-server-timeout": timeoutSeconds.toString(),
       };

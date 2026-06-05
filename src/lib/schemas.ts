@@ -71,6 +71,8 @@ const ExampleSchema = z.object({
   prompt: z.string(),
 });
 
+const TimeoutSecondsSchema = z.coerce.number().int().positive();
+
 export const AgentConfigSchema = z
   .object({
     id: z.string(),
@@ -82,7 +84,7 @@ export const AgentConfigSchema = z
     sources: z.array(SourceSchema).optional(),
     environment: EnvironmentSchema.optional(),
     examples: z.array(ExampleSchema).optional(),
-    timeout: z.number().optional(),
+    timeout: TimeoutSecondsSchema.optional(),
   })
   .strict();
 
@@ -100,7 +102,7 @@ export const TestArgsSchema = z.object({
   path: z.string().default("."),
   "previous-interaction-id": z.string().optional(),
   environment: z.string().optional(),
-  timeout: z.coerce.number().int().positive().optional(),
+  timeout: TimeoutSecondsSchema.optional(),
   "api-key": z.string().optional(),
   "base-url": z.string().optional(),
   json: z.boolean().default(false),
