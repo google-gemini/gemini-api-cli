@@ -15,7 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { defineCommand } from "citty";
-import { resolveContext } from "../../lib/api";
+import { fetchWithTimeout, resolveContext } from "../../lib/api";
 import { CLIError } from "../../lib/errors";
 import { printCurl, printError } from "../../lib/output";
 import { globalFlags } from "../../lib/shared-args";
@@ -65,7 +65,7 @@ Examples:
       };
 
       console.log(`Downloading snapshot for environment ${envId}...`);
-      const response = await fetch(fullUrl, { headers });
+      const response = await fetchWithTimeout(fullUrl, { headers });
 
       if (!response.ok) {
         throw new CLIError(`Failed to download snapshot: ${response.statusText}`);

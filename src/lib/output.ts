@@ -42,7 +42,22 @@ export class HumanStreamRenderer {
   private accumulatedResult = "";
   private colWidth = 15;
 
-  constructor(private stdout: typeof process.stdout = process.stdout) {}
+  // Verbose state accumulation
+  private currentStepThought: any = null;
+  private currentStepFunctionCall: any = null;
+  private currentStepFunctionResult: any = null;
+  private currentStepCodeCall: any = null;
+  private currentStepCodeResult: any = null;
+  private currentStepModelOutput: any = null;
+
+  // Normal mode buffering (to combine tool call + result)
+  private bufferedToolCall: string | null = null;
+  private bufferedToolType: string | null = null;
+
+  constructor(
+    private stdout: typeof process.stdout = process.stdout,
+    private verbose = false,
+  ) {}
 
   private getPrefix(type: string): string {
     const prefixes: Record<string, string> = {
@@ -71,6 +86,8 @@ export class HumanStreamRenderer {
     return type in prefixes ? prefixes[type] : `[${type}]`;
   }
 
+  private codeExecutionIsError = false;
+
   handleStepStart(event: StreamEvent, block?: ContentBlock) {
     const index = event.data.index ?? event.data.step_index;
     if (index === undefined) return;
@@ -87,17 +104,32 @@ export class HumanStreamRenderer {
     this.accumulatedArguments = "";
     this.accumulatedResult = "";
 
+    if (this.verbose) {
+      this.currentStepThought = null;
+      this.currentStepFunctionCall = null;
+      this.currentStepFunctionResult = null;
+      this.currentStepCodeCall = null;
+      this.currentStepCodeResult = null;
+      this.currentStepModelOutput = null;
+      return;
+    }
+
     if (this.currentStepType === "thought") {
-      const prefix = this.getPrefix("thought").padEnd(this.colWidth);
-      this.stdout.write(`${prefix}▸ thinking\n`);
+      const prefix = this.getPrefix("thought");
+      this.stdout.write(`${prefix}\n`);
       this.prefixPrinted = true;
     } else if (this.currentStepType === "model_output") {
+      let hasText = false;
       if (Array.isArray(event.data.step?.content)) {
+        hasText = event.data.step.content.some((c: any) => c.type === "text" && c.text);
+      }
+      if (hasText) {
+        const prefix = this.getPrefix("text");
+        this.stdout.write(`${prefix}\n`);
+        this.prefixPrinted = true;
         for (const c of event.data.step.content) {
           if (c.type === "text" && c.text) {
-            const prefix = this.getPrefix("text").padEnd(this.colWidth);
-            this.stdout.write(`${prefix}${c.text}`);
-            this.prefixPrinted = true;
+            this.stdout.write(c.text);
           }
         }
       }
@@ -111,7 +143,76 @@ export class HumanStreamRenderer {
     const delta = event.data.delta;
     if (!delta) return;
 
+    if ((!this.currentStepType || this.currentStepType === "unknown") && block?.type) {
+      this.currentStepType = block.type;
+    }
     const type = this.currentStepType || "text";
+
+    if (this.verbose) {
+      if (type === "thought" || type === "thought_summary" || type === "thought_signature") {
+        if (!this.currentStepThought) this.currentStepThought = {};
+        if (delta.signature) this.currentStepThought.signature = delta.signature;
+        if (delta.text)
+          this.currentStepThought.text = (this.currentStepThought.text || "") + delta.text;
+      } else if (type === "function_call") {
+        if (!this.currentStepFunctionCall)
+          this.currentStepFunctionCall = { name: "", arguments: "" };
+        if (delta.name) this.currentStepFunctionCall.name = delta.name;
+        if (delta.id) this.currentStepFunctionCall.id = delta.id;
+        if (delta.arguments) {
+          if (typeof delta.arguments === "string") {
+            this.currentStepFunctionCall.arguments += delta.arguments;
+          } else {
+            this.currentStepFunctionCall.arguments = delta.arguments;
+          }
+        }
+      } else if (type === "function_result") {
+        if (!this.currentStepFunctionResult) this.currentStepFunctionResult = { result: "" };
+        if (delta.name) this.currentStepFunctionResult.name = delta.name;
+        if (delta.call_id) this.currentStepFunctionResult.call_id = delta.call_id;
+        if (delta.result) {
+          if (typeof delta.result === "string") {
+            this.currentStepFunctionResult.result += delta.result;
+          } else {
+            this.currentStepFunctionResult.result = delta.result;
+          }
+        }
+      } else if (type === "code_execution_call") {
+        if (!this.currentStepCodeCall) this.currentStepCodeCall = { code: "" };
+        if (delta.id) this.currentStepCodeCall.id = delta.id;
+        if (delta.arguments) {
+          if (delta.arguments.language)
+            this.currentStepCodeCall.language = delta.arguments.language;
+          if (delta.arguments.code) this.currentStepCodeCall.code += delta.arguments.code;
+        }
+      } else if (type === "code_execution_result") {
+        if (!this.currentStepCodeResult)
+          this.currentStepCodeResult = { result: "", is_error: false };
+        if (delta.call_id) this.currentStepCodeResult.call_id = delta.call_id;
+        if (delta.is_error !== undefined) this.currentStepCodeResult.is_error = delta.is_error;
+        if (delta.result) this.currentStepCodeResult.result += delta.result;
+      } else if (type === "model_output" || type === "text") {
+        if (!this.currentStepModelOutput) this.currentStepModelOutput = { content: [] };
+        if (delta.text) {
+          let textPart = this.currentStepModelOutput.content.find((c: any) => c.type === "text");
+          if (!textPart) {
+            textPart = { type: "text", text: "" };
+            this.currentStepModelOutput.content.push(textPart);
+          }
+          textPart.text += delta.text;
+        }
+        if (delta.data) {
+          let mediaPart = this.currentStepModelOutput.content.find((c: any) => c.type !== "text");
+          if (!mediaPart) {
+            mediaPart = { type: delta.type || "image", data: "" };
+            this.currentStepModelOutput.content.push(mediaPart);
+          }
+          mediaPart.data += delta.data;
+          if (delta.mime_type) mediaPart.mimeType = delta.mime_type;
+        }
+      }
+      return;
+    }
 
     if (type === "thought" || type === "thought_summary" || type === "thought_signature") {
       return;
@@ -119,9 +220,10 @@ export class HumanStreamRenderer {
 
     if (type === "function_call" || type === "code_execution_call") {
       if (delta.arguments) {
-        this.accumulatedArguments += typeof delta.arguments === "string"
-          ? delta.arguments
-          : JSON.stringify(delta.arguments);
+        // Assume delta.arguments is streamed as string chunks containing JSON fragments.
+        // If it is pre-parsed or delivered as objects, concatenation will result in invalid JSON.
+        this.accumulatedArguments +=
+          typeof delta.arguments === "string" ? delta.arguments : JSON.stringify(delta.arguments);
       }
       if (delta.name) {
         this.currentStepName = delta.name;
@@ -131,49 +233,31 @@ export class HumanStreamRenderer {
 
     if (type === "function_result") {
       if (delta.result) {
-        this.accumulatedResult += typeof delta.result === "string"
-          ? delta.result
-          : JSON.stringify(delta.result);
+        this.accumulatedResult +=
+          typeof delta.result === "string" ? delta.result : JSON.stringify(delta.result);
       }
       if (delta.name) {
         this.currentStepName = delta.name;
       }
+      if (delta.call_id) {
+        // Just in case
+      }
       return;
     }
 
-    let content = "";
-    let prefixType = type;
-
-    if (type === "model_output") {
-      prefixType = "text";
-      if (delta.text) content = delta.text;
-    } else if (type === "code_execution_result") {
-      if (delta.result) content = delta.result;
-    } else {
-      if (delta.text) content = delta.text;
-      else if (delta.result) content = typeof delta.result === "string" ? delta.result : JSON.stringify(delta.result);
+    if (type === "code_execution_result") {
+      if (delta.result) this.accumulatedResult += delta.result;
+      if (delta.is_error !== undefined) this.codeExecutionIsError = delta.is_error;
+      return;
     }
 
-    if (content) {
-      const prefix = this.getPrefix(prefixType);
-      if (prefix) {
-        if (!this.prefixPrinted) {
-          this.stdout.write(prefix.padEnd(this.colWidth));
-          this.prefixPrinted = true;
-        }
-
-        if (content.includes("\n")) {
-          const lines = content.split("\n");
-          this.stdout.write(lines[0]);
-          for (let i = 1; i < lines.length; i++) {
-            this.stdout.write(`\n${"".padEnd(this.colWidth)}${lines[i]}`);
-          }
-        } else {
-          this.stdout.write(content);
-        }
-      } else {
-        this.stdout.write(content);
+    if ((type === "model_output" || type === "text") && delta.text) {
+      if (!this.prefixPrinted) {
+        const prefix = this.getPrefix("text");
+        this.stdout.write(`${prefix}\n`);
+        this.prefixPrinted = true;
       }
+      this.stdout.write(delta.text);
     }
   }
 
@@ -190,11 +274,83 @@ export class HumanStreamRenderer {
     const type = this.currentStepType;
     const name = this.currentStepName;
 
-    if (type === "thought") {
-      const prefix = this.getPrefix("thought").padEnd(this.colWidth);
-      this.stdout.write(`${prefix}▪ completed\n`);
-    } else if (type === "function_call") {
-      const prefix = this.getPrefix("function_call").padEnd(this.colWidth);
+    if (this.verbose) {
+      const stepObj: any = {
+        index: this.currentStepIndex,
+        type: type || "unknown",
+        status: "completed",
+      };
+
+      if (type === "thought" && this.currentStepThought) {
+        stepObj.thought = this.currentStepThought;
+      } else if (type === "function_call") {
+        let args = this.currentStepFunctionCall?.arguments || this.accumulatedArguments;
+        if (typeof args === "string" && args.trim()) {
+          try {
+            args = JSON.parse(args);
+          } catch {}
+        }
+        stepObj.function_call = {
+          name: this.currentStepFunctionCall?.name || name || "unknown",
+          arguments: args,
+          id: this.currentStepFunctionCall?.id,
+        };
+      } else if (type === "function_result") {
+        let res = this.currentStepFunctionResult?.result || this.accumulatedResult;
+        if (typeof res === "string" && res.trim()) {
+          try {
+            res = JSON.parse(res);
+          } catch {}
+        }
+        stepObj.function_result = {
+          name: this.currentStepFunctionResult?.name || name,
+          result: res,
+          call_id: this.currentStepFunctionResult?.call_id,
+        };
+      } else if (type === "code_execution_call") {
+        let code = this.currentStepCodeCall?.code || "";
+        if (!code && this.accumulatedArguments) {
+          try {
+            const parsed = JSON.parse(this.accumulatedArguments);
+            code = parsed.code || parsed.raw || "";
+          } catch {
+            code = this.accumulatedArguments;
+          }
+        }
+        stepObj.code_execution_call = {
+          language: this.currentStepCodeCall?.language || "python",
+          code,
+          id: this.currentStepCodeCall?.id,
+        };
+      } else if (type === "code_execution_result") {
+        stepObj.code_execution_result = {
+          result: this.currentStepCodeResult?.result || this.accumulatedResult,
+          is_error: this.currentStepCodeResult?.is_error || false,
+          call_id: this.currentStepCodeResult?.call_id,
+        };
+      } else if ((type === "model_output" || type === "text") && this.currentStepModelOutput) {
+        stepObj.model_output = this.currentStepModelOutput;
+      }
+
+      this.stdout.write(JSON.stringify(stepObj) + "\n");
+
+      // Reset verbose states
+      this.currentStepThought = null;
+      this.currentStepFunctionCall = null;
+      this.currentStepFunctionResult = null;
+      this.currentStepCodeCall = null;
+      this.currentStepCodeResult = null;
+      this.currentStepModelOutput = null;
+
+      this.currentStepIndex = null;
+      this.currentStepType = null;
+      this.currentStepName = null;
+      this.accumulatedArguments = "";
+      this.accumulatedResult = "";
+      return;
+    }
+
+    if (type === "function_call") {
       let argsObj: any = {};
       try {
         argsObj = JSON.parse(this.accumulatedArguments);
@@ -204,26 +360,14 @@ export class HumanStreamRenderer {
 
       if (name === "write_file") {
         const path = argsObj.path || "unknown";
-        this.stdout.write(`${prefix}${name}(path="${path}", content=<...>)` + "\n");
+        this.bufferedToolCall = `write_file(path="${path}")`;
       } else {
         const argsStr = JSON.stringify(argsObj);
         const truncatedArgs = argsStr.length > 100 ? argsStr.substring(0, 100) + "..." : argsStr;
-        this.stdout.write(`${prefix}${name || "unknown"}(${truncatedArgs})` + "\n");
+        this.bufferedToolCall = `${name || "unknown"}(${truncatedArgs})`;
       }
-    } else if (type === "function_result") {
-      const prefix = this.getPrefix("function_result").padEnd(this.colWidth);
-      let resultObj: any = {};
-      try {
-        resultObj = JSON.parse(this.accumulatedResult);
-      } catch {
-        resultObj = this.accumulatedResult;
-      }
-
-      const resultStr = typeof resultObj === "string" ? resultObj : JSON.stringify(resultObj);
-      const truncatedResult = resultStr.length > 100 ? resultStr.substring(0, 100) + "..." : resultStr;
-      this.stdout.write(`${prefix}${name || "tool"}: ${truncatedResult}\n`);
+      this.bufferedToolType = "function_call";
     } else if (type === "code_execution_call") {
-      const prefix = this.getPrefix("code_execution_call").padEnd(this.colWidth);
       let argsObj: any = {};
       try {
         argsObj = JSON.parse(this.accumulatedArguments);
@@ -231,11 +375,47 @@ export class HumanStreamRenderer {
         argsObj = { code: this.accumulatedArguments };
       }
       const code = argsObj.code || argsObj.raw || "";
-      this.stdout.write(`${prefix}${code}\n`);
-    } else if (type === "model_output" || type === "code_execution_result") {
-      if (this.prefixPrinted) {
-        this.stdout.write("\n");
+      const cleanCode = code.trim().replace(/\n/g, "; ");
+      this.bufferedToolCall = cleanCode;
+      this.bufferedToolType = "code_execution_call";
+    } else if (type === "function_result") {
+      const prefix = this.getPrefix("function_call");
+      let resultObj: any = {};
+      try {
+        resultObj = JSON.parse(this.accumulatedResult);
+      } catch {
+        resultObj = this.accumulatedResult;
       }
+
+      let resultStr = "";
+      if (resultObj && typeof resultObj === "object") {
+        if (resultObj.error) {
+          resultStr = `Error: ${resultObj.error}`;
+        } else {
+          resultStr = JSON.stringify(resultObj);
+        }
+      } else {
+        resultStr = String(resultObj);
+      }
+
+      this.stdout.write(`${prefix} ${this.bufferedToolCall || "unknown()"} -> ${resultStr}\n`);
+      this.bufferedToolCall = null;
+      this.bufferedToolType = null;
+    } else if (type === "code_execution_result") {
+      const prefix = this.getPrefix("code_execution_call");
+      const resultStr = this.accumulatedResult.trim();
+
+      let displayResult = "";
+      if (this.codeExecutionIsError) {
+        displayResult = `Error: ${resultStr}`;
+      } else {
+        displayResult = resultStr ? `"${resultStr.replace(/\n/g, "\\n")}"` : "success";
+      }
+
+      this.stdout.write(`${prefix} ${this.bufferedToolCall || "code"} -> ${displayResult}\n`);
+      this.bufferedToolCall = null;
+      this.bufferedToolType = null;
+      this.codeExecutionIsError = false;
     }
 
     this.currentStepIndex = null;
@@ -304,21 +484,54 @@ export function renderStepEvent(
   }
 }
 
-export function printCompletionSummary(result: StreamResult, latencySeconds: number): void {
-  console.log("\n✓ completed");
-  console.log(`  interaction_id: ${result.interactionId}`);
+export function printCompletionSummary(
+  result: StreamResult,
+  latencySeconds: number,
+  verbose = false,
+): void {
+  if (verbose) {
+    const summaryObj: any = {
+      interaction: {
+        id: result.interactionId,
+        status: result.status || "completed",
+      },
+    };
+    if (result.environmentId) {
+      summaryObj.interaction.environment_id = result.environmentId;
+    }
+    if (result.usage) {
+      const inTokens = result.usage.inputTokens || 0;
+      const outTokens = result.usage.outputTokens || 0;
+      summaryObj.interaction.usage = {
+        total_tokens: inTokens + outTokens,
+        total_input_tokens: inTokens,
+        total_output_tokens: outTokens,
+        total_thought_tokens: result.usage.thoughtTokens || 0,
+        total_cached_tokens: result.usage.cachedTokens || 0,
+      };
+    }
+    if (result.created) summaryObj.interaction.created = result.created;
+    if (result.updated) summaryObj.interaction.updated = result.updated;
+    summaryObj.interaction.object = "interaction";
 
-  if (result.environmentId) {
-    console.log(`  environment_id: ${result.environmentId}`);
-  }
+    console.log(JSON.stringify(summaryObj));
+  } else {
+    console.log("\n✓ completed");
+    console.log(`  interaction_id: ${result.interactionId}`);
 
-  if (result.usage) {
-    const inTokens = result.usage.inputTokens?.toLocaleString() ?? "0";
-    const outTokens = result.usage.outputTokens?.toLocaleString() ?? "0";
-    const thoughtTokens = result.usage.thoughtTokens?.toLocaleString() ?? "0";
-    console.log(`  tokens: in:${inTokens} out:${outTokens} thought:${thoughtTokens}`);
+    if (result.environmentId) {
+      console.log(`  environment_id: ${result.environmentId}`);
+    }
+
+    if (result.usage) {
+      const inTokens = result.usage.inputTokens?.toLocaleString() ?? "0";
+      const outTokens = result.usage.outputTokens?.toLocaleString() ?? "0";
+      const thoughtTokens = result.usage.thoughtTokens?.toLocaleString() ?? "0";
+      const cachedTokens = result.usage.cachedTokens !== undefined ? ` cached:${result.usage.cachedTokens.toLocaleString()}` : "";
+      console.log(`  tokens: in:${inTokens} out:${outTokens} thought:${thoughtTokens}${cachedTokens}`);
+    }
+    console.log(`  latency: ${latencySeconds.toFixed(1)}s`);
   }
-  console.log(`  latency: ${latencySeconds.toFixed(1)}s`);
 }
 
 export function printError(message: string, tryCommands?: string[]): void {

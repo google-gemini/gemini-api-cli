@@ -240,8 +240,6 @@ export async function collectInlineFiles(
         const rel = relative(dir, fullPath);
         if (rel === "agent.yaml") continue;
 
-
-
         // If we are in the root directory, only allow AGENTS.md
         if (currentDir === dir) {
           if (rel !== "AGENTS.md") {
@@ -277,5 +275,3 @@ export async function collectInlineFiles(
   await walk(dir);
   return files;
 }
-
-

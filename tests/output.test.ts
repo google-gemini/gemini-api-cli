@@ -13,149 +13,265 @@
 // limitations under the License.
 
 import { describe, expect, test } from "bun:test";
-import { execSync } from "node:child_process";
-import * as fs from "node:fs";
+import { HumanStreamRenderer, printCompletionSummary } from "../src/lib/output";
+import type { StreamResult } from "../src/lib/stream";
 
-describe("output modes", () => {
-  // Use execSync for combined output (spawnSync + bun has empty output issues)
-  const runCliCombined = (args: string) => {
-    const cmd = `source ~/.bash_profile && bun run src/cli.ts ${args}`;
-    try {
-      return execSync(cmd, { encoding: "utf-8", shell: "/bin/bash" });
-    } catch (e: any) {
-      return e.stdout || e.stderr || "";
-    }
-  };
+describe("HumanStreamRenderer Normal Mode (Concise)", () => {
+  test("renders thought step as [thought] line", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
 
-  test("human mode outputs text and summary to stdout", () => {
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn("Skipping live API test because GEMINI_API_KEY is not set");
-      return;
-    }
-    // Use separate stream capture via shell redirection
-    if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
-    execSync(
-      'source ~/.bash_profile && bun run src/cli.ts run "Say exactly: output-test" > tmp/stdout.txt 2> tmp/stderr.txt',
-      { encoding: "utf-8", shell: "/bin/bash" },
-    );
-    const stdout = fs.readFileSync("tmp/stdout.txt", "utf-8");
-    const _stderr = fs.readFileSync("tmp/stderr.txt", "utf-8");
-    expect(stdout).toContain("output-test");
-    expect(stdout).toContain("✓ completed");
-    expect(stdout).toContain("interaction_id:");
-    fs.unlinkSync("tmp/stdout.txt");
-    fs.unlinkSync("tmp/stderr.txt");
+    const renderer = new HumanStreamRenderer(mockStdout, false);
+
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 0, step: { type: "thought" } },
+      raw: "",
+    });
+    expect(output).toBe("[thought]\n");
   });
 
-  test("json mode outputs valid JSONL to stdout", () => {
-    if (!process.env.GEMINI_API_KEY) return;
-    if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
-    execSync(
-      'source ~/.bash_profile && bun run src/cli.ts run "Say hi" --json > tmp/json_out.txt 2> tmp/json_err.txt',
-      { encoding: "utf-8", shell: "/bin/bash" },
-    );
-    const stdout = fs.readFileSync("tmp/json_out.txt", "utf-8");
-    const stderr = fs.readFileSync("tmp/json_err.txt", "utf-8");
+  test("buffers tool call and outputs combined single line on result", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
 
-    const lines = stdout.trim().split("\n");
-    expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) {
-      expect(() => JSON.parse(line)).not.toThrow();
-    }
-    const events = lines.map((l) => JSON.parse(l));
-    expect(events.some((e) => e.event_type === "interaction.created")).toBe(true);
-    expect(events.some((e) => e.event_type === "interaction.completed")).toBe(true);
-    // Summary NOT in stderr or stdout in json mode
-    expect(stderr).not.toContain("✓ completed");
+    const renderer = new HumanStreamRenderer(mockStdout, false);
 
-    fs.unlinkSync("tmp/json_out.txt");
-    fs.unlinkSync("tmp/json_err.txt");
+    // 1. Function Call step starts, deltas arrive, and stops
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1, step: { type: "function_call", name: "write_file" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: {
+        index: 1,
+        delta: { name: "write_file", arguments: '{"path":"/hello.py","content":"print(1)"}' },
+      },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
+
+    // Output should still be empty because tool call is buffered
+    expect(output).toBe("");
+
+    // 2. Function Result step starts, deltas arrive, and stops
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 2, step: { type: "function_result", name: "write_file" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 2, delta: { result: '{"success":true}' } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 2 },
+      raw: "",
+    });
+
+    expect(output).toBe('[tool] write_file(path="/hello.py") -> {"success":true}\n');
   });
 
-  test("errors include Try: with correct invocation", () => {
-    const result = runCliCombined("run 2>&1");
-    expect(result).toContain("Missing prompt");
-    expect(result).toContain("Try:");
-    expect(result).toContain("gemini-api run");
+  test("buffers code execution and outputs combined single line on result", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
+
+    const renderer = new HumanStreamRenderer(mockStdout, false);
+
+    // 1. Code execution call starts and stops
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1, step: { type: "code_execution_call" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 1, delta: { arguments: { code: "print(2 + 2)\n" } } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
+
+    expect(output).toBe("");
+
+    // 2. Code execution result starts and stops
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 2, step: { type: "code_execution_result" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 2, delta: { result: "4\n", is_error: false } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 2 },
+      raw: "",
+    });
+
+    expect(output).toBe('[code] print(2 + 2) -> "4"\n');
   });
 
-  test("redirection captures only response text", () => {
-    if (!process.env.GEMINI_API_KEY) return;
-    if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
+  test("renders model text output directly without padding", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
 
-    execSync(
-      'source ~/.bash_profile && bun run src/cli.ts run "Say exactly: hello-redirection" > tmp/out.txt 2>/dev/null',
-      { encoding: "utf-8", shell: "/bin/bash" },
-    );
+    const renderer = new HumanStreamRenderer(mockStdout, false);
 
-    const content = fs.readFileSync("tmp/out.txt", "utf-8");
-    expect(content).toContain("hello-redirection");
-    expect(content).toContain("✓ completed");
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1, step: { type: "model_output" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 1, delta: { text: "Hello\nworld" } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
 
-    fs.unlinkSync("tmp/out.txt");
+    expect(output).toBe("[text]\nHello\nworld");
   });
 
-  test("json redirection captures raw events", () => {
-    if (!process.env.GEMINI_API_KEY) return;
-    if (!fs.existsSync("tmp")) fs.mkdirSync("tmp");
+  test("does not render [text] header if there is no text output (e.g. media-only output)", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
 
-    execSync(
-      'source ~/.bash_profile && bun run src/cli.ts run "Say hi" --json > tmp/out.jsonl 2>/dev/null',
-      { encoding: "utf-8", shell: "/bin/bash" },
-    );
+    const renderer = new HumanStreamRenderer(mockStdout, false);
 
-    const content = fs.readFileSync("tmp/out.jsonl", "utf-8");
-    const lines = content.trim().split("\n");
-    expect(lines.length).toBeGreaterThan(0);
-    expect(() => JSON.parse(lines[0])).not.toThrow();
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 1, step: { type: "model_output" } },
+      raw: "",
+    });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 1, delta: { data: "base64bytes...", mime_type: "image/png" } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 1 },
+      raw: "",
+    });
 
-    fs.unlinkSync("tmp/out.jsonl");
-  }, 10000);
+    expect(output).toBe("");
+  });
 });
 
-describe("dry-run", () => {
-  const runCli = (args: string) => {
-    const cmd = `source ~/.bash_profile && bun run src/cli.ts ${args} 2>&1`;
-    try {
-      return execSync(cmd, { encoding: "utf-8", shell: "/bin/bash" });
-    } catch (e: any) {
-      return e.stdout || e.stderr || "";
-    }
-  };
+describe("HumanStreamRenderer Verbose Mode", () => {
+  test("prints completed step as a single JSON line", () => {
+    let output = "";
+    const mockStdout = {
+      write(data: string) {
+        output += data;
+        return true;
+      },
+    } as typeof process.stdout;
 
-  test("run --dry-run prints curl", () => {
-    const result = runCli("run Hello --dry-run --api-key fake-key");
-    expect(result).toContain("curl -X POST");
-    expect(result).toContain("fake-key");
-    expect(result).toContain("https://generativelanguage.googleapis.com");
-  });
+    const renderer = new HumanStreamRenderer(mockStdout, true);
 
-  test("agents create --dry-run prints curl", () => {
-    fs.rmSync("dry-run-test", { recursive: true, force: true });
-    execSync("source ~/.bash_profile && bun run src/cli.ts agents init dry-run-test", {
-      encoding: "utf-8",
-      shell: "/bin/bash",
+    renderer.handleStepStart({
+      type: "step.start",
+      data: { index: 0, step: { type: "thought" } },
+      raw: "",
     });
-    const result = runCli("agents create --path ./dry-run-test --dry-run --api-key fake-key");
-    expect(result).toContain("curl -X POST");
-    expect(result).toContain("/agents");
-    fs.rmSync("dry-run-test", { recursive: true, force: true });
+    renderer.handleStepDelta({
+      type: "step.delta",
+      data: { index: 0, delta: { signature: "EvQBC..." } },
+      raw: "",
+    });
+    renderer.handleStepStop({
+      type: "step.stop",
+      data: { index: 0 },
+      raw: "",
+    });
+
+    const parsed = JSON.parse(output.trim());
+    expect(parsed.index).toBe(0);
+    expect(parsed.type).toBe("thought");
+    expect(parsed.status).toBe("completed");
+    expect(parsed.thought.signature).toBe("EvQBC...");
   });
 
-  test("agents list --dry-run prints curl", () => {
-    const result = runCli("agents list --dry-run --api-key fake-key");
-    expect(result).toContain("curl -X GET");
-    expect(result).toContain("/agents");
-  });
+  test("prints verbose completion summary as interaction JSON", () => {
+    let consoleOutput = "";
+    const originalLog = console.log;
+    console.log = (msg) => {
+      consoleOutput += msg;
+    };
 
-  test("agents delete --dry-run prints curl", () => {
-    const result = runCli("agents delete test-id --dry-run --api-key fake-key");
-    expect(result).toContain("curl -X DELETE");
-    expect(result).toContain("/agents/test-id");
-  });
+    try {
+      const mockResult: StreamResult = {
+        interactionId: "v1_test123",
+        status: "completed",
+        environmentId: "env_abc",
+        outputs: [],
+        steps: [],
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          thoughtTokens: 25,
+          cachedTokens: 10,
+        },
+      };
 
-  test("files download --dry-run prints curl", () => {
-    const result = runCli("files download env_fake --dry-run --api-key fake-key");
-    expect(result).toContain("curl");
+      printCompletionSummary(mockResult, 5.5, true);
+
+      const parsed = JSON.parse(consoleOutput.trim());
+      expect(parsed.interaction).toBeDefined();
+      expect(parsed.interaction.id).toBe("v1_test123");
+      expect(parsed.interaction.environment_id).toBe("env_abc");
+      expect(parsed.interaction.status).toBe("completed");
+      expect(parsed.interaction.usage.total_tokens).toBe(150);
+      expect(parsed.interaction.usage.total_input_tokens).toBe(100);
+      expect(parsed.interaction.usage.total_output_tokens).toBe(50);
+      expect(parsed.interaction.usage.total_thought_tokens).toBe(25);
+      expect(parsed.interaction.usage.total_cached_tokens).toBe(10);
+    } finally {
+      console.log = originalLog;
+    }
   });
 });

@@ -17,10 +17,10 @@ import {
   apiStreamRequest,
   buildInteractionRequest,
   isAgentName,
+  normalizeSources,
   type RunOptions,
   resolveContext,
   type Source,
-  normalizeSources,
   validateSources,
 } from "../../lib/api";
 import { loadAgent } from "../../lib/config";
@@ -88,9 +88,7 @@ Examples:
       // system_instruction from agent.yaml is sent in the request body.
       // AGENTS.md is NOT loaded here — it is uploaded as an inline file and
       // merged with the system instruction on the server side.
-      let systemInstruction = config.instructions;
-
-
+      const systemInstruction = config.instructions;
 
       // Build environment config
       let environment: any;
@@ -166,7 +164,8 @@ Examples:
           onComplete: () => {},
         });
       } else {
-        const renderer = new HumanStreamRenderer();
+        const verbose = args.verbose as boolean;
+        const renderer = new HumanStreamRenderer(process.stdout, verbose);
 
         await processStream(response, {
           onEvent: (event, block) => {
@@ -176,7 +175,7 @@ Examples:
           onComplete: (result) => {
             renderer.finish();
             const latencySeconds = (performance.now() - startTime) / 1000;
-            printCompletionSummary(result, latencySeconds);
+            printCompletionSummary(result, latencySeconds, verbose);
             if (!args.json) {
               logRequest(result.interactionId, body);
               logResponse(result.interactionId, result);

@@ -18,12 +18,11 @@ This creates a directory with the default structure.
 my-agent/
 ├── agent.yaml       # Configuration (ID, tools, etc.) — not inlined
 ├── AGENTS.md        # System instructions (inlined to /.agents/AGENTS.md)
-├── .env             # Credentials (inlined to /credentials/.env)
 ├── skills/          # Custom skills (all files inlined recursively)
 └── workspace/       # Files seeded into remote environment (all files inlined recursively)
 ```
 
-> **Note:** Only `AGENTS.md`, `.env`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories (e.g., `README.md`, `package.json`) are ignored during `agents test` and `agents create`.
+> **Note:** Only `AGENTS.md`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories (e.g., `README.md`, `package.json`) are ignored during `agents test` and `agents create`.
 
 ### Adding Skills
 

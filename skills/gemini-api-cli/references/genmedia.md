@@ -7,12 +7,13 @@ This reference covers generating and editing media using the Gemini API CLI.
 To generate an image, use a model that supports image generation and specify an output file with `--output` or `-o`.
 
 ```bash
-gemini-api run "A cat in space, oil painting" --model gemini-3.1-flash-image-preview --output cat.png
+gemini-api run "A cat in space, oil painting" --model gemini-3.1-flash-image --output cat.png
 ```
 
 Supported image models include:
-- `gemini-3-pro-image-preview`
-- `gemini-3.1-flash-image-preview`
+- `gemini-3-pro-image` (Nano Banana Pro)
+- `gemini-3.1-flash-image` (Nano Banana 2)
+- `gemini-2.5-flash-image`
 
 ## Image Editing
 

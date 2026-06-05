@@ -1,5 +1,11 @@
 import { defineCommand } from "citty";
-import { apiRequest, resolveContext, type Source, normalizeSources, validateSources } from "../../lib/api";
+import {
+  apiRequest,
+  normalizeSources,
+  resolveContext,
+  type Source,
+  validateSources,
+} from "../../lib/api";
 import { loadAgent } from "../../lib/config";
 import { CLIError, ConfigError } from "../../lib/errors";
 import { collectInlineFiles } from "../../lib/files";
@@ -96,8 +102,6 @@ Examples:
             (body.base_environment as any).network = envObj.network;
           }
         }
-
-
       }
 
       const url = "/agents";

@@ -87,7 +87,7 @@ gemini-api run "Analyze my data" --agent my-data-analyst
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `<prompt>` | | positional | — | Input prompt. |
-| `--model` | `-m` | string | `gemini-3-flash-preview` | Model to use |
+| `--model` | `-m` | string | `gemini-3.5-flash` | Model to use |
 | `--agent` | `-a` | string | — | Agent to use (overrides `--model`) |
 | `--input` | `-i` | string[] | — | Multimodal input: `image:path`, `audio:path`, `video:path`, `document:path` |
 | `--output` | `-o` | string | — | Save generated media to file |
@@ -265,7 +265,6 @@ gemini-api files download env_xyz789 --dry-run
 my-agent/
 ├── agent.yaml       # Configuration (not inlined)
 ├── AGENTS.md        # System instructions (inlined to /.agents/AGENTS.md)
-├── .env             # Credentials (inlined to /credentials/.env)
 ├── skills/          # Custom skills (all files inlined recursively)
 └── workspace/       # Files seeded into remote environment (all files inlined recursively)
 ```
@@ -293,9 +292,7 @@ environment: remote
 # base_environment: env_abc123
 ```
 
-### `.env`
 
-Credentials file. If it contains non-empty values, it's inlined during `agents test` and `agents create` to `/credentials/.env` in the agent environment. The agent can then `source /credentials/.env` to load the values.
 
 ### `AGENTS.md`
 
@@ -313,7 +310,7 @@ Files seeded into the remote environment at `/.agents/workspace/`. All files in 
 | Binary files | Base64-encoded with `"encoding": "base64"` | `.pdf`, `.png`, `.jpg`, `.mp3`, `.wav`, `.zip` |
 | Files > 1 MB | Skipped | — |
 
-> **Note:** Only `AGENTS.md`, `.env`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories are ignored.
+> **Note:** Only `AGENTS.md`, `workspace/`, and `skills/` are inlined from the agent directory. All other root-level files and directories are ignored.
 
 Binary files are automatically detected by extension. The following are treated as binary:
 - Images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tiff`, `.heic`, `.heif`
@@ -334,7 +331,7 @@ environment: remote
 # base_environment: env_abc123
 ```
 
-When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files, skills, and credentials are seeded into it before the agent runs.
+When `environment` is `"remote"`, the API provisions a sandbox with code execution capabilities. Workspace files and skills are seeded into it before the agent runs.
 
 You can also specify a structured config object to configure GCS/GitHub `sources`, establish `network` allowlists, and inject secret credentials securely via header `transform` rules:
 
@@ -385,29 +382,43 @@ tools:
 
 ## Output Modes
 
-### Human (Default)
+### Normal (Default)
 
-Streaming text with typed block labels:
+Optimized for clean, readable output and valid Markdown parsing. Thoughts are concise, tool calls are consolidated into single lines, and the final response text is printed without leading indentation:
 
 ```
-[tool]         read_file({"path":"/credentials/.env"})
-[result]       # Configurations for your agent...
-[text]         I found the credentials file.
+[thought]
+[tool] write_file(path="hello.py") -> {"success":true}
+[code] python3 hello.py -> "Hello, World!"
+[text]
+I have created a Python script named `hello.py` and successfully executed it.
 
-✓ completed
-  interaction_id: v1_ChdZTlR3YVlfSE9zdjJ4TjhQbjVHQjhRdxIXWU5Ud2FZX0hPc3YyeE44UG41R0I4UXc
-  environment_id: 7a5c3831-cc50-48cf-9351-100aa7d1c3a8
-  latency: 15.8s
+Here is the content of `hello.py`:
+```python
+print("Hello, World!")
+```
+```
+
+### Verbose (`--verbose` / `-v`)
+
+Optimized for automated parsing by agents. Steps are output as completed single-line JSON objects, followed by the final `{interaction}` metadata as a JSON line:
+
+```json
+{"index":0,"type":"thought","status":"completed","thought":{"signature":"EvQBCvEBAQw5..."}}
+{"index":1,"type":"function_call","status":"completed","function_call":{"name":"write_file","arguments":{"path":"hello.py","content":"print(\"Hello, World!\")"}}}
+{"index":2,"type":"function_result","status":"completed","function_result":{"name":"write_file","result":{"success":true}}}
+{"interaction":{"id":"v1_ChdIcjRp...","status":"completed","usage":{"total_tokens":9131,"total_input_tokens":8970,"total_output_tokens":161,"total_cached_tokens":0},"object":"interaction"}}
 ```
 
 ### JSON (`--json`)
 
-Raw SSE events as JSONL (one event per line):
+Raw streamed SSE events as JSONL (one raw event per line):
 
 ```jsonl
-{"event_type":"interaction.start","interaction":{...}}
-{"event_type":"content.delta","index":0,"delta":{"type":"text","text":"Hello"}}
-{"event_type":"interaction.complete","interaction":{...}}
+{"event_type":"interaction.created","interaction":{...}}
+{"index":0,"step":{"type":"thought"},"event_type":"step.start"}
+{"index":0,"delta":{"signature":"EvQBC...","type":"thought_signature"},"event_type":"step.delta"}
+{"event_type":"interaction.completed","interaction":{...}}
 ```
 
 ### Dry Run (`--dry-run`)
@@ -541,13 +552,14 @@ gemini-api agents create --dry-run
 
 | Model | Description |
 |---|---|
-| `gemini-3-flash-preview` | Frontier + search (default) |
+| `gemini-3.5-flash` | Frontier + search (default) |
 | `gemini-3.1-pro-preview` | SOTA reasoning + multimodal |
-| `gemini-3.1-pro-preview` | SOTA reasoning |
+| `gemini-3-flash-preview` | Gemini 3 Flash Preview |
+| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite |
 | `gemini-2.5-flash` | Hybrid reasoning, 1M context |
 | `gemini-2.5-pro` | SOTA coding + reasoning |
-| `gemini-3-pro-image-preview` | Image generation |
-| `gemini-3.1-flash-image-preview` | Flash image generation |
+| `gemini-3-pro-image` | Nano Banana Pro (image generation) |
+| `gemini-3.1-flash-image` | Nano Banana 2 (image generation) |
 | `gemini-2.5-flash-image` | Native image generation |
 | `gemini-3.1-flash-tts-preview` | Text-to-speech |
 | `gemini-2.5-flash-preview-tts` | TTS |
