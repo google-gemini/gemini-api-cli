@@ -33,17 +33,23 @@ Examples:
       type: "string",
       description: "Override base environment",
     },
+    env: {
+      type: "string",
+      alias: "e",
+      description: "Load environment variables from a .env file",
+    },
   },
   async run({ args }) {
     try {
-      const ctx = resolveContext(args);
       const agentDir = args.path as string;
       const baseEnvOverride = args["base-env"] as string | undefined;
+      const envFile = args.env as string | undefined;
+      const ctx = resolveContext(args);
 
-      const { config } = await loadAgent(agentDir);
+      const { config } = await loadAgent(agentDir, { envFile });
 
       const body: Record<string, unknown> = {
-        name: config.id,
+        id: config.id,
         base_agent: config.base_agent,
       };
 

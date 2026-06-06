@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "citty": "^0.1.6",
+    "dotenv": "^17.4.2",
     "js-yaml": "^4.1.0",
     "zod": "^3.24.0"
   },
