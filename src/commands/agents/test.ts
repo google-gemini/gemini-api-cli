@@ -73,6 +73,10 @@ Examples:
     timeout: {
       type: "string",
       description: "Override timeout in seconds",
+    env: {
+      type: "string",
+      alias: "e",
+      description: "Load environment variables from a .env file",
     },
   },
   async run({ args }) {
@@ -89,6 +93,9 @@ Examples:
       const agentDir = parsedArgs.path;
       const prompt = parsedArgs.prompt;
 
+      const agentDir = args.path as string;
+      const prompt = args.prompt as string;
+      const envFile = args.env as string | undefined;
       const sharedFlags = {
         apiKey: parsedArgs["api-key"],
         baseUrl: parsedArgs["base-url"],
@@ -98,7 +105,7 @@ Examples:
 
       const ctx = resolveContext(sharedFlags as SharedFlags);
 
-      const { config } = await loadAgent(agentDir);
+      const { config } = await loadAgent(agentDir, { envFile });
       const inlineFiles = await collectInlineFiles(agentDir);
 
       // system_instruction from agent.yaml is sent in the request body.
