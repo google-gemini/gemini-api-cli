@@ -73,6 +73,7 @@ Examples:
     timeout: {
       type: "string",
       description: "Override timeout in seconds",
+    },
     env: {
       type: "string",
       alias: "e",
@@ -92,10 +93,7 @@ Examples:
 
       const agentDir = parsedArgs.path;
       const prompt = parsedArgs.prompt;
-
-      const agentDir = args.path as string;
-      const prompt = args.prompt as string;
-      const envFile = args.env as string | undefined;
+      const envFile = parsedArgs.env;
       const sharedFlags = {
         apiKey: parsedArgs["api-key"],
         baseUrl: parsedArgs["base-url"],

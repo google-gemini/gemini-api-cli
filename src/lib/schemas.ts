@@ -103,6 +103,7 @@ export const TestArgsSchema = z.object({
   "previous-interaction-id": z.string().optional(),
   environment: z.string().optional(),
   timeout: TimeoutSecondsSchema.optional(),
+  env: z.string().optional(),
   "api-key": z.string().optional(),
   "base-url": z.string().optional(),
   json: z.boolean().default(false),
