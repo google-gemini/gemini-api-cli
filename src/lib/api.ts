@@ -15,6 +15,7 @@
 import { CLIError } from "./errors";
 
 export const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+export const DEFAULT_SERVER_TIMEOUT_SECONDS = 300000;
 
 export async function fetchWithTimeout(
   url: string,
@@ -76,7 +77,7 @@ export async function apiRequest<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "30000",
+    "x-server-timeout": DEFAULT_SERVER_TIMEOUT_SECONDS.toString(),
   };
 
   if (path.includes("/interactions")) {
@@ -85,7 +86,7 @@ export async function apiRequest<T>(
 
   const response = await fetchWithTimeout(url, {
     method,
-    headers,
+    headers: headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -187,21 +188,23 @@ export async function apiStreamRequest(
   ctx: CLIContext,
   path: string,
   body: unknown,
+  headerOverrides?: Record<string, string>,
 ): Promise<Response> {
   const url = `${ctx.baseUrl}${path}`;
-  const headers: Record<string, string> = {
+  const mergedHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     "x-goog-api-key": ctx.apiKey,
-    "x-server-timeout": "30000",
+    "x-server-timeout": DEFAULT_SERVER_TIMEOUT_SECONDS.toString(),
+    ...headerOverrides,
   };
 
   if (path.includes("/interactions")) {
-    headers["Api-Revision"] = "2026-05-20";
+    mergedHeaders["Api-Revision"] = "2026-05-20";
   }
 
   const response = await fetchWithTimeout(url, {
     method: "POST",
-    headers,
+    headers: mergedHeaders,
     body: JSON.stringify(body),
   });
 

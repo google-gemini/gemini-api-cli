@@ -71,6 +71,8 @@ const ExampleSchema = z.object({
   prompt: z.string(),
 });
 
+const TimeoutSecondsSchema = z.coerce.number().int().positive();
+
 export const AgentConfigSchema = z
   .object({
     id: z.string(),
@@ -82,6 +84,7 @@ export const AgentConfigSchema = z
     sources: z.array(SourceSchema).optional(),
     environment: EnvironmentSchema.optional(),
     examples: z.array(ExampleSchema).optional(),
+    timeout: TimeoutSecondsSchema.optional(),
   })
   .strict();
 
@@ -93,3 +96,17 @@ export const CLIContextSchema = z.object({
 });
 
 export type CLIContext = z.infer<typeof CLIContextSchema>;
+
+export const TestArgsSchema = z.object({
+  prompt: z.string(),
+  path: z.string().default("."),
+  "previous-interaction-id": z.string().optional(),
+  environment: z.string().optional(),
+  timeout: TimeoutSecondsSchema.optional(),
+  env: z.string().optional(),
+  "api-key": z.string().optional(),
+  "base-url": z.string().optional(),
+  json: z.boolean().default(false),
+  "dry-run": z.boolean().default(false),
+  verbose: z.boolean().default(false),
+});

@@ -12,17 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { DEFAULT_SERVER_TIMEOUT_SECONDS } from "./api";
 import type { ContentBlock, StreamEvent, StreamResult } from "./stream";
 
-export function printCurl(method: string, url: string, apiKey: string, body?: unknown): void {
-  let curl = `curl -X ${method} "${url}" \\\n`;
-  curl += `  -H "Content-Type: application/json" \\\n`;
-  curl += `  -H "x-goog-api-key: ${apiKey}" \\\n`;
-  curl += `  -H "x-server-timeout: 30000"`;
+export function printCurl(
+  method: string,
+  url: string,
+  apiKey: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): void {
+  const serverTimeout = headers?.["x-server-timeout"] ?? DEFAULT_SERVER_TIMEOUT_SECONDS.toString();
+  const apiRevision = url.includes("/interactions")
+    ? ` \\\n  -H "Api-Revision: 2026-05-20"`
+    : "";
 
-  if (url.includes("/interactions")) {
-    curl += ` \\\n  -H "Api-Revision: 2026-05-20"`;
-  }
+  let curl = `curl -X ${method} "${url}" \\
+  -H "Content-Type: application/json" \\
+  -H "x-goog-api-key: ${apiKey}" \\
+  -H "x-server-timeout: ${serverTimeout}"${apiRevision}`;
 
   if (body) {
     // Escape single quotes in body for bash
