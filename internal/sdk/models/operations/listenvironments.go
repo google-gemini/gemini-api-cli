@@ -23,8 +23,8 @@ import (
 )
 
 type ListEnvironmentsGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 }
 
 func (l ListEnvironmentsGlobals) MarshalJSON() ([]byte, error) {
@@ -46,8 +46,8 @@ func (l *ListEnvironmentsGlobals) GetAPIVersion() *string {
 }
 
 type ListEnvironmentsRequest struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Optional. Maximum number of environments to return.
 	// If unspecified, defaults to 50. Maximum is 1000.
 	PageSize *int `queryParam:"style=form,explode=true,name=page_size"`
