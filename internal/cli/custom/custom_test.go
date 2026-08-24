@@ -1676,8 +1676,8 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		}
 		inputs, _ := parsed["input"].([]any)
 		imgPart, _ := inputs[0].(map[string]any)
-		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
-			t.Errorf("uri = %v, want full v1beta files URI", imgPart["uri"])
+		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1/files/abc123" {
+			t.Errorf("uri = %v, want full v1 files URI", imgPart["uri"])
 		}
 	})
 
@@ -1794,7 +1794,7 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if err := rootDry.Execute(); err != nil {
 			t.Fatalf("Execute custom server-url --dry-run failed: %v", err)
 		}
-		if !strings.Contains(gotBody, "https://generativelanguage.googleapis.com/v1beta/files/abc123") || strings.Contains(gotBody, "custom.example.com") {
+		if !strings.Contains(gotBody, "https://generativelanguage.googleapis.com/v1/files/abc123") || strings.Contains(gotBody, "custom.example.com") {
 			t.Errorf("dry-run body = %s, want canonical Files API expansion independent of --server-url", gotBody)
 		}
 
@@ -1807,7 +1807,7 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if filesGetCalls != 0 {
 			t.Errorf("filesGetCalls = %d, want 0 when mime_type is set", filesGetCalls)
 		}
-		if !strings.Contains(gotBody, `"uri":"https://generativelanguage.googleapis.com/v1beta/files/abc123"`) || strings.Contains(gotBody, srv.URL) {
+		if !strings.Contains(gotBody, `"uri":"https://generativelanguage.googleapis.com/v1/files/abc123"`) || strings.Contains(gotBody, srv.URL) {
 			t.Errorf("body = %s, want --server-url Files URI rewritten to the canonical Files API URI", gotBody)
 		}
 	})

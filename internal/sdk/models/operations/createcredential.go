@@ -23,8 +23,8 @@ import (
 )
 
 type CreateCredentialGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 }
 
 func (c CreateCredentialGlobals) MarshalJSON() ([]byte, error) {
@@ -46,8 +46,8 @@ func (c *CreateCredentialGlobals) GetAPIVersion() *string {
 }
 
 type CreateCredentialRequest struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. The request body.
 	Body credentials.CredentialCreateParams `request:"mediaType=application/json"`
 }
