@@ -1,0 +1,16 @@
+{
+  "name": "gemini-cli-harness-eval",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "bash ./setup.sh",
+    "eval": "tsx src/run.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}
