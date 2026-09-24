@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
+	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/spf13/cobra"
 )
 
@@ -501,7 +502,7 @@ func classificationMessage(bodyMap, errorObject map[string]any, err error, rawBo
 }
 
 func assembleHints(cmd *cobra.Command, err error, c Classification, bodyMap, errorObject map[string]any, ruleHints []string, useReasonRule bool) []string {
-	hints := serverHints(bodyMap, errorObject)
+	hints := append(leadingHints(cmd, err, c.Reason), serverHints(bodyMap, errorObject)...)
 	if useReasonRule && ruleHints != nil {
 		hints = append(hints, ruleHints...)
 	} else if declared, ok := declaredTypeHints[c.Type]; ok {
@@ -569,6 +570,20 @@ func errorCLIHints(err error) []string {
 	var typed interface{ CLIHints() []string }
 	if errors.As(err, &typed) {
 		return typed.CLIHints()
+	}
+	return nil
+}
+
+func leadingHints(cmd *cobra.Command, err error, reason string) []string {
+	var typed interface{ CLILeadingHints() []string }
+	if errors.As(err, &typed) {
+		return typed.CLILeadingHints()
+	}
+	if cmd == nil || reason != ReasonCLIValidation {
+		return nil
+	}
+	if hint := flagutil.ShorthandConfusionHint(cmd, preparsedRendering.args, err.Error()); hint != "" {
+		return []string{hint}
 	}
 	return nil
 }
@@ -704,6 +719,14 @@ type cliHintsError struct {
 
 func (e cliHintsError) CLIHints() []string { return e.hints }
 func (e cliHintsError) Unwrap() error      { return e.error }
+
+type cliLeadingHintsError struct {
+	error
+	hints []string
+}
+
+func (e cliLeadingHintsError) CLILeadingHints() []string { return e.hints }
+func (e cliLeadingHintsError) Unwrap() error             { return e.error }
 
 func withCLIHints(err error, hints []string) error {
 	if err == nil || len(hints) == 0 {

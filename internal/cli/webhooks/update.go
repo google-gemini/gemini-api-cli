@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -32,18 +33,18 @@ var updateCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "update-mask", FieldPath: "UpdateMask", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional list of fields to update."},
 	{FlagName: "name", Shorthand: "n", FieldPath: "Body.Name", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The user-provided name of the webhook."},
 	{FlagName: "state", FieldPath: "Body.State", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"enabled", "disabled", "disabled_due_to_failed_deliveries"}, Description: "Optional. The state of the webhook. (options: enabled, disabled, disabled_due_to_failed_deliveries)"},
-	{FlagName: "subscribed-events", FieldPath: "Body.SubscribedEvents", Kind: flagutil.FlagKindStringArray, Optional: true, Description: "Optional. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated"},
+	{FlagName: "subscribed-event", FieldPath: "Body.SubscribedEvent", Kind: flagutil.FlagKindStringArray, Optional: true, Description: "Optional. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated"},
 	{FlagName: "uri", FieldPath: "Body.URI", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The URI to which webhook events will be sent."},
 }
 
 // initUpdateCmd initializes the update command.
 func initUpdateCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "update",
+		Use:     "update [id]",
 		Short:   "Update a webhook by ID",
 		Long:    "Updates an existing Webhook.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runUpdateCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "UpdateWebhook",
@@ -61,6 +62,14 @@ func initUpdateCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The ID of the webhook to update. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. The ID of the webhook to update.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for update: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -72,6 +81,9 @@ func runUpdateCmd(cmd *cobra.Command, args []string) error {
 	}
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "UpdateWebhook")
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.UpdateWebhookRequest](cmd, updateCmdMeta, "Body", "body")
 	if err != nil {

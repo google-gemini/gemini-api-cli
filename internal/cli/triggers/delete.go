@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var deleteCmdMeta = []flagutil.FlagMeta{
 // initDeleteCmd initializes the delete command.
 func initDeleteCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "delete",
+		Use:     "delete [id]",
 		Short:   "Delete a trigger by ID",
 		Long:    "Deletes a trigger.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "DeleteTrigger",
@@ -48,6 +49,14 @@ func initDeleteCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.DeleteTriggerRequest](deleteCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for delete: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource name of the trigger. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. Resource name of the trigger.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for delete: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initDeleteCmd(parent *cobra.Command) error {
 func runDeleteCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.DeleteTriggerRequest](cmd, deleteCmdMeta, "", "")
 	if err != nil {

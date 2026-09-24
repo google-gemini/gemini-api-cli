@@ -29,7 +29,7 @@ import (
 
 var createCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "name", Shorthand: "n", FieldPath: "Body.Name", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The user-provided name of the webhook."},
-	{FlagName: "subscribed-events", Shorthand: "s", FieldPath: "Body.SubscribedEvents", Kind: flagutil.FlagKindStringArray, Required: true, Description: "Required. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated [required]"},
+	{FlagName: "subscribed-event", Shorthand: "s", FieldPath: "Body.SubscribedEvent", Kind: flagutil.FlagKindStringArray, Required: true, Description: "Required. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated [required]"},
 	{FlagName: "uri", Shorthand: "u", FieldPath: "Body.URI", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The URI to which webhook events will be sent. [required]"},
 }
 
@@ -39,7 +39,7 @@ func initCreateCmd(parent *cobra.Command) error {
 		Use:     "create",
 		Short:   "Create a webhook endpoint",
 		Long:    "Creates a new Webhook.",
-		Example: "  gemini-api webhooks create --subscribed-events '[\"batch.succeeded\",\"batch.failed\"]' --uri https://my-api.com/gemini-callback",
+		Example: "  gemini-api webhooks create --subscribed-event batch.succeeded --subscribed-event batch.failed --uri https://my-api.com/gemini-callback",
 		Args:    cobra.NoArgs,
 		RunE:    runCreateCmd,
 		Annotations: map[string]string{

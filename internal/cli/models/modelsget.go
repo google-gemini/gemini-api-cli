@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var modelsGetCmdMeta = []flagutil.FlagMeta{
 // initModelsGetCmd initializes the models-get command.
 func initModelsGetCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "get",
+		Use:     "get [model]",
 		Short:   "Get a model's live metadata (version, token limits, supported methods)",
 		Long:    "Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://ai.google.dev/gemini-api/docs/models",
 		Example: "  gemini-api models get --model gemini-2.5-flash",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runModelsGetCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "ModelsGet",
@@ -48,6 +49,14 @@ func initModelsGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.ModelsGetRequest](modelsGetCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for models-get: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "model", "Model id, e.g. gemini-2.5-flash (also accepted as an argument) (or pass it as the [model] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "model", Summary: "Model id, e.g. gemini-2.5-flash (also accepted as an argument)", Required: true, SatisfiedBy: []string{"model"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for models-get: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initModelsGetCmd(parent *cobra.Command) error {
 func runModelsGetCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.ModelsGetRequest](cmd, modelsGetCmdMeta, "", "")
 	if err != nil {

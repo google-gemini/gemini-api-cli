@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var getEnvironmentCmdMeta = []flagutil.FlagMeta{
 // initGetEnvironmentCmd initializes the get-environment command.
 func initGetEnvironmentCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "get",
+		Use:     "get [id]",
 		Short:   "Gets an environment.",
 		Long:    "Gets an environment.",
 		Example: "  gemini-api environments get --id <id>",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetEnvironmentCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "GetEnvironment",
@@ -48,6 +49,14 @@ func initGetEnvironmentCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.GetEnvironmentRequest](getEnvironmentCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for get-environment: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for get-environment: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initGetEnvironmentCmd(parent *cobra.Command) error {
 func runGetEnvironmentCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.GetEnvironmentRequest](cmd, getEnvironmentCmdMeta, "", "")
 	if err != nil {

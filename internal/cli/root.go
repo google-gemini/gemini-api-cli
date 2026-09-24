@@ -78,7 +78,7 @@ func NewRootCommand() (*cobra.Command, error) {
 			if usage.UsageRequested(cmd) {
 				return nil
 			}
-			if err := flagutil.ValidateEnumFlag(cmd, "output-format", output.Formats); err != nil {
+			if err := flagutil.ValidateOutputFormatFlag(cmd, output.Formats); err != nil {
 				return err
 			}
 			if err := flagutil.ValidateEnumFlag(cmd, "color", []string{"auto", "always", "never"}); err != nil {

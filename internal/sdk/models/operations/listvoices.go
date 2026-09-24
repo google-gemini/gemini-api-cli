@@ -55,7 +55,7 @@ type ListVoicesRequest struct {
 	// Optional. Filter by intended context or domain (e.g. "News, Commercial").
 	// Case-insensitive exact match. If multiple values are specified, matches
 	// voices with any of the specified contexts (OR).
-	Contexts []string `queryParam:"style=form,explode=true,name=context"`
+	Context []string `queryParam:"style=form,explode=true,name=context"`
 	// Optional. Filter by gender presentation (e.g. "female", "male", "neutral").
 	// Case-insensitive exact match. If multiple values are specified, matches
 	// voices with any of the specified genders (OR).
@@ -125,11 +125,11 @@ func (l *ListVoicesRequest) GetAccent() []string {
 	return l.Accent
 }
 
-func (l *ListVoicesRequest) GetContexts() []string {
+func (l *ListVoicesRequest) GetContext() []string {
 	if l == nil {
 		return nil
 	}
-	return l.Contexts
+	return l.Context
 }
 
 func (l *ListVoicesRequest) GetGender() []string {
