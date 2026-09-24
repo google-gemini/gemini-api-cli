@@ -24,6 +24,8 @@ import (
 type DeleteInteractionGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (d DeleteInteractionGlobals) MarshalJSON() ([]byte, error) {
@@ -44,7 +46,16 @@ func (d *DeleteInteractionGlobals) GetAPIVersion() *string {
 	return d.APIVersion
 }
 
+func (d *DeleteInteractionGlobals) GetAPIRevision() *string {
+	if d == nil {
+		return nil
+	}
+	return d.APIRevision
+}
+
 type DeleteInteractionRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. The name of the interaction to delete.
@@ -60,6 +71,13 @@ func (d *DeleteInteractionRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (d *DeleteInteractionRequest) GetAPIRevision() *string {
+	if d == nil {
+		return nil
+	}
+	return d.APIRevision
 }
 
 func (d *DeleteInteractionRequest) GetAPIVersion() *string {

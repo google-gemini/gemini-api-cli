@@ -25,6 +25,8 @@ import (
 type GetAgentGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (g GetAgentGlobals) MarshalJSON() ([]byte, error) {
@@ -45,7 +47,16 @@ func (g *GetAgentGlobals) GetAPIVersion() *string {
 	return g.APIVersion
 }
 
+func (g *GetAgentGlobals) GetAPIRevision() *string {
+	if g == nil {
+		return nil
+	}
+	return g.APIRevision
+}
+
 type GetAgentRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. The name of the agent to retrieve.
@@ -61,6 +72,13 @@ func (g *GetAgentRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (g *GetAgentRequest) GetAPIRevision() *string {
+	if g == nil {
+		return nil
+	}
+	return g.APIRevision
 }
 
 func (g *GetAgentRequest) GetAPIVersion() *string {

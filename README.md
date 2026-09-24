@@ -419,6 +419,8 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
   * [`list`](docs/gemini-api_agent_list.md) - List managed agent definitions
   * [`create`](docs/gemini-api_agent_create.md) - Create a managed agent definition
+  * [`delete`](docs/gemini-api_agent_delete.md) - Delete a managed agent definition by ID
+  * [`get`](docs/gemini-api_agent_get.md) - Get a managed agent definition by ID
   * [`delete-interaction`](docs/gemini-api_agent_delete-interaction.md) - Delete an interaction by interaction ID
   * [`status`](docs/gemini-api_agent_status.md) - Get status and output of an interaction by interaction ID
   * [`cancel`](docs/gemini-api_agent_cancel.md) - Cancel an in-progress interaction by interaction ID
@@ -447,8 +449,8 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
   * [`delete`](docs/gemini-api_triggers_delete.md) - Delete a trigger by ID
   * [`get`](docs/gemini-api_triggers_get.md) - Get a trigger by ID
   * [`update`](docs/gemini-api_triggers_update.md) - Update a trigger by ID
-  * [`list-executions`](docs/gemini-api_triggers_list-executions.md) - Lists executions for a trigger.
-  * [`run`](docs/gemini-api_triggers_run.md) - Runs a trigger immediately.
+  * [`list-executions`](docs/gemini-api_triggers_list-executions.md) - List executions for a trigger
+  * [`run`](docs/gemini-api_triggers_run.md) - Run a trigger immediately
 * [`webhooks`](docs/gemini-api_webhooks.md) - Manage webhook endpoints and signing secrets for event delivery
   * [`list`](docs/gemini-api_webhooks_list.md) - List webhook endpoints
   * [`create`](docs/gemini-api_webhooks_create.md) - Create a webhook endpoint
@@ -460,9 +462,6 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
 ### Additional commands
 
-* [`agents`](docs/gemini-api_agents.md) - Operations for agents
-  * [`delete`](docs/gemini-api_agents_delete.md) - Deletes an Agent.
-  * [`get`](docs/gemini-api_agents_get.md) - Gets a specific Agent.
 * [`environments`](docs/gemini-api_environments.md) - Operations for environments
   * [`list`](docs/gemini-api_environments_list.md) - Lists environments.
   * [`create`](docs/gemini-api_environments_create.md) - Creates an environment.

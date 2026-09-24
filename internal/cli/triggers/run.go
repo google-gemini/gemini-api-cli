@@ -35,7 +35,7 @@ var runCmdMeta = []flagutil.FlagMeta{
 func initRunCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "run",
-		Short:   "Runs a trigger immediately.",
+		Short:   "Run a trigger immediately",
 		Long:    "Runs a trigger immediately.",
 		Example: "",
 		Args:    cobra.NoArgs,

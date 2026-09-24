@@ -25,6 +25,8 @@ import (
 type DeleteAgentGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (d DeleteAgentGlobals) MarshalJSON() ([]byte, error) {
@@ -45,7 +47,16 @@ func (d *DeleteAgentGlobals) GetAPIVersion() *string {
 	return d.APIVersion
 }
 
+func (d *DeleteAgentGlobals) GetAPIRevision() *string {
+	if d == nil {
+		return nil
+	}
+	return d.APIRevision
+}
+
 type DeleteAgentRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. The name of the agent to delete.
@@ -61,6 +72,13 @@ func (d *DeleteAgentRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (d *DeleteAgentRequest) GetAPIRevision() *string {
+	if d == nil {
+		return nil
+	}
+	return d.APIRevision
 }
 
 func (d *DeleteAgentRequest) GetAPIVersion() *string {

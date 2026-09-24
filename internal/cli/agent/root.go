@@ -44,6 +44,14 @@ func InitAgentRoot(parent *cobra.Command) error {
 		return err
 	}
 
+	if err := initDeleteCmd(AgentCmd); err != nil {
+		return err
+	}
+
+	if err := initGetCmd(AgentCmd); err != nil {
+		return err
+	}
+
 	if err := initDeleteInteractionCmd(AgentCmd); err != nil {
 		return err
 	}

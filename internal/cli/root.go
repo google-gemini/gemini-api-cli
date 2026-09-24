@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/cli/agent"
-	"github.com/google-gemini/gemini-api-cli/internal/cli/agents"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/credentials"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/custom"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/environments"
@@ -96,9 +95,6 @@ func NewRootCommand() (*cobra.Command, error) {
 	rootCmd.Flags().Bool("help-global", false, "Print global flags shared by every command")
 	if err := agent.InitAgentRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init agent: %w", err)
-	}
-	if err := agents.InitAgentsRoot(rootCmd); err != nil {
-		return nil, fmt.Errorf("init agents: %w", err)
 	}
 	if err := credentials.InitCredentialsRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init credentials: %w", err)

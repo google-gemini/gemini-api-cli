@@ -26,6 +26,8 @@ import (
 type GetInteractionByIDGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (g GetInteractionByIDGlobals) MarshalJSON() ([]byte, error) {
@@ -46,7 +48,16 @@ func (g *GetInteractionByIDGlobals) GetAPIVersion() *string {
 	return g.APIVersion
 }
 
+func (g *GetInteractionByIDGlobals) GetAPIRevision() *string {
+	if g == nil {
+		return nil
+	}
+	return g.APIRevision
+}
+
 type GetInteractionByIDRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// If true, includes the input in the response.
@@ -69,6 +80,13 @@ func (g *GetInteractionByIDRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (g *GetInteractionByIDRequest) GetAPIRevision() *string {
+	if g == nil {
+		return nil
+	}
+	return g.APIRevision
 }
 
 func (g *GetInteractionByIDRequest) GetAPIVersion() *string {

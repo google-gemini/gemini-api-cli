@@ -37,7 +37,7 @@ var listExecutionsCmdMeta = []flagutil.FlagMeta{
 func initListExecutionsCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "list-executions",
-		Short:   "Lists executions for a trigger.",
+		Short:   "List executions for a trigger",
 		Long:    "Lists executions for a trigger.",
 		Example: "",
 		Args:    cobra.NoArgs,
@@ -51,6 +51,8 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.ListTriggerExecutionsRequest](listExecutionsCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for list-executions: %w", err)
 	}
+	cmd.Flags().BoolP("all", "a", false, "Automatically paginate and fetch all results (streams NDJSON for JSON output)")
+	cmd.Flags().Int("max-pages", 0, "Maximum number of pages to fetch when using --all (0 = no limit)")
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -59,6 +61,14 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 func runListExecutionsCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	allPages, _ := flagutil.GetBoolFlag(cmd, "all")
+	maxPages, _ := flagutil.GetIntFlag(cmd, "max-pages")
+	if maxPages < 0 {
+		return flagutil.WithCLIValidation(fmt.Errorf("--max-pages must be zero or greater"))
+	}
+	if flagutil.FlagChanged(cmd, "max-pages") && !allPages {
+		return flagutil.WithCLIValidation(fmt.Errorf("--max-pages requires --all"))
 	}
 	req, err := flagutil.BuildRequest[operations.ListTriggerExecutionsRequest](cmd, listExecutionsCmdMeta, "", "")
 	if err != nil {
@@ -77,6 +87,20 @@ func runListExecutionsCmd(cmd *cobra.Command, args []string) error {
 	if client.IsDryRun(cmd) {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
+	if allPages && !client.IsDryRun(cmd) {
+		res, err := s.Triggers.ListExecutions(cmd.Context(), *req, sdkOpts...)
+		if err != nil {
+			return output.Error(cmd, err)
+		}
+		return output.PaginatedResult(cmd, res, "ListTriggerExecutionsResponse", "", maxPages, output.PaginationProbe{
+			Type:       "cursor",
+			CursorKind: "string",
+			NextCursor: "$.next_page_token",
+			NextURL:    "",
+			Results:    "",
+			HasLimit:   false,
+		})
+	}
 	if output.WantsRawJSON(cmd) {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
@@ -84,9 +108,20 @@ func runListExecutionsCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return output.Error(cmd, err)
 	}
+	morePages := output.HasMorePages(res, output.PaginationProbe{
+		Type:       "cursor",
+		CursorKind: "string",
+		NextCursor: "$.next_page_token",
+		NextURL:    "",
+		Results:    "",
+		HasLimit:   false,
+	})
 
 	if err := output.Result(cmd, res); err != nil {
 		return err
+	}
+	if morePages && !client.IsDryRun(cmd) && !output.IsMachineMode(cmd) {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Hint: more pages available. Use --all to fetch all results, or --page-token for manual pagination.")
 	}
 	return nil
 }

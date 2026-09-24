@@ -882,10 +882,12 @@ func (s *Triggers) Update(ctx context.Context, request operations.UpdateTriggerR
 
 }
 
-// ListExecutions - Lists executions for a trigger.
+// ListExecutions - List executions for a trigger
+// Lists executions for a trigger.
 func (s *Triggers) ListExecutions(ctx context.Context, request operations.ListTriggerExecutionsRequest, opts ...operations.Option) (*operations.ListTriggerExecutionsResponse, error) {
 	globals := operations.ListTriggerExecutionsGlobals{
-		APIVersion: s.sdkConfiguration.Globals.APIVersion,
+		APIVersion:  s.sdkConfiguration.Globals.APIVersion,
+		APIRevision: s.sdkConfiguration.Globals.APIRevision,
 	}
 
 	o := operations.Options{}
@@ -926,6 +928,7 @@ func (s *Triggers) ListExecutions(ctx context.Context, request operations.ListTr
 	if timeout == nil {
 		timeout = s.sdkConfiguration.Timeout
 	}
+	paginationCtx := ctx
 
 	var streamCancel context.CancelFunc
 
@@ -946,6 +949,8 @@ func (s *Triggers) ListExecutions(ctx context.Context, request operations.ListTr
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", s.sdkConfiguration.UserAgent)
+
+	utils.PopulateHeaders(ctx, req, request, globals)
 
 	if err := utils.PopulateQueryParams(ctx, req, request, globals, nil); err != nil {
 		return nil, fmt.Errorf("error populating query params: %w", err)
@@ -1065,6 +1070,50 @@ func (s *Triggers) ListExecutions(ctx context.Context, request operations.ListTr
 			Response: httpRes,
 		},
 	}
+	res.Next = func() (*operations.ListTriggerExecutionsResponse, error) {
+		rawBody, err := utils.ConsumeRawBody(httpRes)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := ajson.Unmarshal(rawBody)
+		if err != nil {
+			return nil, err
+		}
+		nC, err := ajson.Eval(b, "$.next_page_token")
+		if err != nil {
+			return nil, err
+		}
+		var nCVal string
+
+		if nC.IsNumeric() {
+			numVal, err := nC.GetNumeric()
+			if err != nil {
+				return nil, err
+			}
+			// GetNumeric returns as float64 so convert to the appropriate type.
+			nCVal = strconv.FormatFloat(numVal, 'f', 0, 64)
+		} else {
+			val, err := nC.Value()
+			if err != nil {
+				return nil, err
+			}
+			if val == nil {
+				return nil, nil
+			}
+			nCVal = val.(string)
+			if strings.TrimSpace(nCVal) == "" {
+				return nil, nil
+			}
+		}
+		request.PageToken = &nCVal
+
+		return s.ListExecutions(
+			paginationCtx,
+			request,
+			opts...,
+		)
+	}
 
 	switch {
 	case httpRes.StatusCode >= 400 && httpRes.StatusCode < 500:
@@ -1111,10 +1160,12 @@ func (s *Triggers) ListExecutions(ctx context.Context, request operations.ListTr
 
 }
 
-// Run - Runs a trigger immediately.
+// Run a trigger immediately
+// Runs a trigger immediately.
 func (s *Triggers) Run(ctx context.Context, request operations.RunTriggerRequest, opts ...operations.Option) (*operations.RunTriggerResponse, error) {
 	globals := operations.RunTriggerGlobals{
-		APIVersion: s.sdkConfiguration.Globals.APIVersion,
+		APIVersion:  s.sdkConfiguration.Globals.APIVersion,
+		APIRevision: s.sdkConfiguration.Globals.APIRevision,
 	}
 
 	o := operations.Options{}
@@ -1174,6 +1225,8 @@ func (s *Triggers) Run(ctx context.Context, request operations.RunTriggerRequest
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", s.sdkConfiguration.UserAgent)
+
+	utils.PopulateHeaders(ctx, req, request, globals)
 
 	if err := utils.PopulateSecurity(ctx, req, s.sdkConfiguration.Security); err != nil {
 		return nil, err

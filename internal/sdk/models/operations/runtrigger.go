@@ -25,6 +25,8 @@ import (
 type RunTriggerGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (r RunTriggerGlobals) MarshalJSON() ([]byte, error) {
@@ -45,7 +47,16 @@ func (r *RunTriggerGlobals) GetAPIVersion() *string {
 	return r.APIVersion
 }
 
+func (r *RunTriggerGlobals) GetAPIRevision() *string {
+	if r == nil {
+		return nil
+	}
+	return r.APIRevision
+}
+
 type RunTriggerRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. Resource name of the trigger.
@@ -61,6 +72,13 @@ func (r *RunTriggerRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (r *RunTriggerRequest) GetAPIRevision() *string {
+	if r == nil {
+		return nil
+	}
+	return r.APIRevision
 }
 
 func (r *RunTriggerRequest) GetAPIVersion() *string {

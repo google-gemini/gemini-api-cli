@@ -85,7 +85,6 @@ type GeminiAPI struct {
 	// Note: agent IDs and interaction IDs are distinct resources. "agent status"
 	// takes an interaction ID; to inspect an agent definition use "agent get".
 	Agent        *Agent
-	Agents       *Agents
 	Credentials  *Credentials
 	Environments *Environments
 	// Upload, list, inspect, register, and delete files (48-hour retention)
@@ -216,7 +215,6 @@ func New(opts ...SDKOption) *GeminiAPI {
 	sdk.sdkConfiguration = sdk.hooks.SDKInit(sdk.sdkConfiguration)
 
 	sdk.Agent = newAgent(sdk, sdk.sdkConfiguration, sdk.hooks)
-	sdk.Agents = newAgents(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Credentials = newCredentials(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Environments = newEnvironments(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Files = newFiles(sdk, sdk.sdkConfiguration, sdk.hooks)

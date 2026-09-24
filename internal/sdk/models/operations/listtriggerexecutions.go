@@ -25,6 +25,8 @@ import (
 type ListTriggerExecutionsGlobals struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
 
 func (l ListTriggerExecutionsGlobals) MarshalJSON() ([]byte, error) {
@@ -45,7 +47,16 @@ func (l *ListTriggerExecutionsGlobals) GetAPIVersion() *string {
 	return l.APIVersion
 }
 
+func (l *ListTriggerExecutionsGlobals) GetAPIRevision() *string {
+	if l == nil {
+		return nil
+	}
+	return l.APIRevision
+}
+
 type ListTriggerExecutionsRequest struct {
+	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
+	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// The maximum number of executions to return per page.
@@ -65,6 +76,13 @@ func (l *ListTriggerExecutionsRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (l *ListTriggerExecutionsRequest) GetAPIRevision() *string {
+	if l == nil {
+		return nil
+	}
+	return l.APIRevision
 }
 
 func (l *ListTriggerExecutionsRequest) GetAPIVersion() *string {
@@ -99,6 +117,8 @@ type ListTriggerExecutionsResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
 	ListTriggerExecutionsResponse *triggers.ListTriggerExecutionsResponse
+
+	Next func() (*ListTriggerExecutionsResponse, error)
 }
 
 func (l ListTriggerExecutionsResponse) MarshalJSON() ([]byte, error) {
