@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/spf13/cobra"
 )
@@ -477,5 +478,284 @@ func TestBuildSpeechConfig(t *testing.T) {
 		if got, _, err := buildSpeechConfig(ttsCommand(t, flags...)); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("buildSpeechConfig(%v) = %+v, %v; want an error containing %q", flags, got, err, wantErr)
 		}
+	}
+}
+
+func TestNormalizeIdentifier(t *testing.T) {
+	newWrappedCmd := func(t *testing.T, flagName, shorthand, desc string, normalize func(string) (string, error), gotVal *string, called *bool) *cobra.Command {
+		t.Helper()
+		cmd := &cobra.Command{
+			Use:           "get [" + flagName + "]",
+			Args:          flagutil.PositionalFlagArgs,
+			SilenceUsage:  true,
+			SilenceErrors: true,
+			RunE: func(c *cobra.Command, args []string) error {
+				if err := flagutil.ResolvePositionalFlag(c, args); err != nil {
+					return err
+				}
+				*called = true
+				*gotVal, _ = c.Flags().GetString(flagName)
+				return nil
+			},
+		}
+		cmd.Flags().StringP(flagName, shorthand, "", desc+" [required]")
+		if err := flagutil.DeclarePositionalFlag(cmd, flagName, desc+" (or pass it as the ["+flagName+"] argument)", true); err != nil {
+			t.Fatalf("DeclarePositionalFlag: %v", err)
+		}
+		if err := normalizeIdentifier(cmd, flagName, normalize); err != nil {
+			t.Fatalf("normalizeIdentifier: %v", err)
+		}
+		return cmd
+	}
+
+	tests := []struct {
+		name      string
+		flagName  string
+		shorthand string
+		desc      string
+		normalize func(string) (string, error)
+		args      []string
+		wantVal   string
+		wantErr   string
+	}{
+		{
+			name:      "files get positional prefixed",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"files/abc"},
+			wantVal:   "abc",
+		},
+		{
+			name:      "files get positional bare",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"abc"},
+			wantVal:   "abc",
+		},
+		{
+			name:      "files get flag prefixed",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"--file", "files/abc"},
+			wantVal:   "abc",
+		},
+		{
+			name:      "files get invalid positional",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"../x"},
+			wantErr:   `invalid file id "../x"; expected files/<id> or a bare id`,
+		},
+		{
+			name:      "files get invalid flag",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"--file", "../x"},
+			wantErr:   `invalid file id "../x"; expected files/<id> or a bare id`,
+		},
+		{
+			name:      "files get missing id",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      nil,
+			wantErr:   "missing required flag: --file (or pass it as the [file] argument)",
+		},
+		{
+			name:      "files get id passed twice",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"abc", "--file", "def"},
+			wantErr:   "pass file once: as the [file] argument or via --file, not both",
+		},
+		{
+			name:      "files get flag-like positional after --",
+			flagName:  "file",
+			shorthand: "f",
+			desc:      "File to get, as files/<id> or a bare id",
+			normalize: normalizeFilePositional,
+			args:      []string{"--", "--dry-run"},
+			wantErr:   `argument "--dry-run" looks like a flag; pass a value starting with "-" as --file=--dry-run`,
+		},
+		{
+			name:      "models get positional prefixed",
+			flagName:  "model",
+			shorthand: "m",
+			desc:      "Model id, e.g. gemini-2.5-flash",
+			normalize: normalizeModelPositional,
+			args:      []string{"models/gemini-2.5-flash"},
+			wantVal:   "gemini-2.5-flash",
+		},
+		{
+			name:      "models get flag bare",
+			flagName:  "model",
+			shorthand: "m",
+			desc:      "Model id, e.g. gemini-2.5-flash",
+			normalize: normalizeModelPositional,
+			args:      []string{"--model", "gemini-2.5-flash"},
+			wantVal:   "gemini-2.5-flash",
+		},
+		{
+			name:      "models get invalid flag",
+			flagName:  "model",
+			shorthand: "m",
+			desc:      "Model id, e.g. gemini-2.5-flash",
+			normalize: normalizeModelPositional,
+			args:      []string{"--model", "../files/x"},
+			wantErr:   `invalid model id "../files/x"`,
+		},
+		{
+			name:      "models get missing id",
+			flagName:  "model",
+			shorthand: "m",
+			desc:      "Model id, e.g. gemini-2.5-flash",
+			normalize: normalizeModelPositional,
+			args:      nil,
+			wantErr:   "missing required flag: --model (or pass it as the [model] argument)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotVal string
+			var called bool
+			cmd := newWrappedCmd(t, tt.flagName, tt.shorthand, tt.desc, tt.normalize, &gotVal, &called)
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Execute(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
+				}
+				if called {
+					t.Errorf("Execute(%v) invoked original RunE on validation failure", tt.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute(%v) unexpected error: %v", tt.args, err)
+			}
+			if !called || gotVal != tt.wantVal {
+				t.Errorf("Execute(%v) called=%t, gotVal=%q; want true, %q", tt.args, called, gotVal, tt.wantVal)
+			}
+		})
+	}
+}
+
+func TestFixNestedGroupExamples(t *testing.T) {
+	root := &cobra.Command{Use: "gemini-api"}
+	topFiles := &cobra.Command{Use: "files"}
+	topFilesList := &cobra.Command{
+		Use:     "list",
+		Example: "  gemini-api files list",
+	}
+	topFiles.AddCommand(topFilesList)
+	root.AddCommand(topFiles)
+
+	environments := &cobra.Command{Use: "environments"}
+	envFiles := &cobra.Command{Use: "files"}
+	envFilesList := &cobra.Command{
+		Use:     "list",
+		Example: "  gemini-api files list --environment env_abc123 --path src",
+	}
+	envFiles.AddCommand(envFilesList)
+	environments.AddCommand(envFiles)
+	root.AddCommand(environments)
+
+	fixNestedGroupExamples(root)
+
+	if got, want := topFilesList.Example, "  gemini-api files list"; got != want {
+		t.Errorf("top-level files list Example = %q, want %q", got, want)
+	}
+	if got, want := envFilesList.Example, "  gemini-api environments files list --environment env_abc123 --path src"; got != want {
+		t.Errorf("nested environments files list Example = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeEnvironmentFilesList(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantEnv  string
+		wantPath string
+		wantErr  string
+	}{
+		{
+			name:     "bare environment and relative path",
+			args:     []string{"--environment", "env_abc123", "--path", "src"},
+			wantEnv:  "env_abc123",
+			wantPath: "src",
+		},
+		{
+			name:     "prefixed environment and leading slash path",
+			args:     []string{"--environment", "environments/env_abc123", "--path", "/var/mail"},
+			wantEnv:  "env_abc123",
+			wantPath: "var/mail",
+		},
+		{
+			name:    "slash-only path rejected",
+			args:    []string{"--environment", "env_abc123", "--path", "/"},
+			wantErr: `invalid path "/"`,
+		},
+		{
+			name:    "invalid environment with slash rejected",
+			args:    []string{"--environment", "environments/a/b", "--path", "src"},
+			wantErr: `invalid environment id "environments/a/b"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotEnv, gotPath string
+			var called bool
+			cmd := &cobra.Command{
+				Use:  "list",
+				Args: cobra.NoArgs,
+				RunE: func(c *cobra.Command, _ []string) error {
+					called = true
+					gotEnv, _ = c.Flags().GetString("environment")
+					gotPath, _ = c.Flags().GetString("path")
+					return nil
+				},
+			}
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			flagutil.RegisterFlags(cmd, []flagutil.FlagMeta{
+				{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+				{FlagName: "path", Shorthand: "p", FieldPath: "Path", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+			})
+			if err := normalizeEnvironmentFilesList(cmd); err != nil {
+				t.Fatalf("normalizeEnvironmentFilesList: %v", err)
+			}
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Execute(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
+				}
+				if called {
+					t.Errorf("Execute(%v) invoked original RunE on validation failure", tt.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute(%v) unexpected error: %v", tt.args, err)
+			}
+			if !called || gotEnv != tt.wantEnv || gotPath != tt.wantPath {
+				t.Errorf("Execute(%v) called=%t, gotEnv=%q, gotPath=%q; want true, %q, %q", tt.args, called, gotEnv, gotPath, tt.wantEnv, tt.wantPath)
+			}
+		})
 	}
 }
