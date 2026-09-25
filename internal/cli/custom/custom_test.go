@@ -654,3 +654,108 @@ func TestNormalizeIdentifier(t *testing.T) {
 	}
 }
 
+func TestFixNestedGroupExamples(t *testing.T) {
+	root := &cobra.Command{Use: "gemini-api"}
+	topFiles := &cobra.Command{Use: "files"}
+	topFilesList := &cobra.Command{
+		Use:     "list",
+		Example: "  gemini-api files list",
+	}
+	topFiles.AddCommand(topFilesList)
+	root.AddCommand(topFiles)
+
+	environments := &cobra.Command{Use: "environments"}
+	envFiles := &cobra.Command{Use: "files"}
+	envFilesList := &cobra.Command{
+		Use:     "list",
+		Example: "  gemini-api files list --environment env_abc123 --path src",
+	}
+	envFiles.AddCommand(envFilesList)
+	environments.AddCommand(envFiles)
+	root.AddCommand(environments)
+
+	fixNestedGroupExamples(root)
+
+	if got, want := topFilesList.Example, "  gemini-api files list"; got != want {
+		t.Errorf("top-level files list Example = %q, want %q", got, want)
+	}
+	if got, want := envFilesList.Example, "  gemini-api environments files list --environment env_abc123 --path src"; got != want {
+		t.Errorf("nested environments files list Example = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeEnvironmentFilesList(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantEnv  string
+		wantPath string
+		wantErr  string
+	}{
+		{
+			name:     "bare environment and relative path",
+			args:     []string{"--environment", "env_abc123", "--path", "src"},
+			wantEnv:  "env_abc123",
+			wantPath: "src",
+		},
+		{
+			name:     "prefixed environment and leading slash path",
+			args:     []string{"--environment", "environments/env_abc123", "--path", "/var/mail"},
+			wantEnv:  "env_abc123",
+			wantPath: "var/mail",
+		},
+		{
+			name:    "slash-only path rejected",
+			args:    []string{"--environment", "env_abc123", "--path", "/"},
+			wantErr: `invalid path "/"`,
+		},
+		{
+			name:    "invalid environment with slash rejected",
+			args:    []string{"--environment", "environments/a/b", "--path", "src"},
+			wantErr: `invalid environment id "environments/a/b"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotEnv, gotPath string
+			var called bool
+			cmd := &cobra.Command{
+				Use:  "list",
+				Args: cobra.NoArgs,
+				RunE: func(c *cobra.Command, _ []string) error {
+					called = true
+					gotEnv, _ = c.Flags().GetString("environment")
+					gotPath, _ = c.Flags().GetString("path")
+					return nil
+				},
+			}
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			flagutil.RegisterFlags(cmd, []flagutil.FlagMeta{
+				{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+				{FlagName: "path", Shorthand: "p", FieldPath: "Path", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+			})
+			if err := normalizeEnvironmentFilesList(cmd); err != nil {
+				t.Fatalf("normalizeEnvironmentFilesList: %v", err)
+			}
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Execute(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
+				}
+				if called {
+					t.Errorf("Execute(%v) invoked original RunE on validation failure", tt.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute(%v) unexpected error: %v", tt.args, err)
+			}
+			if !called || gotEnv != tt.wantEnv || gotPath != tt.wantPath {
+				t.Errorf("Execute(%v) called=%t, gotEnv=%q, gotPath=%q; want true, %q, %q", tt.args, called, gotEnv, gotPath, tt.wantEnv, tt.wantPath)
+			}
+		})
+	}
+}

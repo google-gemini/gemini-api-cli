@@ -41,7 +41,7 @@ func initListCmd(parent *cobra.Command) error {
 		Use:     "list",
 		Short:   "Retrieves file metadata or directory contents from an environment's snapshot.",
 		Long:    "Retrieves file metadata or directory contents from an environment's snapshot.",
-		Example: "  gemini-api files list --environment <value> --path /var/mail",
+		Example: "  gemini-api files list --environment env_abc123 --path src",
 		Args:    cobra.NoArgs,
 		RunE:    runListCmd,
 		Annotations: map[string]string{
