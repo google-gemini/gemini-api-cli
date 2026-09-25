@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var deleteEnvironmentCmdMeta = []flagutil.FlagMeta{
 // initDeleteEnvironmentCmd initializes the delete-environment command.
 func initDeleteEnvironmentCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "delete",
+		Use:     "delete [id]",
 		Short:   "Deletes an environment.",
 		Long:    "Deletes an environment.",
 		Example: "  gemini-api environments delete --id <id>",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteEnvironmentCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "DeleteEnvironment",
@@ -48,6 +49,14 @@ func initDeleteEnvironmentCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.DeleteEnvironmentRequest](deleteEnvironmentCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for delete-environment: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for delete-environment: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initDeleteEnvironmentCmd(parent *cobra.Command) error {
 func runDeleteEnvironmentCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.DeleteEnvironmentRequest](cmd, deleteEnvironmentCmdMeta, "", "")
 	if err != nil {

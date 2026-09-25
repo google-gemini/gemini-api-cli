@@ -1076,7 +1076,7 @@ func (s *Agent) Run(ctx context.Context, request operations.CreateInteractionReq
 
 			var out sdkerrors.CreateInteractionClientError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1101,7 +1101,7 @@ func (s *Agent) Run(ctx context.Context, request operations.CreateInteractionReq
 
 			var out sdkerrors.CreateInteractionServerError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1248,7 +1248,7 @@ func (s *Agent) DeleteInteraction(ctx context.Context, request operations.Delete
 
 			var out sdkerrors.DeleteInteractionClientError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1273,7 +1273,7 @@ func (s *Agent) DeleteInteraction(ctx context.Context, request operations.Delete
 
 			var out sdkerrors.DeleteInteractionServerError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1541,7 +1541,7 @@ func (s *Agent) Status(ctx context.Context, request operations.GetInteractionByI
 
 			var out sdkerrors.GetInteractionByIDClientError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1566,7 +1566,7 @@ func (s *Agent) Status(ctx context.Context, request operations.GetInteractionByI
 
 			var out sdkerrors.GetInteractionByIDServerError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1743,7 +1743,7 @@ func (s *Agent) Cancel(ctx context.Context, request operations.CancelInteraction
 
 			var out sdkerrors.CancelInteractionByIDClientError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{
@@ -1768,7 +1768,7 @@ func (s *Agent) Cancel(ctx context.Context, request operations.CancelInteraction
 
 			var out sdkerrors.CancelInteractionByIDServerError
 			if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
-				return nil, err
+				return nil, sdkerrors.NewResponseValidationError("response did not match the declared error schema", httpRes.StatusCode, string(rawBody), httpRes, err)
 			}
 
 			out.HTTPMeta = components.HTTPMetadata{

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -29,7 +30,7 @@ import (
 
 var statusCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "include-input", FieldPath: "IncludeInput", Kind: flagutil.FlagKindBool, Optional: true, Description: "If true, includes the input in the response."},
-	{FlagName: "id", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the interaction to retrieve. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the interaction to retrieve. [required]"},
 	{FlagName: "last-event-id", Shorthand: "l", FieldPath: "LastEventID", Kind: flagutil.FlagKindString, Optional: true, Description: "If set, resumes the interaction stream from the chunk after the event\nmarked by the event id. Can only be used if `stream` is true."},
 	{FlagName: "stream", Shorthand: "s", FieldPath: "Stream", Kind: flagutil.FlagKindBool, Optional: true, HasDefault: true, DefaultBool: true, Description: "Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to true; use --stream=false for the status object."},
 }
@@ -37,11 +38,11 @@ var statusCmdMeta = []flagutil.FlagMeta{
 // initStatusCmd initializes the status command.
 func initStatusCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "status",
+		Use:     "status [id]",
 		Short:   "Get status and output of an interaction by interaction ID",
 		Long:    "Get the status and output of an interaction by interaction ID. Use this to poll a background run started with \"agent run\".\n\nStreamed responses write the string selected by $.data.delta.text raw as it arrives. Pass --stream to request a streamed response; use -o json to keep each full streamed event.",
 		Example: "  gemini-api agent status --id <id>",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runStatusCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation":     "getInteractionById",
@@ -52,6 +53,14 @@ func initStatusCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.GetInteractionByIDRequest](statusCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for status: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The name of the interaction to retrieve. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. The name of the interaction to retrieve.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for status: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -60,6 +69,9 @@ func initStatusCmd(parent *cobra.Command) error {
 func runStatusCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.GetInteractionByIDRequest](cmd, statusCmdMeta, "", "")
 	if err != nil {

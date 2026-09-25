@@ -39,7 +39,7 @@ func initCreateCmd(parent *cobra.Command) error {
 		Use:     "create",
 		Short:   "Create a webhook endpoint",
 		Long:    "Creates a new Webhook.",
-		Example: "  gemini-api webhooks create --subscribed-events '[\"batch.succeeded\",\"batch.failed\"]' --uri https://my-api.com/gemini-callback",
+		Example: "  gemini-api webhooks create --subscribed-events batch.succeeded --subscribed-events batch.failed --uri https://my-api.com/gemini-callback",
 		Args:    cobra.NoArgs,
 		RunE:    runCreateCmd,
 		Annotations: map[string]string{

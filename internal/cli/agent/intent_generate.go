@@ -58,7 +58,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (default: gemini-3.6-flash) (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ...)")
+	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.6-flash)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",

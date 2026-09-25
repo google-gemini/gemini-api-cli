@@ -71,7 +71,7 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 		// backing operation flag supplies it directly): no prompt then.
 		BodySources: []string{"body"},
 	})
-	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (default: gemini-3.6-flash) (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ...)")
+	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.6-flash)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -35,11 +36,11 @@ var pingCmdMeta = []flagutil.FlagMeta{
 // initPingCmd initializes the ping command.
 func initPingCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "ping",
+		Use:     "ping [id]",
 		Short:   "Send a ping event to a webhook",
 		Long:    "Sends a ping event to a Webhook.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runPingCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "PingWebhook",
@@ -57,6 +58,14 @@ func initPingCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The ID of the webhook to ping. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. The ID of the webhook to ping.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for ping: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -68,6 +77,9 @@ func runPingCmd(cmd *cobra.Command, args []string) error {
 	}
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "PingWebhook")
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.PingWebhookRequest](cmd, pingCmdMeta, "Body", "body")
 	if err != nil {

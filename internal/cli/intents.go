@@ -118,9 +118,10 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 
 func newPlannedCmd(name, short, long, groupID, note string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   name,
-		Short: short,
-		Args:  cobra.NoArgs,
+		Use:                name,
+		Short:              short,
+		Args:               cobra.ArbitraryArgs,
+		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if usage.UsageRequested(cmd) {
 				return usage.EmitSchema(cmd, cmd.OutOrStdout())
