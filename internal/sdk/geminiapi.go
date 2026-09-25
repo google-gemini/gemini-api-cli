@@ -94,7 +94,6 @@ type GeminiAPI struct {
 	Models *Models
 	// Schedule and manage cron triggers that run managed agents
 	Triggers *Triggers
-	Voices   *Voices
 	// Manage webhook endpoints and signing secrets for event delivery
 	Webhooks *Webhooks
 
@@ -221,7 +220,6 @@ func New(opts ...SDKOption) *GeminiAPI {
 	sdk.Files = newFiles(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Models = newModels(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Triggers = newTriggers(sdk, sdk.sdkConfiguration, sdk.hooks)
-	sdk.Voices = newVoices(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Webhooks = newWebhooks(sdk, sdk.sdkConfiguration, sdk.hooks)
 
 	return sdk

@@ -469,17 +469,6 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
   * [`get`](docs/gemini-api_environments_get.md) - Gets an environment.
   * [`files`](docs/gemini-api_environments_files.md) - List and inspect files in an environment's snapshot
     * [`list`](docs/gemini-api_environments_files_list.md) - Retrieves file metadata or directory contents from an environment's snapshot.
-* [`voices`](docs/gemini-api_voices.md) - Operations for voices
-  * [`list`](docs/gemini-api_voices_list.md) - Lists custom stored voices owned by the caller (ordered newest first)
-followed by prebuilt system voices from Google's voice catalog.
-  * [`create`](docs/gemini-api_voices_create.md) - Creates a custom voice from a natural-language prompt
-(`VOICE_TYPE_PROMPTED`) or from reference and consent audio recordings
-(`VOICE_TYPE_REPLICATED`).
-  * [`delete`](docs/gemini-api_voices_delete.md) - Deletes a custom stored voice (`store = true`) by resource name.
-Prebuilt catalog voices (`VOICE_TYPE_PREBUILT`) cannot be deleted.
-  * [`get`](docs/gemini-api_voices_get.md) - Gets a custom stored voice (`store = true`) by resource name.
-Prebuilt catalog voices (`VOICE_TYPE_PREBUILT`) cannot be retrieved via
-`GetVoice`; use `ListVoices` instead.
 <!-- End Commands [operations] -->
 
 <!-- Start Request Body Input [stdinpiping] -->
