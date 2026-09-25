@@ -19,12 +19,12 @@ package genai
 // RegisterFilesRequest - Request for `RegisterFiles`.
 type RegisterFilesRequest struct {
 	// Required. The Google Cloud Storage URIs to register. Example: `gs://bucket/object`.
-	Uris []string `json:"uris"`
+	URI []string `json:"uris"`
 }
 
-func (r *RegisterFilesRequest) GetUris() []string {
+func (r *RegisterFilesRequest) GetURI() []string {
 	if r == nil {
 		return []string{}
 	}
-	return r.Uris
+	return r.URI
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var filesGetCmdMeta = []flagutil.FlagMeta{
 // initFilesGetCmd initializes the files-get command.
 func initFilesGetCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "get",
+		Use:     "get [file]",
 		Short:   "Get a file's metadata and processing state",
 		Long:    "Gets the metadata for the given `File`.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runFilesGetCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "FilesGet",
@@ -48,6 +49,14 @@ func initFilesGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.FilesGetRequest](filesGetCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for files-get: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "file", "File to get, as files/<id> or a bare id (also accepted as an argument) (or pass it as the [file] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "file", Summary: "File to get, as files/<id> or a bare id (also accepted as an argument)", Required: true, SatisfiedBy: []string{"file"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for files-get: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initFilesGetCmd(parent *cobra.Command) error {
 func runFilesGetCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.FilesGetRequest](cmd, filesGetCmdMeta, "", "")
 	if err != nil {

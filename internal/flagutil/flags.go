@@ -25,6 +25,8 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -225,6 +227,160 @@ func ValidateEnumFlag(cmd *cobra.Command, name string, allowed []string) error {
 		msg += fmt.Sprintf(" (did you mean %q?)", suggestion)
 	}
 	return WithCLIValidation(fmt.Errorf("%s", msg))
+}
+
+type outputFormatValidationError struct {
+	value   string
+	allowed []string
+	hint    string
+}
+
+func (outputFormatValidationError) CLIReason() string { return "CLI_VALIDATION" }
+
+func (e outputFormatValidationError) CLILeadingHints() []string {
+	if e.hint == "" {
+		return nil
+	}
+	return []string{e.hint}
+}
+
+func (e outputFormatValidationError) Error() string {
+	msg := fmt.Sprintf("invalid value %q for -o/--output-format; valid options: %s", e.value, strings.Join(e.allowed, ", "))
+	if !looksLikePath(e.value) {
+		if suggestion := closestMatch(e.value, e.allowed); suggestion != "" {
+			msg += fmt.Sprintf(" (did you mean %q?)", suggestion)
+		}
+	}
+	return msg
+}
+
+func ValidateOutputFormatFlag(cmd *cobra.Command, allowed []string) error {
+	val, _ := GetStringFlag(cmd, "output-format")
+	for _, a := range allowed {
+		if val == a {
+			return nil
+		}
+	}
+	err := outputFormatValidationError{value: val, allowed: allowed}
+	if !looksLikePath(val) {
+		return err
+	}
+	quoted := shellQuote(val)
+	switch {
+	case lookupFlag(cmd, "out") != nil:
+		if !FlagChanged(cmd, "out") {
+			err.hint = fmt.Sprintf("-o sets the output format. To write to a file, use --out %s", quoted)
+		}
+	case lookupFlag(cmd, "output-file") != nil:
+		if !FlagChanged(cmd, "output-file") {
+			err.hint = fmt.Sprintf("-o sets the output format. To write the response body to a file, use --output-file %s", quoted)
+		}
+	default:
+		err.hint = fmt.Sprintf("-o sets the output format, not a file. To save the response: -o json > %s", quoted)
+	}
+	return err
+}
+
+func looksLikePath(val string) bool {
+	if strings.ContainsAny(val, `/\`) {
+		return true
+	}
+	ext := filepath.Ext(val)
+	return len(ext) > 1 && len(ext) < len(val)
+}
+
+func ShorthandConfusionHint(cmd *cobra.Command, args []string, errMsg string) string {
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if len(arg) < 2 || arg[0] != '-' || arg[1] == '-' {
+			continue
+		}
+		letter := arg[1:2]
+		global := cmd.InheritedFlags().ShorthandLookup(letter)
+		if global == nil {
+			continue
+		}
+		candidates := shorthandCandidates(cmd, letter, args)
+		if len(candidates) == 0 {
+			continue
+		}
+		isBool := global.NoOptDefVal != ""
+		value := ""
+		switch {
+		case len(arg) > 2 && !isBool:
+			value = strings.TrimPrefix(arg[2:], "=")
+		case len(arg) == 2 && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
+			value = args[i+1]
+		}
+		named := ""
+		for _, c := range candidates {
+			if strings.Contains(errMsg, "--"+c) {
+				named = c
+				break
+			}
+		}
+		if named == "" && len(candidates) == 1 {
+			named = candidates[0]
+		}
+		related := (named != "" && strings.Contains(errMsg, "--"+named)) || strings.Contains(errMsg, global.Name) || (isBool && value != "" && (strings.Contains(errMsg, value) || strings.Contains(errMsg, strconv.Quote(value))))
+		if !related {
+			continue
+		}
+		if named == "" {
+			names := make([]string, len(candidates))
+			for j, c := range candidates {
+				names[j] = "--" + c
+			}
+			return fmt.Sprintf("-%s is short for --%s. %s have no shorthand; spell out the flag you meant", letter, global.Name, strings.Join(names, ", "))
+		}
+		usage := "<value>"
+		if value != "" {
+			usage = shellQuote(value)
+		}
+		return fmt.Sprintf("-%s is short for --%s, not --%s. Use --%s %s", letter, global.Name, named, named, usage)
+	}
+	return ""
+}
+
+func shorthandCandidates(cmd *cobra.Command, letter string, args []string) []string {
+	var names []string
+	cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden || f.Changed || f.Name == "help" || f.Shorthand != "" || longFlagTyped(args, f.Name) {
+			return
+		}
+		if strings.EqualFold(f.Name[:1], letter) {
+			names = append(names, f.Name)
+		}
+	})
+	return names
+}
+
+func longFlagTyped(args []string, name string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--"+name || strings.HasPrefix(arg, "--"+name+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func shellQuote(val string) string {
+	if val != "" && !strings.ContainsAny(val, " \t\n\"'`$&|;<>()*?[]{}\\!#~") {
+		return val
+	}
+	return "'" + strings.ReplaceAll(val, "'", `'\''`) + "'"
+}
+
+func lookupFlag(cmd *cobra.Command, name string) *pflag.Flag {
+	if f := cmd.Flags().Lookup(name); f != nil {
+		return f
+	}
+	return cmd.InheritedFlags().Lookup(name)
 }
 
 func closestMatch(val string, candidates []string) string {

@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var getCmdMeta = []flagutil.FlagMeta{
 // initGetCmd initializes the get command.
 func initGetCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "get",
+		Use:     "get [id]",
 		Short:   "Gets a custom stored voice (`store = true`) by resource name.\nPrebuilt catalog voices (`VOICE_TYPE_PREBUILT`) cannot be retrieved via\n`GetVoice`; use `ListVoices` instead.",
 		Long:    "Gets a custom stored voice (`store = true`) by resource name.\nPrebuilt catalog voices (`VOICE_TYPE_PREBUILT`) cannot be retrieved via\n`GetVoice`; use `ListVoices` instead.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "GetVoice",
@@ -48,6 +49,14 @@ func initGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.GetVoiceRequest](getCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for get: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The resource name of the custom stored voice to retrieve\n(for example, `voices/voice_abc123def456`). (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. The resource name of the custom stored voice to retrieve\n(for example, `voices/voice_abc123def456`).", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for get: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -56,6 +65,9 @@ func initGetCmd(parent *cobra.Command) error {
 func runGetCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.GetVoiceRequest](cmd, getCmdMeta, "", "")
 	if err != nil {

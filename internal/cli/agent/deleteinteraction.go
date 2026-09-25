@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -34,11 +35,11 @@ var deleteInteractionCmdMeta = []flagutil.FlagMeta{
 // initDeleteInteractionCmd initializes the delete-interaction command.
 func initDeleteInteractionCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "delete-interaction",
+		Use:     "delete-interaction [id]",
 		Short:   "Delete an interaction by interaction ID",
 		Long:    "Deletes the interaction by id.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteInteractionCmd,
 		Aliases: []string{"di"},
 		Annotations: map[string]string{
@@ -49,6 +50,14 @@ func initDeleteInteractionCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.DeleteInteractionRequest](deleteInteractionCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for delete-interaction: %w", err)
 	}
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The name of the interaction to delete. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. The name of the interaction to delete.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for delete-interaction: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -57,6 +66,9 @@ func initDeleteInteractionCmd(parent *cobra.Command) error {
 func runDeleteInteractionCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.DeleteInteractionRequest](cmd, deleteInteractionCmdMeta, "", "")
 	if err != nil {

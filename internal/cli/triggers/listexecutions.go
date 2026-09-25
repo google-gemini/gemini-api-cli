@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -36,11 +37,11 @@ var listExecutionsCmdMeta = []flagutil.FlagMeta{
 // initListExecutionsCmd initializes the list-executions command.
 func initListExecutionsCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "list-executions",
+		Use:     "list-executions [trigger-id]",
 		Short:   "List executions for a trigger",
 		Long:    "Lists executions for a trigger.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runListExecutionsCmd,
 		Aliases: []string{"le"},
 		Annotations: map[string]string{
@@ -53,6 +54,14 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().BoolP("all", "a", false, "Automatically paginate and fetch all results (streams NDJSON for JSON output)")
 	cmd.Flags().Int("max-pages", 0, "Maximum number of pages to fetch when using --all (0 = no limit)")
+	if err := flagutil.DeclarePositionalFlag(cmd, "trigger-id", "Required. The trigger ID to list executions from. (or pass it as the [trigger-id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "trigger-id", Summary: "Required. The trigger ID to list executions from.", Required: true, SatisfiedBy: []string{"trigger-id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for list-executions: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -61,6 +70,9 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 func runListExecutionsCmd(cmd *cobra.Command, args []string) error {
 	if usage.UsageRequested(cmd) {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	allPages, _ := flagutil.GetBoolFlag(cmd, "all")
 	maxPages, _ := flagutil.GetIntFlag(cmd, "max-pages")

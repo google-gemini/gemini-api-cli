@@ -101,7 +101,7 @@ type WebhookUpdate struct {
 	// - interaction.completed
 	// - interaction.failed
 	// - video.generated
-	SubscribedEvents []WebhookUpdateSubscribedEvent `json:"subscribed_events,omitzero"`
+	SubscribedEvent []WebhookUpdateSubscribedEvent `json:"subscribed_events,omitzero"`
 	// Optional. The URI to which webhook events will be sent.
 	URI *string `json:"uri,omitzero"`
 }
@@ -131,11 +131,11 @@ func (w *WebhookUpdate) GetState() *WebhookUpdateState {
 	return w.State
 }
 
-func (w *WebhookUpdate) GetSubscribedEvents() []WebhookUpdateSubscribedEvent {
+func (w *WebhookUpdate) GetSubscribedEvent() []WebhookUpdateSubscribedEvent {
 	if w == nil {
 		return nil
 	}
-	return w.SubscribedEvents
+	return w.SubscribedEvent
 }
 
 func (w *WebhookUpdate) GetURI() *string {

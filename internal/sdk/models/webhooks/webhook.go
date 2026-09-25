@@ -103,7 +103,7 @@ type Webhook struct {
 	// - interaction.completed
 	// - interaction.failed
 	// - video.generated
-	SubscribedEvents []WebhookSubscribedEvent `json:"subscribed_events"`
+	SubscribedEvent []WebhookSubscribedEvent `json:"subscribed_events"`
 	// Output only. The timestamp when the webhook was last updated.
 	UpdateTime *time.Time `json:"update_time,omitzero"`
 	// Required. The URI to which webhook events will be sent.
@@ -163,11 +163,11 @@ func (w *Webhook) GetState() *WebhookState {
 	return w.State
 }
 
-func (w *Webhook) GetSubscribedEvents() []WebhookSubscribedEvent {
+func (w *Webhook) GetSubscribedEvent() []WebhookSubscribedEvent {
 	if w == nil {
 		return []WebhookSubscribedEvent{}
 	}
-	return w.SubscribedEvents
+	return w.SubscribedEvent
 }
 
 func (w *Webhook) GetUpdateTime() *time.Time {
@@ -197,7 +197,7 @@ type WebhookInput struct {
 	// - interaction.completed
 	// - interaction.failed
 	// - video.generated
-	SubscribedEvents []WebhookSubscribedEvent `json:"subscribed_events"`
+	SubscribedEvent []WebhookSubscribedEvent `json:"subscribed_events"`
 	// Required. The URI to which webhook events will be sent.
 	URI string `json:"uri"`
 }
@@ -209,11 +209,11 @@ func (w *WebhookInput) GetName() *string {
 	return w.Name
 }
 
-func (w *WebhookInput) GetSubscribedEvents() []WebhookSubscribedEvent {
+func (w *WebhookInput) GetSubscribedEvent() []WebhookSubscribedEvent {
 	if w == nil {
 		return []WebhookSubscribedEvent{}
 	}
-	return w.SubscribedEvents
+	return w.SubscribedEvent
 }
 
 func (w *WebhookInput) GetURI() string {

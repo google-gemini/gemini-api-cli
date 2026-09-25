@@ -21,6 +21,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -36,11 +37,11 @@ var updateCmdMeta = []flagutil.FlagMeta{
 // initUpdateCmd initializes the update command.
 func initUpdateCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "update",
+		Use:     "update [id]",
 		Short:   "Update a trigger by ID",
 		Long:    "Updates a trigger.",
 		Example: "",
-		Args:    cobra.NoArgs,
+		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runUpdateCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation": "UpdateTrigger",
@@ -58,6 +59,14 @@ func initUpdateCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource name of the trigger. (or pass it as the [id] argument)", true); err != nil {
+		return err
+	}
+	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{Name: "id", Summary: "Required. Resource name of the trigger.", Required: true, SatisfiedBy: []string{"id"}},
+	}}); err != nil {
+		return fmt.Errorf("declare interactive arguments for update: %w", err)
+	}
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -69,6 +78,9 @@ func runUpdateCmd(cmd *cobra.Command, args []string) error {
 	}
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "UpdateTrigger")
+	}
+	if err := flagutil.ResolvePositionalFlag(cmd, args); err != nil {
+		return err
 	}
 	req, err := flagutil.BuildRequest[operations.UpdateTriggerRequest](cmd, updateCmdMeta, "Body", "body")
 	if err != nil {

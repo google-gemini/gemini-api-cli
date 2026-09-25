@@ -40,7 +40,11 @@ func installCommandErrorHandling(cmd *cobra.Command) {
 
 	flagError := cmd.FlagErrorFunc()
 	cmd.SetFlagErrorFunc(func(current *cobra.Command, err error) error {
-		return flagutil.WithCLIValidation(flagError(current, err))
+		err = flagutil.WithCLIValidation(flagError(current, err))
+		if err != nil && err.Error() == "unknown flag: --output" && current.Flags().Lookup("out") != nil && !flagutil.FlagChanged(current, "out") {
+			err = cliLeadingHintsError{error: err, hints: []string{"Did you mean --out?"}}
+		}
+		return err
 	})
 
 	if usage.GroupMadeRunnable(cmd) && cmd.Args == nil {

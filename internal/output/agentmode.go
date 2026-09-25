@@ -77,6 +77,7 @@ func AgentModeError(cmd *cobra.Command, message string, hints []string) error {
 var preparsedRendering struct {
 	outputFormat string
 	jq           string
+	args         []string
 }
 
 // ResetPreparsedRendering clears the rendering flags captured by
@@ -89,10 +90,12 @@ var preparsedRendering struct {
 func ResetPreparsedRendering() {
 	preparsedRendering.outputFormat = ""
 	preparsedRendering.jq = ""
+	preparsedRendering.args = nil
 }
 
 func PreparseRenderingFlags(target *cobra.Command, args []string) {
 	ResetPreparsedRendering()
+	preparsedRendering.args = append([]string(nil), args...)
 	fs := pflag.NewFlagSet("rendering", pflag.ContinueOnError)
 	fs.ParseErrorsWhitelist.UnknownFlags = true
 	fs.SetOutput(nopWriter{})
@@ -156,7 +159,7 @@ func CLIError(cmd *cobra.Command, err error) error {
 		"exit_code": ExitCodeFor(classification),
 	}
 	mergeMachineErrorFields(envelope, err)
-	if hints := errorCLIHints(err); len(hints) > 0 {
+	if hints := append(leadingHints(cmd, err, classification.Reason), errorCLIHints(err)...); len(hints) > 0 {
 		envelope["hints"] = hints
 	}
 	jsonData, marshalErr := json.MarshalIndent(envelope, "", "  ")
