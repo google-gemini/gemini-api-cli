@@ -31,13 +31,13 @@ import (
 var listExecutionsCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "The maximum number of executions to return per page."},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "A page token from a previous ListTriggerExecutions call."},
-	{FlagName: "trigger-id", Shorthand: "t", FieldPath: "TriggerID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The trigger ID to list executions from. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The trigger ID to list executions from. [required]"},
 }
 
 // initListExecutionsCmd initializes the list-executions command.
 func initListExecutionsCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "list-executions [trigger-id]",
+		Use:     "list-executions [id]",
 		Short:   "List executions for a trigger",
 		Long:    "Lists executions for a trigger.",
 		Example: "",
@@ -54,11 +54,11 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().BoolP("all", "a", false, "Automatically paginate and fetch all results (streams NDJSON for JSON output)")
 	cmd.Flags().Int("max-pages", 0, "Maximum number of pages to fetch when using --all (0 = no limit)")
-	if err := flagutil.DeclarePositionalFlag(cmd, "trigger-id", "Required. The trigger ID to list executions from. (or pass it as the [trigger-id] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. The trigger ID to list executions from. (or pass it as the [id] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "trigger-id", Summary: "Required. The trigger ID to list executions from.", Required: true, SatisfiedBy: []string{"trigger-id"}},
+		{Name: "id", Summary: "Required. The trigger ID to list executions from.", Required: true, SatisfiedBy: []string{"id"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for list-executions: %w", err)
 	}

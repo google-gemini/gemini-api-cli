@@ -60,7 +60,7 @@ type RunTriggerRequest struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. Resource name of the trigger.
-	TriggerID string `pathParam:"style=simple,explode=false,name=triggerId"`
+	ID string `pathParam:"style=simple,explode=false,name=triggerId"`
 }
 
 func (r RunTriggerRequest) MarshalJSON() ([]byte, error) {
@@ -88,11 +88,11 @@ func (r *RunTriggerRequest) GetAPIVersion() *string {
 	return r.APIVersion
 }
 
-func (r *RunTriggerRequest) GetTriggerID() string {
+func (r *RunTriggerRequest) GetID() string {
 	if r == nil {
 		return ""
 	}
-	return r.TriggerID
+	return r.ID
 }
 
 type RunTriggerResponse struct {

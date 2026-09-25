@@ -64,7 +64,7 @@ type ListTriggerExecutionsRequest struct {
 	// A page token from a previous ListTriggerExecutions call.
 	PageToken *string `queryParam:"style=form,explode=true,name=page_token"`
 	// Required. The trigger ID to list executions from.
-	TriggerID string `pathParam:"style=simple,explode=false,name=triggerId"`
+	ID string `pathParam:"style=simple,explode=false,name=triggerId"`
 }
 
 func (l ListTriggerExecutionsRequest) MarshalJSON() ([]byte, error) {
@@ -106,11 +106,11 @@ func (l *ListTriggerExecutionsRequest) GetPageToken() *string {
 	return l.PageToken
 }
 
-func (l *ListTriggerExecutionsRequest) GetTriggerID() string {
+func (l *ListTriggerExecutionsRequest) GetID() string {
 	if l == nil {
 		return ""
 	}
-	return l.TriggerID
+	return l.ID
 }
 
 type ListTriggerExecutionsResponse struct {

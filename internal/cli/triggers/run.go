@@ -29,13 +29,13 @@ import (
 )
 
 var runCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "trigger-id", Shorthand: "t", FieldPath: "TriggerID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource name of the trigger. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource name of the trigger. [required]"},
 }
 
 // initRunCmd initializes the run command.
 func initRunCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
-		Use:     "run [trigger-id]",
+		Use:     "run [id]",
 		Short:   "Run a trigger immediately",
 		Long:    "Runs a trigger immediately.",
 		Example: "",
@@ -49,11 +49,11 @@ func initRunCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.RunTriggerRequest](runCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for run: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "trigger-id", "Required. Resource name of the trigger. (or pass it as the [trigger-id] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource name of the trigger. (or pass it as the [id] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "trigger-id", Summary: "Required. Resource name of the trigger.", Required: true, SatisfiedBy: []string{"trigger-id"}},
+		{Name: "id", Summary: "Required. Resource name of the trigger.", Required: true, SatisfiedBy: []string{"id"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for run: %w", err)
 	}
