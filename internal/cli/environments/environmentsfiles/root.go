@@ -24,8 +24,8 @@ import (
 func InitEnvironmentsFilesRoot(parent *cobra.Command) error {
 	var EnvironmentsFilesCmd = &cobra.Command{
 		Use:         "files",
-		Short:       "Operations for files",
-		Long:        "Operations for files",
+		Short:       "List and inspect files in an environment's snapshot",
+		Long:        "List and inspect files in an environment's snapshot",
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{"speakeasy_cli_group": "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {

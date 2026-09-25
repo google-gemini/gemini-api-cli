@@ -39,8 +39,8 @@ var listCmdMeta = []flagutil.FlagMeta{
 func initListCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "list",
-		Short:   "Retrieves file metadata or directory contents from an environment's snapshot. To download file content, use the download URL returned in the response.",
-		Long:    "Retrieves file metadata or directory contents from an environment's snapshot. To download file content, use the download URL returned in the response.",
+		Short:   "Retrieves file metadata or directory contents from an environment's snapshot.",
+		Long:    "Retrieves file metadata or directory contents from an environment's snapshot.",
 		Example: "  gemini-api files list --environment <value> --path /var/mail",
 		Args:    cobra.NoArgs,
 		RunE:    runListCmd,

@@ -25,8 +25,8 @@ import (
 func InitEnvironmentsRoot(parent *cobra.Command) error {
 	var EnvironmentsCmd = &cobra.Command{
 		Use:         "environments",
-		Short:       "Operations for environments",
-		Long:        "Operations for environments",
+		Short:       "Manage sandbox environments and inspect environment files",
+		Long:        "Manage sandbox environments and inspect environment files",
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{"speakeasy_cli_group": "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {

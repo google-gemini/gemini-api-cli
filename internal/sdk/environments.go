@@ -33,7 +33,9 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
+// Environments - Manage sandbox environments and inspect environment files
 type Environments struct {
+	// List and inspect files in an environment's snapshot
 	Files *EnvironmentsFiles
 
 	rootSDK          *GeminiAPI

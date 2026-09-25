@@ -32,6 +32,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
+// EnvironmentsFiles - List and inspect files in an environment's snapshot
 type EnvironmentsFiles struct {
 	rootSDK          *GeminiAPI
 	sdkConfiguration config.SDKConfiguration
@@ -46,7 +47,7 @@ func newEnvironmentsFiles(rootSDK *GeminiAPI, sdkConfig config.SDKConfiguration,
 	}
 }
 
-// List - Retrieves file metadata or directory contents from an environment's snapshot. To download file content, use the download URL returned in the response.
+// List - Retrieves file metadata or directory contents from an environment's snapshot.
 func (s *EnvironmentsFiles) List(ctx context.Context, request operations.GetEnvironmentFilesRequest, opts ...operations.Option) (*operations.GetEnvironmentFilesResponse, error) {
 	globals := operations.GetEnvironmentFilesGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

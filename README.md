@@ -462,13 +462,13 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
 ### Additional commands
 
-* [`environments`](docs/gemini-api_environments.md) - Operations for environments
+* [`environments`](docs/gemini-api_environments.md) - Manage sandbox environments and inspect environment files
   * [`list`](docs/gemini-api_environments_list.md) - Lists environments.
   * [`create`](docs/gemini-api_environments_create.md) - Creates an environment.
   * [`delete`](docs/gemini-api_environments_delete.md) - Deletes an environment.
   * [`get`](docs/gemini-api_environments_get.md) - Gets an environment.
-  * [`files`](docs/gemini-api_environments_files.md) - Operations for files
-    * [`list`](docs/gemini-api_environments_files_list.md) - Retrieves file metadata or directory contents from an environment's snapshot. To download file content, use the download URL returned in the response.
+  * [`files`](docs/gemini-api_environments_files.md) - List and inspect files in an environment's snapshot
+    * [`list`](docs/gemini-api_environments_files_list.md) - Retrieves file metadata or directory contents from an environment's snapshot.
 * [`voices`](docs/gemini-api_voices.md) - Operations for voices
   * [`list`](docs/gemini-api_voices_list.md) - Lists custom stored voices owned by the caller (ordered newest first)
 followed by prebuilt system voices from Google's voice catalog.
@@ -816,15 +816,3 @@ This CLI is generated programmatically. Edits to generated files are overwritten
 - **Hand-written commands:** Add them under `internal/cli/custom/`; the scaffold is generated once and never overwritten.
 
 ### CLI Created by [Speakeasy](https://www.speakeasy.com/?utm_source=google-gemini/gemini-api-cli&utm_campaign=cli)
-
-## Licensing & Disclaimer
-
-Copyright 2026 Google LLC
-
-All software is licensed under the Apache License, Version 2.0 (Apache 2.0); you may not use this file except in compliance with the Apache 2.0 license. You may obtain a copy of the Apache 2.0 license at: https://www.apache.org/licenses/LICENSE-2.0
-
-All other materials are licensed under the Creative Commons Attribution 4.0 International License (CC-BY). You may obtain a copy of the CC-BY license at: https://creativecommons.org/licenses/by/4.0/legalcode
-
-Unless required by applicable law or agreed to in writing, all software and materials distributed here under the Apache 2.0 or CC-BY licenses are distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the licenses for the specific language governing permissions and limitations under those licenses.
-
-This is not an official Google product.
