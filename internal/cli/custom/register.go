@@ -82,8 +82,7 @@ func register(root *cobra.Command) error {
 		c.attach(cmd)
 	}
 
-	guardRequiredFlags(root)
-	boundStdinReads(root)
+	fixNestedGroupExamples(root)
 
 	files := findChild(root, "files")
 	if files == nil {
@@ -107,6 +106,113 @@ func register(root *cobra.Command) error {
 	}
 	if err := normalizeIdentifier(findChild(models, "get"), "model", normalizeModelPositional); err != nil {
 		return fmt.Errorf("models get: %w", err)
+	}
+
+	environments := findChild(root, "environments")
+	if environments == nil {
+		return fmt.Errorf("expected the generated environments group to mount porcelain under")
+	}
+	envFiles := findChild(environments, "files")
+	if envFiles == nil {
+		return fmt.Errorf("expected the generated environments files subgroup to mount porcelain under")
+	}
+	if err := normalizeEnvironmentFilesList(findChild(envFiles, "list")); err != nil {
+		return fmt.Errorf("environments files list: %w", err)
+	}
+
+	guardRequiredFlags(root)
+	boundStdinReads(root)
+	return nil
+}
+
+// fixNestedGroupExamples rewrites generated Example lines on commands mounted
+// more than one group deep (such as "environments files list"). The generator
+// templates only the leaf group name ("gemini-api files list"), which omits
+// parent groups and collides with top-level command groups.
+func fixNestedGroupExamples(root *cobra.Command) {
+	cliName := root.Name()
+	var walk func(cmd *cobra.Command, depth int)
+	walk = func(cmd *cobra.Command, depth int) {
+		for _, child := range cmd.Commands() {
+			if depth >= 2 && child.Example != "" && cmd.Name() != "" {
+				leafPrefix := cliName + " " + cmd.Name() + " " + child.Name()
+				child.Example = strings.ReplaceAll(child.Example, leafPrefix, child.CommandPath())
+			}
+			walk(child, depth+1)
+		}
+	}
+	walk(root, 0)
+}
+
+// normalizeEnvironmentID strips an optional "environments/" prefix and rejects
+// empty or multi-segment values before they reach the URL builder.
+func normalizeEnvironmentID(env string) (string, error) {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(env), "environments/")
+	if trimmed == "" || strings.Contains(trimmed, "/") {
+		return "", fmt.Errorf("invalid environment id %q; expected environments/<id> or a bare id", strings.TrimSpace(env))
+	}
+	return trimmed, nil
+}
+
+// normalizeEnvironmentFilePath strips leading slashes from a snapshot file
+// path so "--path /var/mail" resolves to ".../files/var/mail" instead of
+// producing an empty path segment (".../files//var/mail"), and rejects paths
+// that are empty after stripping slashes.
+func normalizeEnvironmentFilePath(p string) (string, error) {
+	trimmed := strings.TrimLeft(strings.TrimSpace(p), "/")
+	if trimmed == "" {
+		return "", fmt.Errorf("invalid path %q; expected a relative path inside the environment (e.g. \"src\")", strings.TrimSpace(p))
+	}
+	return trimmed, nil
+}
+
+// normalizeEnvironmentFilesList normalizes --environment and --path on
+// "environments files list" before building the request URL.
+func normalizeEnvironmentFilesList(cmd *cobra.Command) error {
+	if cmd == nil {
+		return fmt.Errorf("command is not registered")
+	}
+	for _, flagName := range []string{"environment", "path"} {
+		if cmd.Flags().Lookup(flagName) == nil {
+			return fmt.Errorf("flag --%s is missing on %q", flagName, cmd.Name())
+		}
+	}
+	original := cmd.RunE
+	if original == nil {
+		return fmt.Errorf("command %q has no RunE", cmd.Name())
+	}
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if usageRequested(c) {
+			return original(c, args)
+		}
+		rawEnv, err := c.Flags().GetString("environment")
+		if err != nil {
+			return err
+		}
+		normEnv, err := normalizeEnvironmentID(rawEnv)
+		if err != nil {
+			return usageError(err.Error())
+		}
+		if normEnv != rawEnv {
+			if err := c.Flags().Set("environment", normEnv); err != nil {
+				return err
+			}
+		}
+
+		rawPath, err := c.Flags().GetString("path")
+		if err != nil {
+			return err
+		}
+		normPath, err := normalizeEnvironmentFilePath(rawPath)
+		if err != nil {
+			return usageError(err.Error())
+		}
+		if normPath != rawPath {
+			if err := c.Flags().Set("path", normPath); err != nil {
+				return err
+			}
+		}
+		return original(c, args)
 	}
 	return nil
 }
