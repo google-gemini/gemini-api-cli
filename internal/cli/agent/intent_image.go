@@ -58,7 +58,7 @@ func InitIntentImage(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Override the image model (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.1-flash-image)")
+	cmd.Flags().StringP("model", "m", "", "Override the image model (e.g. gemini-3-pro-image, nano-banana-pro-preview, default: gemini-3.1-flash-image)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
