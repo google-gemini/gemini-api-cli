@@ -29,7 +29,7 @@ import (
 )
 
 var filesDeleteCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "file", Shorthand: "f", FieldPath: "File", Kind: flagutil.FlagKindString, Required: true, Description: "File to delete, as files/<id> or a bare id (also accepted as an argument) [required]"},
+	{FlagName: "file", Shorthand: "f", FieldPath: "File", Kind: flagutil.FlagKindString, Required: true, Description: "File to delete, as files/<id> or a bare id [required]"},
 }
 
 // initFilesDeleteCmd initializes the files-delete command.
@@ -49,11 +49,11 @@ func initFilesDeleteCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.FilesDeleteRequest](filesDeleteCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for files-delete: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "file", "File to delete, as files/<id> or a bare id (also accepted as an argument) (or pass it as the [file] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "file", "File to delete, as files/<id> or a bare id (or pass it as the [file] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "file", Summary: "File to delete, as files/<id> or a bare id (also accepted as an argument)", Required: true, SatisfiedBy: []string{"file"}},
+		{Name: "file", Summary: "File to delete, as files/<id> or a bare id", Required: true, SatisfiedBy: []string{"file"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for files-delete: %w", err)
 	}
