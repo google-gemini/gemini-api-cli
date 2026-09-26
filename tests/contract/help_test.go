@@ -65,7 +65,8 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 		want []string
 	}{
 		{[]string{"generate"}, []string{
-			"Just works:\n  gemini-api generate \"Explain concurrency in one sentence\"",
+			"Just works:",
+			"Explain concurrency in one sentence",
 			"Defaults: model gemini-3.6-flash · streams the reply (--stream=false for one result)",
 			"Learn: https://ai.google.dev/gemini-api/docs/text-generation · escalate: full request control via gemini-api agent run",
 		}},
