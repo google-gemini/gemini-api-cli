@@ -19,8 +19,8 @@ package explorer
 import (
 	"strings"
 
-	"github.com/spf13/cobra"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
 )
 
 // Run launches the interactive explorer TUI.

@@ -30,13 +30,13 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/alpkeskin/gotoon"
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 	"github.com/spf13/cobra"
-	"github.com/alpkeskin/gotoon"
 	"gopkg.in/yaml.v3"
 )
 

@@ -28,8 +28,8 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
-	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/sdkerrors"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/sdkerrors"
 	"github.com/google-gemini/gemini-api-cli/internal/testclient"
 	"github.com/spf13/cobra"
 )

@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/spf13/cobra"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 )
 

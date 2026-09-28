@@ -26,9 +26,9 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/retry"
-	"github.com/google-gemini/gemini-api-cli/internal/sdk"
 	"github.com/google-gemini/gemini-api-cli/internal/testclient"
 	"github.com/spf13/cobra"
 )

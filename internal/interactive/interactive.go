@@ -28,15 +28,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 	"github.com/spf13/pflag"
+	"golang.org/x/term"
 )
 
 const PromptArgsAnnotation = "speakeasy_prompt_args"

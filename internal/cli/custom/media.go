@@ -31,10 +31,10 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/genai"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
-	"github.com/google-gemini/gemini-api-cli/internal/sdk"
 	"github.com/spf13/cobra"
 )
 
