@@ -29,7 +29,6 @@ import (
 	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
-	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -47,12 +46,12 @@ import (
 //     category, and help-group position and leaves RunE to us.
 //   - files upload is added under the generated files group (whose leaf
 //     commands — list/get/delete/register — stay generated).
-//   - files get / delete additionally accept a positional identifier so
-//     "files get files/abc" works alongside the generated "--file" flag.
-//   - models get accepts a positional model id ("models get gemini-2.5-flash")
-//     alongside the generated "--model" flag; the generated models group's
-//     bare invocation stays the curated catalog (merged in by the generated
-//     catalog layer), with list/get as its live API leaves.
+//   - files get / delete normalize "files/<id>" to the bare "<id>" path
+//     parameter and reject malformed ids before sending a request.
+//   - models get normalizes "models/<id>" to "<id>" and rejects malformed ids;
+//     the generated models group's bare invocation stays the curated catalog
+//     (merged in by the generated catalog layer), with list/get as its live API
+//     leaves.
 func Register(root *cobra.Command) {
 	if err := register(root); err != nil {
 		// A drifted command surface (a declared custom command that no longer
@@ -95,10 +94,10 @@ func register(root *cobra.Command) error {
 		usage.MarkDynamic(uploadCmd)
 		files.AddCommand(uploadCmd)
 	}
-	if err := addPositionalIdentifier(findChild(files, "get"), "file", normalizeFilePositional); err != nil {
+	if err := normalizeIdentifier(findChild(files, "get"), "file", normalizeFilePositional); err != nil {
 		return fmt.Errorf("files get: %w", err)
 	}
-	if err := addPositionalIdentifier(findChild(files, "delete"), "file", normalizeFilePositional); err != nil {
+	if err := normalizeIdentifier(findChild(files, "delete"), "file", normalizeFilePositional); err != nil {
 		return fmt.Errorf("files delete: %w", err)
 	}
 
@@ -106,7 +105,7 @@ func register(root *cobra.Command) error {
 	if models == nil {
 		return fmt.Errorf("expected the generated models group to mount porcelain under")
 	}
-	if err := addPositionalIdentifier(findChild(models, "get"), "model", normalizeModelPositional); err != nil {
+	if err := normalizeIdentifier(findChild(models, "get"), "model", normalizeModelPositional); err != nil {
 		return fmt.Errorf("models get: %w", err)
 	}
 	return nil
@@ -203,76 +202,31 @@ func findChild(parent *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-// addPositionalIdentifier lets a generated command that requires a --<flag>
-// resource identifier also accept it as a single positional argument, so
-// "files get files/abc" and "files get --file files/abc" both work and both
-// resolve to the same path. The normalizer runs on the identifier regardless
-// of which form supplied it, and may reject a malformed id. It returns an
-// error (rather than silently no-op'ing) when the command surface has drifted
-// so Register fails loudly at startup.
-func addPositionalIdentifier(cmd *cobra.Command, flagName string, normalize func(string) (string, error)) error {
+// normalizeIdentifier validates and normalizes a generated command's
+// identifier flag, whichever form (positional or --<flag>) supplied it. It
+// returns an error (rather than silently no-op'ing) when the command surface
+// has drifted so Register fails loudly at startup.
+func normalizeIdentifier(cmd *cobra.Command, flagName string, normalize func(string) (string, error)) error {
 	if cmd == nil {
-		return fmt.Errorf("cannot add positional %q: command is not registered", flagName)
+		return fmt.Errorf("cannot normalize %q: command is not registered", flagName)
 	}
-	flag := cmd.Flags().Lookup(flagName)
-	if flag == nil {
-		return fmt.Errorf("cannot add positional to %q: flag --%s is missing", cmd.Name(), flagName)
+	if cmd.Flags().Lookup(flagName) == nil {
+		return fmt.Errorf("cannot normalize %q on %q: flag --%s is missing", flagName, cmd.Name(), flagName)
 	}
 	original := cmd.RunE
 	if original == nil {
-		return fmt.Errorf("cannot add positional to %q: command has no RunE", cmd.Name())
+		return fmt.Errorf("cannot normalize %q on %q: command has no RunE", flagName, cmd.Name())
 	}
-	cmd.Use = fmt.Sprintf("%s [%s]", cmd.Name(), flagName)
-	// The identifier is required once, in either form. Leaving the flag itself
-	// marked required would make --interactive prompt for both forms and fail
-	// when only the argument is answered; the RunE below enforces presence.
-	if err := flagutil.OverridePromptRequirement(cmd, flagName, false, false); err != nil {
-		return err
-	}
-	delete(flag.Annotations, cobra.BashCompOneRequiredFlag)
-	// The generated description carries a requiredness marker, which no longer
-	// holds for the flag alone.
-	flag.Usage = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(flag.Usage), "[required]"))
-	if flag.Usage == "" {
-		flag.Usage = fmt.Sprintf("Identifier (alternative to the [%s] argument)", flagName)
-	}
-	// The positional is folded into the flag during argument validation, which
-	// runs before the interactive pre-run: a supplied identifier is then never
-	// prompted for again.
-	cmd.Args = func(c *cobra.Command, args []string) error {
-		if err := cobra.MaximumNArgs(1)(c, args); err != nil {
-			return err
-		}
-		if len(args) == 0 {
-			return nil
-		}
-		if flagutil.FlagChanged(c, flagName) {
-			return usageError(fmt.Sprintf("pass the identifier once: as an argument or via --%s, not both", flagName))
-		}
-		return c.Flags().Set(flagName, args[0])
-	}
-	// The generation-time --usage schema knows only the flag; render it live so
-	// the positional form is advertised too.
-	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{{
-		Name: flagName, Summary: "Identifier (or use --" + flagName + ")", Required: true, SatisfiedBy: []string{flagName},
-	}}})
 	usage.MarkDynamic(cmd)
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		// An identifier answered at the interactive prompt arrives here as an
-		// argument: argument validation ran before the prompt.
-		if len(args) == 1 && !flagutil.FlagChanged(c, flagName) {
-			if err := c.Flags().Set(flagName, args[0]); err != nil {
-				return err
-			}
+		if usageRequested(c) {
+			return original(c, args)
 		}
-		if !flagutil.FlagChanged(c, flagName) {
-			// The generated request builder relaxes required flags when a
-			// body-less command is invoked with no flags at all, which would
-			// send the request with an empty path segment.
-			return usageError(fmt.Sprintf("missing %s identifier: pass it as an argument or via --%s", flagName, flagName))
+		// Fold the positional (incl. an interactive answer) into the flag and
+		// enforce presence with the generated wording.
+		if err := flagutil.ResolvePositionalFlag(c, args); err != nil {
+			return err
 		}
-		// Normalize/validate whatever now populates the flag — positional or
-		// --<flag> — so the path parameter shape is identical either way.
 		if normalize != nil {
 			raw, err := c.Flags().GetString(flagName)
 			if err != nil {
@@ -288,7 +242,7 @@ func addPositionalIdentifier(cmd *cobra.Command, flagName string, normalize func
 				}
 			}
 		}
-		return original(c, nil)
+		return original(c, args)
 	}
 	return nil
 }

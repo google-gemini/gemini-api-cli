@@ -29,7 +29,7 @@ import (
 )
 
 var filesGetCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "file", Shorthand: "f", FieldPath: "File", Kind: flagutil.FlagKindString, Required: true, Description: "File to get, as files/<id> or a bare id (also accepted as an argument) [required]"},
+	{FlagName: "file", Shorthand: "f", FieldPath: "File", Kind: flagutil.FlagKindString, Required: true, Description: "File to get, as files/<id> or a bare id [required]"},
 }
 
 // initFilesGetCmd initializes the files-get command.
@@ -49,11 +49,11 @@ func initFilesGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.FilesGetRequest](filesGetCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for files-get: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "file", "File to get, as files/<id> or a bare id (also accepted as an argument) (or pass it as the [file] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "file", "File to get, as files/<id> or a bare id (or pass it as the [file] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "file", Summary: "File to get, as files/<id> or a bare id (also accepted as an argument)", Required: true, SatisfiedBy: []string{"file"}},
+		{Name: "file", Summary: "File to get, as files/<id> or a bare id", Required: true, SatisfiedBy: []string{"file"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for files-get: %w", err)
 	}

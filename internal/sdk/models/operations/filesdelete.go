@@ -48,7 +48,7 @@ func (f *FilesDeleteGlobals) GetAPIVersion() *string {
 type FilesDeleteRequest struct {
 	// Which version of the API to use. Defaults to v1beta.
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
-	// File to delete, as files/<id> or a bare id (also accepted as an argument)
+	// File to delete, as files/<id> or a bare id
 	File string `pathParam:"style=simple,explode=false,name=file"`
 }
 
