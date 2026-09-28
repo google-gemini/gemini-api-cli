@@ -714,6 +714,27 @@ func TestNormalizeEnvironmentFilesList(t *testing.T) {
 			args:    []string{"--environment", "environments/a/b", "--path", "src"},
 			wantErr: `invalid environment id "environments/a/b"`,
 		},
+		{
+			name:     "missing environment deferred to generated validation",
+			args:     []string{"--path", "src"},
+			wantPath: "src",
+		},
+		{
+			name:    "missing path deferred to generated validation",
+			args:    []string{"--environment", "env_abc123"},
+			wantEnv: "env_abc123",
+		},
+		{
+			name:     "blank environment deferred to generated validation",
+			args:     []string{"--environment", " ", "--path", "src"},
+			wantEnv:  " ",
+			wantPath: "src",
+		},
+		{
+			name:    "blank path deferred to generated validation",
+			args:    []string{"--environment", "env_abc123", "--path", ""},
+			wantEnv: "env_abc123",
+		},
 	}
 
 	for _, tt := range tests {
