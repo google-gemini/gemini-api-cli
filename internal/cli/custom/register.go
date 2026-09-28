@@ -167,14 +167,23 @@ func normalizeEnvironmentFilePath(p string) (string, error) {
 }
 
 // normalizeEnvironmentFilesList normalizes --environment and --path on
-// "environments files list" before building the request URL.
+// "environments files list" before building the request URL. Missing or blank
+// values are left to the generated request builder, which reports them as
+// missing required flags or blank path parameters.
 func normalizeEnvironmentFilesList(cmd *cobra.Command) error {
 	if cmd == nil {
 		return fmt.Errorf("command is not registered")
 	}
-	for _, flagName := range []string{"environment", "path"} {
-		if cmd.Flags().Lookup(flagName) == nil {
-			return fmt.Errorf("flag --%s is missing on %q", flagName, cmd.Name())
+	normalizers := []struct {
+		flagName  string
+		normalize func(string) (string, error)
+	}{
+		{"environment", normalizeEnvironmentID},
+		{"path", normalizeEnvironmentFilePath},
+	}
+	for _, n := range normalizers {
+		if cmd.Flags().Lookup(n.flagName) == nil {
+			return fmt.Errorf("flag --%s is missing on %q", n.flagName, cmd.Name())
 		}
 	}
 	original := cmd.RunE
@@ -185,31 +194,22 @@ func normalizeEnvironmentFilesList(cmd *cobra.Command) error {
 		if usageRequested(c) {
 			return original(c, args)
 		}
-		rawEnv, err := c.Flags().GetString("environment")
-		if err != nil {
-			return err
-		}
-		normEnv, err := normalizeEnvironmentID(rawEnv)
-		if err != nil {
-			return usageError(err.Error())
-		}
-		if normEnv != rawEnv {
-			if err := c.Flags().Set("environment", normEnv); err != nil {
+		for _, n := range normalizers {
+			raw, err := c.Flags().GetString(n.flagName)
+			if err != nil {
 				return err
 			}
-		}
-
-		rawPath, err := c.Flags().GetString("path")
-		if err != nil {
-			return err
-		}
-		normPath, err := normalizeEnvironmentFilePath(rawPath)
-		if err != nil {
-			return usageError(err.Error())
-		}
-		if normPath != rawPath {
-			if err := c.Flags().Set("path", normPath); err != nil {
-				return err
+			if strings.TrimSpace(raw) == "" {
+				continue
+			}
+			norm, err := n.normalize(raw)
+			if err != nil {
+				return usageError(err.Error())
+			}
+			if norm != raw {
+				if err := c.Flags().Set(n.flagName, norm); err != nil {
+					return err
+				}
 			}
 		}
 		return original(c, args)
