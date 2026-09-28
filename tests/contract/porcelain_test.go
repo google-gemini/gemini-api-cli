@@ -354,7 +354,7 @@ func TestTranscribeVideoMIME(t *testing.T) {
 // TestServerSelectionFlagOmitted pins the single-server CLI contract:
 // --server is absent, while --server-url remains available.
 func TestServerSelectionFlagOmitted(t *testing.T) {
-	result := runCLI(t, t.TempDir(), nil, "--server", "99", "tokens", "hi")
+	result := runCLI(t, t.TempDir(), nil, "--server", "99", "agent", "list")
 	if result.err == nil {
 		t.Fatal("unregistered --server unexpectedly succeeded")
 	}

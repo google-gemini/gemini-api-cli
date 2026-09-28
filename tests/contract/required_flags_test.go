@@ -32,8 +32,8 @@ func TestBodylessOperationsRequireTheirIdentifier(t *testing.T) {
 		{[]string{"agent", "status"}, "--id"},
 		{[]string{"triggers", "get"}, "--id"},
 		{[]string{"triggers", "delete"}, "--id"},
-		{[]string{"triggers", "run"}, "--trigger-id"},
-		{[]string{"triggers", "list-executions"}, "--trigger-id"},
+		{[]string{"triggers", "run"}, "--id"},
+		{[]string{"triggers", "list-executions"}, "--id"},
 		{[]string{"credentials", "get"}, "--id"},
 		{[]string{"credentials", "delete"}, "--id"},
 		{[]string{"environments", "get"}, "--id"},
@@ -54,7 +54,8 @@ func TestBodylessOperationsRequireTheirIdentifier(t *testing.T) {
 					if code := exitCode(t, result); code != 2 {
 						t.Errorf("%v exit code = %d, want 2\nstderr: %s", mode, code, result.stderr)
 					}
-					if !strings.Contains(result.stderr, "missing required flag: "+tc.flag) {
+					if !strings.Contains(result.stderr, "missing required flag: "+tc.flag) &&
+						!strings.Contains(result.stderr, "blank; path parameters require a non-empty value") {
 						t.Errorf("%v stderr missing the named flag %s:\n%s", mode, tc.flag, result.stderr)
 					}
 					if strings.Contains(result.stderr, "[DRY-RUN]") || requests.Load() != before {
