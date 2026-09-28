@@ -91,7 +91,7 @@ func TestModelsGet(t *testing.T) {
 	}
 }
 
-// TestModelsGetRejectsDoubleIdentifier pins the "pass the identifier once"
+// TestModelsGetRejectsDoubleIdentifier pins the "pass model once"
 // guard: supplying both the positional and the --model flag is a usage error.
 func TestModelsGetRejectsDoubleIdentifier(t *testing.T) {
 	args := append(baseArgs("http://127.0.0.1:0"), "models", "get", "gemini-2.5-flash", "--model", "gemini-2.5-flash")
@@ -99,7 +99,7 @@ func TestModelsGetRejectsDoubleIdentifier(t *testing.T) {
 	if result.err == nil {
 		t.Fatalf("expected usage error, got success\nstdout: %s", result.stdout)
 	}
-	if !strings.Contains(result.stderr, "pass the identifier once") {
+	if !strings.Contains(result.stderr, "pass model once") {
 		t.Errorf("stderr = %q, want the double-identifier usage error", result.stderr)
 	}
 }
