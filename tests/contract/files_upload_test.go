@@ -422,7 +422,9 @@ func TestFilesUploadTransportParity(t *testing.T) {
 			for _, mode := range [][]string{nil, {"--dry-run"}} {
 				args := []string{"--server-url", server.URL, "--api-version=" + version, "--api-key", "test-key", "--no-interactive", "--color", "never"}
 				result := runCLI(t, t.TempDir(), nil, append(args, append(mode, "files", "list")...)...)
-				if result.err == nil || strings.Contains(result.stderr, "[DRY-RUN]") || !strings.Contains(result.stderr, "API version must be non-empty") {
+				if result.err == nil || strings.Contains(result.stderr, "[DRY-RUN]") ||
+					(!strings.Contains(result.stderr, "API version must be non-empty") &&
+						!strings.Contains(result.stderr, "contains a dot segment")) {
 					t.Errorf("--api-version %q %v was accepted:\n%s", version, mode, result.stderr)
 				}
 			}
