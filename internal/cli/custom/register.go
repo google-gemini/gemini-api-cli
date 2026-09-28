@@ -31,7 +31,6 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // Register is called after every generated command has been attached to the
@@ -120,7 +119,6 @@ func register(root *cobra.Command) error {
 		return fmt.Errorf("environments files list: %w", err)
 	}
 
-	guardRequiredFlags(root)
 	boundStdinReads(root)
 	return nil
 }
@@ -246,38 +244,6 @@ func normalizeModelPositional(id string) (string, error) {
 		return "", fmt.Errorf("invalid model id %q; expected a model name like \"gemini-2.5-flash\"", id)
 	}
 	return id, nil
-}
-
-// guardRequiredFlags makes every generated body-less operation fail on a
-// missing or blank required flag. The generated request builder relaxes
-// required flags when such a command is invoked with no flags at all, and only
-// checks presence otherwise (--id "$UNSET"); either would send the request
-// with an empty path segment ("DELETE /webhooks/").
-func guardRequiredFlags(parent *cobra.Command) {
-	for _, cmd := range parent.Commands() {
-		guardRequiredFlags(cmd)
-		original := cmd.RunE
-		if original == nil || cmd.Annotations["speakeasy_operation"] == "" || cmd.Flags().Lookup("body") != nil {
-			continue
-		}
-		cmd.RunE = func(c *cobra.Command, args []string) error {
-			if usageRequested(c) {
-				return original(c, args)
-			}
-			var missing []string
-			c.LocalFlags().VisitAll(func(f *pflag.Flag) {
-				required := len(f.Annotations[flagutil.AnnotationRequired]) > 0
-				blank := f.Value.Type() == "string" && strings.TrimSpace(f.Value.String()) == ""
-				if required && (blank || (!f.Changed && f.DefValue == "")) {
-					missing = append(missing, "--"+f.Name)
-				}
-			})
-			if len(missing) > 0 {
-				return usageError("missing required flag: " + strings.Join(missing, ", "))
-			}
-			return original(c, args)
-		}
-	}
 }
 
 // boundStdinReads keeps the stdin read deadline on in every mode. The
