@@ -654,36 +654,6 @@ func TestNormalizeIdentifier(t *testing.T) {
 	}
 }
 
-func TestFixNestedGroupExamples(t *testing.T) {
-	root := &cobra.Command{Use: "gemini-api"}
-	topFiles := &cobra.Command{Use: "files"}
-	topFilesList := &cobra.Command{
-		Use:     "list",
-		Example: "  gemini-api files list",
-	}
-	topFiles.AddCommand(topFilesList)
-	root.AddCommand(topFiles)
-
-	environments := &cobra.Command{Use: "environments"}
-	envFiles := &cobra.Command{Use: "files"}
-	envFilesList := &cobra.Command{
-		Use:     "list",
-		Example: "  gemini-api files list --environment env_abc123 --path src",
-	}
-	envFiles.AddCommand(envFilesList)
-	environments.AddCommand(envFiles)
-	root.AddCommand(environments)
-
-	fixNestedGroupExamples(root)
-
-	if got, want := topFilesList.Example, "  gemini-api files list"; got != want {
-		t.Errorf("top-level files list Example = %q, want %q", got, want)
-	}
-	if got, want := envFilesList.Example, "  gemini-api environments files list --environment env_abc123 --path src"; got != want {
-		t.Errorf("nested environments files list Example = %q, want %q", got, want)
-	}
-}
-
 func TestNormalizeEnvironmentFilesList(t *testing.T) {
 	tests := []struct {
 		name     string

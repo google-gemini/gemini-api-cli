@@ -81,8 +81,6 @@ func register(root *cobra.Command) error {
 		c.attach(cmd)
 	}
 
-	fixNestedGroupExamples(root)
-
 	files := findChild(root, "files")
 	if files == nil {
 		return fmt.Errorf("expected the generated files group to mount porcelain under")
@@ -121,25 +119,6 @@ func register(root *cobra.Command) error {
 
 	boundStdinReads(root)
 	return nil
-}
-
-// fixNestedGroupExamples rewrites generated Example lines on commands mounted
-// more than one group deep (such as "environments files list"). The generator
-// templates only the leaf group name ("gemini-api files list"), which omits
-// parent groups and collides with top-level command groups.
-func fixNestedGroupExamples(root *cobra.Command) {
-	cliName := root.Name()
-	var walk func(cmd *cobra.Command, depth int)
-	walk = func(cmd *cobra.Command, depth int) {
-		for _, child := range cmd.Commands() {
-			if depth >= 2 && child.Example != "" && cmd.Name() != "" {
-				leafPrefix := cliName + " " + cmd.Name() + " " + child.Name()
-				child.Example = strings.ReplaceAll(child.Example, leafPrefix, child.CommandPath())
-			}
-			walk(child, depth+1)
-		}
-	}
-	walk(root, 0)
 }
 
 // normalizeEnvironmentID strips an optional "environments/" prefix and rejects
