@@ -362,7 +362,7 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
 ### Create
 
-* [`generate`](docs/gemini-api_generate.md) - Text & multimodal generation (gemini-3.6-flash)
+* [`generate`](docs/gemini-api_generate.md) - Text & multimodal generation (gemini-3.8-flash)
 
   ```bash
   # Choose a different model
@@ -380,15 +380,15 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
   gemini-api image "product shot, white bg" --out shots/hero.png
   ```
 
-* [`music`](docs/gemini-api_music.md) - Music generation (lyria-3-pro-preview)
+* [`music`](docs/gemini-api_music.md) - Music generation (lyria-3.5)
 
   ```bash
   # Generate a clip
   gemini-api music "upbeat synthwave with a driving bassline"
   ```
 
-* [`tts`](docs/gemini-api_tts.md) - Text to speech (gemini-3.1-flash-tts-preview)
-* [`video`](docs/gemini-api_video.md) - Generate & edit video conversationally (gemini-omni-flash-preview)
+* [`tts`](docs/gemini-api_tts.md) - Text to speech (gemini-3.8-flash-tts)
+* [`video`](docs/gemini-api_video.md) - Generate & edit video conversationally (gemini-omni-1.1-flash)
 
   ```bash
   # Return the interaction ID immediately; poll it yourself
@@ -399,9 +399,9 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
 ### Understand
 
-* [`analyze`](docs/gemini-api_analyze.md) - Ask questions about images, audio, video, documents, text files, or YouTube URLs
+* [`analyze`](docs/gemini-api_analyze.md) - Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-3.8-flash)
 * [`tokens`](docs/gemini-api_tokens.md) - Count tokens without generating — _not in this build_: "tokens" needs the classic GenAI API surface, which is not part of this interactions-only build
-* [`transcribe`](docs/gemini-api_transcribe.md) - Audio/video → text (timestamps, captions)
+* [`transcribe`](docs/gemini-api_transcribe.md) - Audio/video → text (timestamps, captions) (gemini-3.8-flash)
 
 ### Manage
 
@@ -414,7 +414,7 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
     # Start a background run, then poll with "agent status"
     gemini-api agent run "Write a detailed research report on solar batteries" --background
     # Run a model interaction (streams the reply)
-    gemini-api agent run "Explain the difference between concurrency and parallelism" --model gemini-3.6-flash
+    gemini-api agent run "Explain the difference between concurrency and parallelism" --model gemini-3.8-flash
     ```
 
   * [`list`](docs/gemini-api_agent_list.md) - List managed agent definitions
