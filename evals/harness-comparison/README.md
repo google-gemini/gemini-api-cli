@@ -49,7 +49,7 @@ npm run eval
 
 # Subset / options
 npm run eval -- --scenarios list-agents,create-agent --harnesses generated \
-  --repeats 3 --max-turns 12 --model gemini-3.6-flash
+  --repeats 3 --max-turns 12 --model gemini-3.8-flash
 ```
 
 Auth: export `EVAL_GEMINI_API_KEY` (a Gemini API key; the driver passes it

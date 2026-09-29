@@ -122,7 +122,7 @@ export class MockGeminiServer {
           id: "int-456",
           object: "interaction",
           status: "completed",
-          model: b.model ?? "gemini-3.6-flash",
+          model: b.model ?? "gemini-3.8-flash",
           steps: [{ type: "model_output", content }],
           created: "2026-08-10T12:00:00Z",
           updated: "2026-08-10T12:00:00Z",
@@ -135,7 +135,7 @@ export class MockGeminiServer {
         200,
         {
           models: [
-            { name: "models/gemini-3.6-flash", displayName: "Gemini 3.6 Flash" },
+            { name: "models/gemini-3.8-flash", displayName: "Gemini 3.8 Flash" },
             { name: "models/gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
             { name: "models/gemini-embedding-2", displayName: "Gemini Embedding 2" },
           ],

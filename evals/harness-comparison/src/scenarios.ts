@@ -71,7 +71,7 @@ export const scenarios: Scenario[] = [
       if (r.method !== "POST" || stripVersion(r.path) !== "/interactions")
         return false;
       const b = (r.json ?? {}) as Record<string, unknown>;
-      return b.model === "gemini-3.6-flash" && typeof b.input === "string";
+      return b.model === "gemini-3.8-flash" && typeof b.input === "string";
     },
   },
   {
