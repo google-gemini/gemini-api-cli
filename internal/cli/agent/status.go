@@ -41,7 +41,7 @@ func initStatusCmd(parent *cobra.Command) error {
 		Use:     "status [id]",
 		Short:   "Get status and output of an interaction by interaction ID",
 		Long:    "Get the status and output of an interaction by interaction ID. Use this to poll a background run started with \"agent run\".\n\nStreamed responses write the string selected by $.data.delta.text raw as it arrives. Pass --stream to request a streamed response; use -o json to keep each full streamed event.",
-		Example: "  gemini-api agent status --id <id>",
+		Example: "  gemini-api agent status --id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runStatusCmd,
 		Annotations: map[string]string{

@@ -38,7 +38,7 @@ func initDeleteCmd(parent *cobra.Command) error {
 		Use:     "delete [id]",
 		Short:   "Delete a managed agent definition by ID",
 		Long:    "Deletes an Agent.",
-		Example: "  gemini-api agent delete --id <id>",
+		Example: "  gemini-api agent delete --id research-assistant",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteCmd,
 		Annotations: map[string]string{

@@ -38,7 +38,7 @@ func initGetCmd(parent *cobra.Command) error {
 		Use:     "get [id]",
 		Short:   "Get a managed agent definition by ID",
 		Long:    "Gets a specific Agent.",
-		Example: "  gemini-api agent get --id <id>",
+		Example: "  gemini-api agent get --id research-assistant",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetCmd,
 		Annotations: map[string]string{
