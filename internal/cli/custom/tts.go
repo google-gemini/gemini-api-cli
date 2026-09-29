@@ -38,7 +38,7 @@ func attachTTS(cmd *cobra.Command) {
 	cmd.Use = "tts [text]"
 	cmd.Long = "Convert text to speech.\n\nGenerated audio is written to a local file as WAV (24 kHz mono). The extension\nfollows the audio: --out foo.mp3 is written as foo.wav, and --out naming a\ndirectory places a default-named file inside it. An existing file is replaced.\nBy default, stdout prints the absolute artifact path. The request is not stored\nserver-side.\n\nArguments:\n  <text>  Text to speak (or use -f / --stdin)"
 	cmd.Example = "  gemini-api tts \"Welcome to the show\"                    # → ./gemini-tts-<unix-ms>-<random>.wav\n" +
-		"  gemini-api tts -f script.txt --voice Puck --out out.wav\n" +
+		"  echo \"Welcome to the show\" > script.txt && gemini-api tts -f script.txt --voice Puck --out out.wav\n" +
 		"  echo \"hello\" | gemini-api tts --stdin\n" +
 		"  gemini-api tts \"Alice: hi. Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
 	helpMeta(cmd, "model "+defaultTTSModel+" · voice "+defaultTTSVoice+" · 24kHz mono WAV",

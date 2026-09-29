@@ -35,11 +35,11 @@ const defaultAnalyzeQuestion = "Describe this file in detail."
 func attachAnalyze(cmd *cobra.Command) {
 	cmd.Use = "analyze [question]"
 	cmd.Long = "Ask a question about one or more images, audio files, videos, PDFs, CSV or text\nfiles, or YouTube URLs.\n\nPass each media source separately with --input. files/<id> references use the\nFiles API, and YouTube URLs are passed by URI. The optional question applies to\nall inputs; its default is \"" + defaultAnalyzeQuestion + "\"\nBy default, stdout prints only the model's answer. The request is not stored\nserver-side.\n\n" + inlineLimitNote
-	cmd.Example = "  gemini-api analyze -i report.pdf \"Summarize the key findings\"\n" +
-		"  gemini-api analyze -i photo.jpg\n" +
+	cmd.Example = "  echo \"Q3 revenue grew 12%; churn fell to 2%.\" > report.txt && gemini-api analyze -i report.txt \"Summarize the key findings\"\n" +
+		"  gemini-api analyze -i \"$(gemini-api image \"a lighthouse at sunset\")\"\n" +
 		"  gemini-api analyze -i files/abc123 \"List every speaker with timestamps\"\n" +
 		"  gemini-api analyze -i https://youtu.be/dQw4w9WgXcQ \"What happens at 1:00?\"\n" +
-		"  gemini-api analyze -i a.png -i b.png \"What changed between these?\""
+		"  gemini-api analyze -i \"$(gemini-api image \"a red door\")\" -i \"$(gemini-api image \"a blue door\")\" \"What changed between these?\""
 	helpMeta(cmd, "model "+defaultTextModel+" · question \""+defaultAnalyzeQuestion+"\"",
 		"https://ai.google.dev/gemini-api/docs/image-understanding (images) · https://ai.google.dev/gemini-api/docs/audio (audio) · https://ai.google.dev/gemini-api/docs/video-understanding (video) · https://ai.google.dev/gemini-api/docs/document-processing (documents)",
 		"full request control via gemini-api agent run")

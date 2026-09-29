@@ -41,10 +41,10 @@ var transcribeFormats = map[string]string{"md": ".md", "text": ".txt", "json": "
 func attachTranscribe(cmd *cobra.Command) {
 	cmd.Use = "transcribe"
 	cmd.Long = "Transcribe one or more audio or video inputs.\n\nPass each local path or uploaded files/<id> with --input. Inputs are validated\nbefore transcription, then processed sequentially. By default, stdout prints one\nabsolute artifact path per line. Formats: md (default), text, json, and srt\n(alias: captions). With multiple inputs, --out names a directory rather than a\nfile; an existing artifact is replaced. Requests are not stored server-side.\n\n" + inlineLimitNote
-	cmd.Example = "  gemini-api transcribe -i interview.mp3\n" +
-		"  gemini-api transcribe -i call.wav --format srt --out call.srt\n" +
+	cmd.Example = "  gemini-api transcribe -i \"$(gemini-api tts \"Thanks for joining the interview.\")\"\n" +
+		"  gemini-api transcribe -i \"$(gemini-api tts \"Thanks for calling.\")\" --format srt --out call.srt\n" +
 		"  gemini-api transcribe -i files/abc123 --format json --no-speakers\n" +
-		"  gemini-api transcribe -i a.mp3 -i b.mp3 --out ./transcripts/"
+		"  gemini-api transcribe -i \"$(gemini-api tts \"Part one.\")\" -i \"$(gemini-api tts \"Part two.\")\" --out ./transcripts/"
 	helpMeta(cmd, "model "+defaultTranscribeModel+" · format md · speakers on · timestamps on",
 		"https://ai.google.dev/gemini-api/docs/audio",
 		"full request control via gemini-api agent run")
