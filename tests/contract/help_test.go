@@ -67,7 +67,7 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 		{[]string{"generate"}, []string{
 			"Just works:",
 			"Explain concurrency in one sentence",
-			"Defaults: model gemini-3.6-flash · streams the reply (--stream=false for one result)",
+			"Defaults: model gemini-3.8-flash · streams the reply (--stream=false for one result)",
 			"Learn: https://ai.google.dev/gemini-api/docs/text-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"image"}, []string{
@@ -76,7 +76,7 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 		}},
 		{[]string{"tts"}, []string{
 			"Just works:\n  gemini-api tts \"Welcome to the show\"",
-			"Defaults: model gemini-3.1-flash-tts-preview · voice Kore · 24kHz mono WAV",
+			"Defaults: model gemini-3.8-flash-tts · voice Kore · 24kHz mono WAV",
 			"Learn: https://ai.google.dev/gemini-api/docs/speech-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"files", "upload"}, []string{

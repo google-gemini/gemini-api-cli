@@ -415,7 +415,7 @@ func TestTTSEnvelope(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
 		t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
 	}
-	if envelope.Model != "gemini-3.1-flash-tts-preview" || envelope.Path != out || envelope.MIMEType != "audio/l16" {
+	if envelope.Model != "gemini-3.8-flash-tts" || envelope.Path != out || envelope.MIMEType != "audio/l16" {
 		t.Errorf("envelope model/path/mime_type = %q/%q/%q", envelope.Model, envelope.Path, envelope.MIMEType)
 	}
 	if envelope.SizeBytes != 44+len(pcm) || envelope.SampleRate != 24000 || envelope.Channels != 1 {
