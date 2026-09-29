@@ -28,8 +28,8 @@ import (
 )
 
 var listCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
-	{FlagName: "path", Shorthand: "p", FieldPath: "Path", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+	{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Description: "Environment to read, as environments/<id> or a bare id [required]"},
+	{FlagName: "path", Shorthand: "p", FieldPath: "Path", Kind: flagutil.FlagKindString, Required: true, Description: "File or directory path relative to the workspace root, e.g. src; a leading slash is ignored [required]"},
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Optional. Maximum number of entries to return per page (for directory listing)."},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Pagination token for directory listing."},
 	{FlagName: "recursive", Shorthand: "r", FieldPath: "Recursive", Kind: flagutil.FlagKindBool, Optional: true, Description: "Optional. If true and the path is a directory, recursively lists all files."},

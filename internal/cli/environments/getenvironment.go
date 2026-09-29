@@ -38,7 +38,7 @@ func initGetEnvironmentCmd(parent *cobra.Command) error {
 		Use:     "get [id]",
 		Short:   "Gets an environment.",
 		Long:    "Gets an environment.",
-		Example: "  gemini-api environments get --id <id>",
+		Example: "  gemini-api environments get --id env_abc123",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetEnvironmentCmd,
 		Annotations: map[string]string{

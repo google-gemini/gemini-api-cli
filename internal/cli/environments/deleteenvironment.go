@@ -38,7 +38,7 @@ func initDeleteEnvironmentCmd(parent *cobra.Command) error {
 		Use:     "delete [id]",
 		Short:   "Deletes an environment.",
 		Long:    "Deletes an environment.",
-		Example: "  gemini-api environments delete --id <id>",
+		Example: "  gemini-api environments delete --id env_abc123",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteEnvironmentCmd,
 		Annotations: map[string]string{

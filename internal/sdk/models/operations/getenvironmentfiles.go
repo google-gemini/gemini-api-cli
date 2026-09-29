@@ -47,9 +47,11 @@ func (g *GetEnvironmentFilesGlobals) GetAPIVersion() *string {
 
 type GetEnvironmentFilesRequest struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion  *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
-	Environment string  `pathParam:"style=simple,explode=false,name=environment"`
-	Path        string  `pathParam:"style=simple,explode=false,name=path,allowReserved=true"`
+	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Environment to read, as environments/<id> or a bare id
+	Environment string `pathParam:"style=simple,explode=false,name=environment"`
+	// File or directory path relative to the workspace root, e.g. src; a leading slash is ignored
+	Path string `pathParam:"style=simple,explode=false,name=path,allowReserved=true"`
 	// Optional. Maximum number of entries to return per page (for directory listing).
 	PageSize *int `queryParam:"style=form,explode=true,name=page_size"`
 	// Optional. Pagination token for directory listing.
