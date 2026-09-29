@@ -263,6 +263,7 @@ type CreateAgentInteractionResponseFormatType string
 const (
 	CreateAgentInteractionResponseFormatTypeResponseFormat        CreateAgentInteractionResponseFormatType = "ResponseFormat"
 	CreateAgentInteractionResponseFormatTypeArrayOfResponseFormat CreateAgentInteractionResponseFormatType = "arrayOfResponseFormat"
+	CreateAgentInteractionResponseFormatTypeUnknown               CreateAgentInteractionResponseFormatType = "Unknown"
 )
 
 // CreateAgentInteractionResponseFormat - Enforces that the generated response is a JSON object that complies with
@@ -270,6 +271,7 @@ const (
 type CreateAgentInteractionResponseFormat struct {
 	ResponseFormat        *ResponseFormat  `queryParam:"inline" union:"member"`
 	ArrayOfResponseFormat []ResponseFormat `queryParam:"inline" union:"member"`
+	UnknownRaw            json.RawMessage  `json:"-" union:"unknown"`
 
 	Type CreateAgentInteractionResponseFormatType
 }
@@ -292,14 +294,23 @@ func CreateCreateAgentInteractionResponseFormatArrayOfResponseFormat(arrayOfResp
 	}
 }
 
-func (u *CreateAgentInteractionResponseFormat) UnmarshalJSON(data []byte) (err error) {
-	previous := *u
+func CreateCreateAgentInteractionResponseFormatUnknown(raw json.RawMessage) CreateAgentInteractionResponseFormat {
+	return CreateAgentInteractionResponseFormat{
+		UnknownRaw: raw,
+		Type:       CreateAgentInteractionResponseFormatTypeUnknown,
+	}
+}
+
+func (u CreateAgentInteractionResponseFormat) GetUnknownRaw() json.RawMessage {
+	return u.UnknownRaw
+}
+
+func (u CreateAgentInteractionResponseFormat) IsUnknown() bool {
+	return u.Type == CreateAgentInteractionResponseFormatTypeUnknown
+}
+
+func (u *CreateAgentInteractionResponseFormat) UnmarshalJSON(data []byte) error {
 	*u = CreateAgentInteractionResponseFormat{}
-	defer func() {
-		if err != nil {
-			*u = previous
-		}
-	}()
 
 	var candidates []utils.UnionCandidate
 
@@ -321,13 +332,17 @@ func (u *CreateAgentInteractionResponseFormat) UnmarshalJSON(data []byte) (err e
 	}
 
 	if len(candidates) == 0 {
-		return fmt.Errorf("could not unmarshal `%s` into any supported union types for CreateAgentInteractionResponseFormat", string(data))
+		u.UnknownRaw = json.RawMessage(data)
+		u.Type = CreateAgentInteractionResponseFormatTypeUnknown
+		return nil
 	}
 
 	// Pick the best candidate using multi-stage filtering
 	best := utils.PickBestUnionCandidate(candidates, data)
 	if best == nil {
-		return fmt.Errorf("could not unmarshal `%s` into any supported union types for CreateAgentInteractionResponseFormat", string(data))
+		u.UnknownRaw = json.RawMessage(data)
+		u.Type = CreateAgentInteractionResponseFormatTypeUnknown
+		return nil
 	}
 
 	// Set the union type and value based on the best candidate
@@ -341,7 +356,9 @@ func (u *CreateAgentInteractionResponseFormat) UnmarshalJSON(data []byte) (err e
 		return nil
 	}
 
-	return fmt.Errorf("could not unmarshal `%s` into any supported union types for CreateAgentInteractionResponseFormat", string(data))
+	u.UnknownRaw = json.RawMessage(data)
+	u.Type = CreateAgentInteractionResponseFormatTypeUnknown
+	return nil
 }
 
 func (u CreateAgentInteractionResponseFormat) MarshalJSON() ([]byte, error) {
@@ -353,6 +370,9 @@ func (u CreateAgentInteractionResponseFormat) MarshalJSON() ([]byte, error) {
 		return utils.MarshalJSON(u.ArrayOfResponseFormat, "", true)
 	}
 
+	if u.UnknownRaw != nil {
+		return json.RawMessage(u.UnknownRaw), nil
+	}
 	return nil, errors.New("could not marshal union type CreateAgentInteractionResponseFormat: all fields are null")
 }
 

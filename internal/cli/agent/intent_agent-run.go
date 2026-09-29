@@ -122,7 +122,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			PresetMerge: flagutil.PresetMerge{
 				Command: "agent run", Variant: "AgentInteraction",
 				Preset:  "",
-				Foreign: []string{"model"},
+				Foreign: []string{"created", "id", "model", "status", "updated"},
 				Escape:  "gemini-api agent run",
 			},
 		},
@@ -193,7 +193,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		},
 		{
 			BodyKey:          "created",
-			RouteIDs:         []string{"agent", "model"},
+			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{
@@ -203,7 +203,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		},
 		{
 			BodyKey:          "environment_id",
-			RouteIDs:         []string{"agent", "model"},
+			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{
@@ -213,7 +213,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		},
 		{
 			BodyKey:          "id",
-			RouteIDs:         []string{"agent", "model"},
+			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{
@@ -263,7 +263,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		},
 		{
 			BodyKey:          "status",
-			RouteIDs:         []string{"agent", "model"},
+			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{
@@ -288,7 +288,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		},
 		{
 			BodyKey:          "updated",
-			RouteIDs:         []string{"agent", "model"},
+			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{
