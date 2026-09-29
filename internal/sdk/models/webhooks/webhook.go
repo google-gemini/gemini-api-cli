@@ -95,14 +95,6 @@ type Webhook struct {
 	// Output only. The state of the webhook.
 	State *WebhookState `json:"state,omitzero"`
 	// Required. The events that the webhook is subscribed to.
-	// Available events:
-	// - batch.succeeded
-	// - batch.expired
-	// - batch.failed
-	// - interaction.requires_action
-	// - interaction.completed
-	// - interaction.failed
-	// - video.generated
 	SubscribedEvents []WebhookSubscribedEvent `json:"subscribed_events"`
 	// Output only. The timestamp when the webhook was last updated.
 	UpdateTime *time.Time `json:"update_time,omitzero"`
@@ -189,14 +181,6 @@ type WebhookInput struct {
 	// Optional. The user-provided name of the webhook.
 	Name *string `json:"name,omitzero"`
 	// Required. The events that the webhook is subscribed to.
-	// Available events:
-	// - batch.succeeded
-	// - batch.expired
-	// - batch.failed
-	// - interaction.requires_action
-	// - interaction.completed
-	// - interaction.failed
-	// - video.generated
 	SubscribedEvents []WebhookSubscribedEvent `json:"subscribed_events"`
 	// Required. The URI to which webhook events will be sent.
 	URI string `json:"uri"`

@@ -18,7 +18,7 @@ package genai
 
 // RegisterFilesRequest - Request for `RegisterFiles`.
 type RegisterFilesRequest struct {
-	// Required. The Google Cloud Storage URIs to register. Example: `gs://bucket/object`.
+	// Required. The gs:// URIs of the Google Cloud Storage objects to register.
 	Uris []string `json:"uris"`
 }
 

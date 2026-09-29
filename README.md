@@ -474,14 +474,14 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 <!-- Start Request Body Input [stdinpiping] -->
 ## Request Body Input
 
-Commands that accept a request body take it three ways, with a clear priority chain. The examples use `gemini-api environments create`; every body-bearing command works the same way and prints its exact request schema with `--schema`.
+Commands that accept a request body take it three ways, with a clear priority chain. The examples use `gemini-api agent create`; every body-bearing command works the same way and prints its exact request schema with `--schema`.
 
 ### `--body` flag
 
 Provide the entire request body as a JSON string:
 
 ```bash
-gemini-api environments create --body '{"network":{"allowlist":[{"domain":"github.com","transform":[{"Authorization":"Bearer your-token"}]},{"domain":"*.googleapis.com"}]}}'
+gemini-api agent create --body '{"base_agent":"antigravity-preview-05-2026","id":"research-assistant","tools":[{"type":"google_search"}]}'
 ```
 
 ### Stdin piping (lowest priority)
@@ -489,17 +489,17 @@ gemini-api environments create --body '{"network":{"allowlist":[{"domain":"githu
 Pipe JSON into any command that accepts a request body:
 
 ```bash
-echo '{"network":{"allowlist":[{"domain":"github.com","transform":[{"Authorization":"Bearer your-token"}]},{"domain":"*.googleapis.com"}]}}' | gemini-api environments create
+echo '{"base_agent":"antigravity-preview-05-2026","id":"research-assistant","tools":[{"type":"google_search"}]}' | gemini-api agent create
 ```
 
 This is useful for chaining commands, reading from files, or scripting:
 
 ```bash
 # Read body from a file
-gemini-api environments create < request.json
+gemini-api agent create < request.json
 
 # Pipe from another command
-curl -s https://example.com/request.json | gemini-api environments create
+curl -s https://example.com/request.json | gemini-api agent create
 ```
 
 ### Priority
