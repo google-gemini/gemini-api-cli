@@ -34,7 +34,7 @@ import (
 func InitIntentVideo(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "video [prompt]",
-		Short:   "Generate & edit video conversationally (gemini-omni-flash-preview)",
+		Short:   "Generate & edit video conversationally (gemini-omni-1.1-flash)",
 		Long:    "Generate video via the Interactions API (video response\nmodality). The interaction runs in the background: the CLI\npolls \"agent status\" with backoff until it completes, writes\nthe video to a file, and prints the file path; --async returns\nthe interaction ID immediately instead (resume with\n\"gemini-api agent status --id <id>\"). A requires_action result\nis printed as-is. Use --out to choose the file (or a\ndirectory), --raw-response to see the API response instead.\n\nArguments:\n  <prompt>  Video prompt",
 		Example: "  gemini-api video \"a timelapse of a city at night\" --async\n  gemini-api video \"a timelapse of a city at night\"",
 		Args:    cobra.ArbitraryArgs,
@@ -43,7 +43,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 			"speakeasy_operation":            "CreateInteraction",
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-omni-flash-preview · polls until done, writes ./gemini-video-<ts>.mp4 (--async returns the interaction ID)",
+			"speakeasy_help_defaults":        "model gemini-omni-1.1-flash · polls until done, writes ./gemini-video-<ts>.mp4 (--async returns the interaction ID)",
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/video",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"video\",\"defaultPath\":\"gemini-video-{timestamp}-{rand}.{ext}\"}",
@@ -61,7 +61,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Override the video model (default: gemini-omni-flash-preview)")
+	cmd.Flags().StringP("model", "m", "", "Override the video model (e.g. gemini-omni-flash-preview, default: gemini-omni-1.1-flash)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
@@ -105,7 +105,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 var intentVideoPreset = flagutil.PresetMerge{
 	Command: "video",
 	Variant: "ModelInteraction",
-	Preset:  "{\"background\":true,\"model\":\"gemini-omni-flash-preview\",\"response_format\":{\"type\":\"video\"},\"stream\":false}",
+	Preset:  "{\"background\":true,\"model\":\"gemini-omni-1.1-flash\",\"response_format\":{\"type\":\"video\"},\"stream\":false}",
 	Foreign: []string{"agent"},
 	Escape:  "gemini-api agent run",
 }

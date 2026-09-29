@@ -491,7 +491,7 @@ type Interaction struct {
 	// Label values are optional. Label keys must start with a letter.
 	Labels map[string]string `json:"labels,omitzero"`
 	// The model that will complete your prompt.\n\nSee [models](https://ai.google.dev/gemini-api/docs/models) for additional details.
-	Model *Model `default:"gemini-3.6-flash" json:"model"`
+	Model *Model `default:"gemini-3.8-flash" json:"model"`
 	// An audio content block.
 	OutputAudio *AudioContent `json:"output_audio,omitzero"`
 	// An image content block.

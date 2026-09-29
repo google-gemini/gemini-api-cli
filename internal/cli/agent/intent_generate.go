@@ -32,8 +32,8 @@ import (
 func InitIntentGenerate(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "generate [prompt]",
-		Short:   "Text & multimodal generation (gemini-3.6-flash)",
-		Long:    "Send a prompt to a Gemini model and print the reply as it is\ngenerated; text deltas are streamed directly to stdout. Uses the\nschema's default model (gemini-3.6-flash) unless --model or a full\n--body names one. --stream=false returns one complete interaction;\n--output-format json shows the raw NDJSON event stream. Thinking\nmodels such as gemini-3.6-flash may emit their deltas in a burst\nafter thinking; gemini-2.5-flash streams visibly. Full request\ncontrol: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
+		Short:   "Text & multimodal generation (gemini-3.8-flash)",
+		Long:    "Send a prompt to a Gemini model and print the reply as it is\ngenerated; text deltas are streamed directly to stdout. Uses the\nschema's default model (gemini-3.8-flash) unless --model or a full\n--body names one. --stream=false returns one complete interaction;\n--output-format json shows the raw NDJSON event stream. Thinking\nmodels such as gemini-3.8-flash may emit their deltas in a burst\nafter thinking; gemini-2.5-flash streams visibly. Full request\ncontrol: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
 		Example: "  gemini-api generate \"Write a haiku about APIs\" --model gemini-2.5-pro\n  gemini-api generate \"Explain concurrency in one sentence\"",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentGenerateCmd,
@@ -41,7 +41,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 			"speakeasy_operation":            "CreateInteraction",
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-3.6-flash · streams the reply (--stream=false for one result)",
+			"speakeasy_help_defaults":        "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/text-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_stream_select":        "/data/delta/text",
@@ -58,7 +58,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.6-flash)")
+	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.8-flash)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",

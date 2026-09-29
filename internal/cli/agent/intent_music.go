@@ -32,7 +32,7 @@ import (
 func InitIntentMusic(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "music [prompt]",
-		Short:   "Music generation (lyria-3-pro-preview)",
+		Short:   "Music generation (lyria-3.5)",
 		Long:    "Generate music via the Interactions API (audio response\nmodality).\n\nArguments:\n  <prompt>  Music prompt",
 		Example: "  gemini-api music \"upbeat synthwave with a driving bassline\"",
 		Args:    cobra.ArbitraryArgs,
@@ -41,7 +41,7 @@ func InitIntentMusic(parent *cobra.Command) error {
 			"speakeasy_operation":            "CreateInteraction",
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model lyria-3-pro-preview · output ./gemini-music-{timestamp}-{rand}.{ext}",
+			"speakeasy_help_defaults":        "model lyria-3.5 · output ./gemini-music-{timestamp}-{rand}.{ext}",
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/music-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"audio\",\"defaultPath\":\"gemini-music-{timestamp}-{rand}.{ext}\"}",
@@ -58,7 +58,7 @@ func InitIntentMusic(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Override the music model (e.g. lyria-3-clip-preview, default: lyria-3-pro-preview)")
+	cmd.Flags().StringP("model", "m", "", "Override the music model (e.g. lyria-3-pro-preview, lyria-3-clip-preview, default: lyria-3.5)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
@@ -96,7 +96,7 @@ func InitIntentMusic(parent *cobra.Command) error {
 var intentMusicPreset = flagutil.PresetMerge{
 	Command: "music",
 	Variant: "ModelInteraction",
-	Preset:  "{\"model\":\"lyria-3-pro-preview\",\"response_format\":{\"type\":\"audio\"},\"stream\":false}",
+	Preset:  "{\"model\":\"lyria-3.5\",\"response_format\":{\"type\":\"audio\"},\"stream\":false}",
 	Foreign: []string{"agent"},
 	Escape:  "gemini-api agent run",
 }

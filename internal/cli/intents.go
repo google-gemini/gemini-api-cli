@@ -67,7 +67,7 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		return err
 	}
 	if owner := findOwningCommand(rootCmd, "analyze"); owner == nil {
-		rootCmd.AddCommand(newCustomCmd("analyze", "Ask questions about images, audio, video, documents, text files, or YouTube URLs", "", "understand"))
+		rootCmd.AddCommand(newCustomCmd("analyze", "Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-3.8-flash)", "", "understand"))
 	} else {
 		owner.GroupID = "understand"
 	}
@@ -82,12 +82,12 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		owner.GroupID = "understand"
 	}
 	if owner := findOwningCommand(rootCmd, "transcribe"); owner == nil {
-		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions)", "", "understand"))
+		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions) (gemini-3.8-flash)", "", "understand"))
 	} else {
 		owner.GroupID = "understand"
 	}
 	if owner := findOwningCommand(rootCmd, "tts"); owner == nil {
-		rootCmd.AddCommand(newCustomCmd("tts", "Text to speech (gemini-3.1-flash-tts-preview)", "", "create"))
+		rootCmd.AddCommand(newCustomCmd("tts", "Text to speech (gemini-3.8-flash-tts)", "", "create"))
 	} else {
 		owner.GroupID = "create"
 	}

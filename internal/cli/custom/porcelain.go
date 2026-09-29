@@ -45,9 +45,9 @@ import (
 // Curated model defaults for the porcelain commands. They mirror the Build
 // Spec's tier-1 line-up and the reference CLI's model registry.
 const (
-	defaultTextModel       = "gemini-3.6-flash"
-	defaultTranscribeModel = "gemini-3.6-flash"
-	defaultTTSModel        = "gemini-3.1-flash-tts-preview"
+	defaultTextModel       = "gemini-3.8-flash"
+	defaultTranscribeModel = "gemini-3.8-flash"
+	defaultTTSModel        = "gemini-3.8-flash-tts"
 	defaultTTSVoice        = "Kore"
 )
 

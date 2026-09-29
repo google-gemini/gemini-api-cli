@@ -76,9 +76,9 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "gemini-3.1-flash-image", "description": "Gemini 3.1 Flash Image.", "default": false},
 				{"value": "gemini-3.1-flash-tts-preview", "description": "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.", "default": false},
 				{"value": "gemini-3.5-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
-				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": true},
+				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
 				{"value": "gemini-3.7-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
-				{"value": "gemini-3.8-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
+				{"value": "gemini-3.8-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": true},
 				{"value": "gemini-3.8-flash-tts", "description": "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.", "default": false},
 				{"value": "gemini-3.8-flash-lite-tts", "description": "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.", "default": false},
 				{"value": "lyria-3-clip-preview", "description": "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.", "default": false},
@@ -108,9 +108,9 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-image", "Gemini 3.1 Flash Image.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-tts-preview", "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.6-flash (default)", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.6-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.7-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash (default)", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash-tts", "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash-lite-tts", "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.")
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-clip-preview", "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.")

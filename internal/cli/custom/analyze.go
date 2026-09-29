@@ -34,6 +34,7 @@ const defaultAnalyzeQuestion = "Describe this file in detail."
 // separate: --input is repeatable media, while the positional is text.
 func attachAnalyze(cmd *cobra.Command) {
 	cmd.Use = "analyze [question]"
+	cmd.Short = "Ask questions about images, audio, video, documents, text files, or YouTube URLs (" + defaultTextModel + ")"
 	cmd.Long = "Ask a question about one or more images, audio files, videos, PDFs, CSV or text\nfiles, or YouTube URLs.\n\nPass each media source separately with --input. files/<id> references use the\nFiles API, and YouTube URLs are passed by URI. The optional question applies to\nall inputs; its default is \"" + defaultAnalyzeQuestion + "\"\nBy default, stdout prints only the model's answer. The request is not stored\nserver-side.\n\n" + inlineLimitNote
 	cmd.Example = "  gemini-api analyze -i report.pdf \"Summarize the key findings\"\n" +
 		"  gemini-api analyze -i photo.jpg\n" +

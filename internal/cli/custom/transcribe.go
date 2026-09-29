@@ -40,6 +40,7 @@ var transcribeFormats = map[string]string{"md": ".md", "text": ".txt", "json": "
 // json/srt), the transcript written to disk, absolute path on stdout.
 func attachTranscribe(cmd *cobra.Command) {
 	cmd.Use = "transcribe"
+	cmd.Short = "Audio/video → text (timestamps, captions) (" + defaultTranscribeModel + ")"
 	cmd.Long = "Transcribe one or more audio or video inputs.\n\nPass each local path or uploaded files/<id> with --input. Inputs are validated\nbefore transcription, then processed sequentially. By default, stdout prints one\nabsolute artifact path per line. Formats: md (default), text, json, and srt\n(alias: captions). With multiple inputs, --out names a directory rather than a\nfile; an existing artifact is replaced. Requests are not stored server-side.\n\n" + inlineLimitNote
 	cmd.Example = "  gemini-api transcribe -i interview.mp3\n" +
 		"  gemini-api transcribe -i call.wav --format srt --out call.srt\n" +

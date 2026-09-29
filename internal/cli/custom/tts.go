@@ -36,6 +36,7 @@ import (
 // absolute path on stdout.
 func attachTTS(cmd *cobra.Command) {
 	cmd.Use = "tts [text]"
+	cmd.Short = "Text to speech (" + defaultTTSModel + ")"
 	cmd.Long = "Convert text to speech.\n\nGenerated audio is written to a local file as WAV (24 kHz mono). The extension\nfollows the audio: --out foo.mp3 is written as foo.wav, and --out naming a\ndirectory places a default-named file inside it. An existing file is replaced.\nBy default, stdout prints the absolute artifact path. The request is not stored\nserver-side.\n\nArguments:\n  <text>  Text to speak (or use -f / --stdin)"
 	cmd.Example = "  gemini-api tts \"Welcome to the show\"                    # → ./gemini-tts-<unix-ms>-<random>.wav\n" +
 		"  gemini-api tts -f script.txt --voice Puck --out out.wav\n" +
