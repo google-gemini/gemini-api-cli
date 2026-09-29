@@ -29,7 +29,7 @@ import (
 )
 
 var updateCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
 	{FlagName: "update-mask", Shorthand: "u", FieldPath: "UpdateMask", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The list of fields to update."},
 	{FlagName: "body-param", Shorthand: "b", FieldPath: "Body", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: true, DiscriminatorKey: "Type", TypeDescription: "JSON value (variants: environment_variable: { \"injection_location\": string | string[], \"trusted_domains\": string[], \"value\": string }, bearer_token: { \"header_name\": string, \"prefix\": string, \"token\": string }, oauth2: { \"client_id\": string, \"client_secret\": string, \"refresh_token\": string, \"scopes\": string[], ... })", Variants: []flagutil.UnionVariantMeta{
 		{DiscriminatorValue: "environment_variable", FlagName: "body-param.environment-variable", FieldName: "EnvironmentVariableUpdateConfig", CanExpand: false, Description: "EnvironmentVariableUpdateConfig variant as JSON"},
@@ -67,11 +67,11 @@ func initUpdateCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "id", Summary: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
+		{Name: "id", Summary: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for update: %w", err)
 	}

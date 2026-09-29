@@ -31,7 +31,7 @@ import (
 var statusCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "include-input", FieldPath: "IncludeInput", Kind: flagutil.FlagKindBool, Optional: true, Description: "If true, includes the input in the response."},
 	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the interaction to retrieve. [required]"},
-	{FlagName: "last-event-id", Shorthand: "l", FieldPath: "LastEventID", Kind: flagutil.FlagKindString, Optional: true, Description: "If set, resumes the interaction stream from the chunk after the event\nmarked by the event id. Can only be used if `stream` is true."},
+	{FlagName: "last-event-id", Shorthand: "l", FieldPath: "LastEventID", Kind: flagutil.FlagKindString, Optional: true, Description: "If set, resumes the interaction stream from the chunk after the event\nmarked by the event id. Can only be used if 'stream' is true."},
 	{FlagName: "stream", Shorthand: "s", FieldPath: "Stream", Kind: flagutil.FlagKindBool, Optional: true, HasDefault: true, DefaultBool: true, Description: "Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to true; use --stream=false for the status object."},
 }
 

@@ -29,7 +29,7 @@ import (
 )
 
 var getEnvironmentCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
 }
 
 // initGetEnvironmentCmd initializes the get-environment command.
@@ -49,11 +49,11 @@ func initGetEnvironmentCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.GetEnvironmentRequest](getEnvironmentCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for get-environment: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "id", Summary: "Required. Resource ID segment making up resource `name`. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
+		{Name: "id", Summary: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for get-environment: %w", err)
 	}

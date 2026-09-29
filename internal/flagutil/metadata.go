@@ -1419,11 +1419,12 @@ func setFieldByPath(v reflect.Value, path string, val reflect.Value) error {
 					elemType := field.Type().Elem()
 					newSlice := reflect.MakeSlice(field.Type(), val.Len(), val.Len())
 					for j := 0; j < val.Len(); j++ {
-						if !val.Index(j).Type().ConvertibleTo(elemType) {
-							return fmt.Errorf("cannot convert slice element %s to %s for field %q at path %q",
-								val.Index(j).Type(), elemType, part, path)
+						elem, err := convertSliceElem(val.Index(j), elemType)
+						if err != nil {
+							return fmt.Errorf("cannot convert slice element %s to %s for field %q at path %q: %w",
+								val.Index(j).Type(), elemType, part, path, err)
 						}
-						newSlice.Index(j).Set(val.Index(j).Convert(elemType))
+						newSlice.Index(j).Set(elem)
 					}
 					field.Set(newSlice)
 				}
@@ -1439,6 +1440,33 @@ func setFieldByPath(v reflect.Value, path string, val reflect.Value) error {
 		}
 	}
 	return nil
+}
+
+// convertSliceElem converts a repeatable flag's string element to the slice
+// element type; reflect cannot convert a string to an integer kind.
+func convertSliceElem(elem reflect.Value, elemType reflect.Type) (reflect.Value, error) {
+	if elemType.Kind() == reflect.Ptr {
+		inner, err := convertSliceElem(elem, elemType.Elem())
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		ptr := reflect.New(elemType.Elem())
+		ptr.Elem().Set(inner)
+		return ptr, nil
+	}
+	if elem.Kind() == reflect.String && elemType.Kind() >= reflect.Int && elemType.Kind() <= reflect.Int64 {
+		n, err := strconv.ParseInt(elem.String(), 10, elemType.Bits())
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		out := reflect.New(elemType).Elem()
+		out.SetInt(n)
+		return out, nil
+	}
+	if !elem.Type().ConvertibleTo(elemType) {
+		return reflect.Value{}, fmt.Errorf("incompatible types")
+	}
+	return elem.Convert(elemType), nil
 }
 
 // navigateToField resolves a dot-delimited field path and returns the leaf field.
@@ -1535,9 +1563,13 @@ func validateRequiredPresence(m FlagMeta, changed bool) error {
 	return nil
 }
 
+func isChangedRequiredPathParam(v reflect.Value, m FlagMeta, changed bool) bool {
+	return m.Required && changed && requestParamTag(v.Type(), m.FieldPath) == "pathParam"
+}
+
 // A blank path segment would address the parent collection instead of the item.
 func validateRequiredPathParam(v reflect.Value, m FlagMeta, changed bool, values ...string) error {
-	if !m.Required || !changed || requestParamTag(v.Type(), m.FieldPath) != "pathParam" {
+	if !isChangedRequiredPathParam(v, m, changed) {
 		return nil
 	}
 	for _, value := range values {
@@ -1546,6 +1578,91 @@ func validateRequiredPathParam(v reflect.Value, m FlagMeta, changed bool, values
 		}
 	}
 	return nil
+}
+
+func validateRequiredJSONPathParam(v reflect.Value, m FlagMeta, changed bool, val string) error {
+	if !isChangedRequiredPathParam(v, m, changed) {
+		return nil
+	}
+	if strings.TrimSpace(val) == "null" {
+		return WithCLIValidation(fmt.Errorf("invalid value for --%s: null; path parameters require a non-empty value", m.FlagName))
+	}
+	var elems []string
+	if json.Unmarshal([]byte(val), &elems) != nil {
+		return nil
+	}
+	if len(elems) == 0 {
+		elems = []string{""}
+	}
+	return validateRequiredPathParam(v, m, changed, elems...)
+}
+
+func validateJSONArrayInput(m FlagMeta, fieldType reflect.Type, paramTag, val string) error {
+	// OptionalNullable[T] is a map[bool]*T
+	if fieldType.Kind() == reflect.Map && fieldType.Key().Kind() == reflect.Bool && fieldType.Elem().Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem().Elem()
+	}
+	if fieldType.Kind() != reflect.Slice || fieldType.Elem().Kind() == reflect.Uint8 {
+		return nil
+	}
+	trimmed := strings.TrimSpace(val)
+	if trimmed == "null" {
+		if m.Required {
+			return WithCLIValidation(fmt.Errorf("invalid value for --%s: null; the field is required", m.FlagName))
+		}
+		return nil
+	}
+	if !strings.HasPrefix(trimmed, "[") {
+		return WithCLIValidation(fmt.Errorf(`invalid value for --%s: expected a JSON array, e.g. --%s '["value"]'`, m.FlagName, m.FlagName))
+	}
+	var raw []json.RawMessage
+	rawErr := json.Unmarshal([]byte(trimmed), &raw)
+	if rawErr == nil {
+		if m.Required && len(raw) == 0 && (paramTag == "queryParam" || paramTag == "header") {
+			return WithCLIValidation(fmt.Errorf(`invalid value for --%s: empty array; a required parameter cannot be sent empty, e.g. --%s '["value"]'`, m.FlagName, m.FlagName))
+		}
+		if !keepsJSONNull(fieldType.Elem().Kind()) && slices.ContainsFunc(raw, isJSONNull) {
+			return WithCLIValidation(fmt.Errorf("invalid value for --%s: null element; array elements cannot be null", m.FlagName))
+		}
+	}
+	elemType := fieldType.Elem()
+	if elemType.Kind() == reflect.Ptr {
+		elemType = elemType.Elem()
+	}
+	if kind := elemType.Kind(); kind >= reflect.Int && kind <= reflect.Int64 && rawErr == nil {
+		for _, elem := range raw {
+			if isJSONNull(elem) {
+				continue
+			}
+			if err := validateEnumValue(m, string(elem), true); err != nil {
+				return err
+			}
+		}
+	}
+	if elemType.Kind() != reflect.String {
+		return nil
+	}
+	var elems []*string
+	if err := json.Unmarshal([]byte(trimmed), &elems); err != nil {
+		return WithCLIValidation(fmt.Errorf(`invalid value for --%s: expected a JSON array of strings, e.g. --%s '["value"]': %v`, m.FlagName, m.FlagName, err))
+	}
+	for _, elem := range elems {
+		if elem == nil {
+			continue
+		}
+		if err := validateEnumValue(m, *elem, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func keepsJSONNull(k reflect.Kind) bool {
+	return k == reflect.Ptr || k == reflect.Interface || k == reflect.Map || k == reflect.Slice
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 func validateEnumValue(m FlagMeta, val string, changed bool) error {
@@ -1650,6 +1767,11 @@ func buildStringArrayField(cmd *cobra.Command, v reflect.Value, m FlagMeta) erro
 	}
 	if err := validateRequiredPathParam(v, m, changed, val...); err != nil {
 		return err
+	}
+	for _, elem := range val {
+		if err := validateEnumValue(m, elem, true); err != nil {
+			return err
+		}
 	}
 
 	if !changed {
@@ -1821,6 +1943,10 @@ func buildJSONField(cmd *cobra.Command, v reflect.Value, m FlagMeta) error {
 		return nil
 	}
 
+	if err := validateRequiredJSONPathParam(v, m, changed, val); err != nil {
+		return err
+	}
+
 	// Navigate to the target field to get its type
 	field, err := navigateToField(v, m.FieldPath)
 	if err != nil {
@@ -1865,6 +1991,10 @@ func buildJSONField(cmd *cobra.Command, v reflect.Value, m FlagMeta) error {
 		}
 		field.Set(reflect.ValueOf(parsed))
 		return nil
+	}
+
+	if err := validateJSONArrayInput(m, fieldType, requestParamTag(v.Type(), m.FieldPath), val); err != nil {
+		return err
 	}
 
 	// If the annotation specifies bigint:"string" or decimal:"string", the SDK's

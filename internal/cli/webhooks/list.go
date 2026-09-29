@@ -29,7 +29,7 @@ import (
 
 var listCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Optional. The maximum number of webhooks to return. The service may return\nfewer than this value. If unspecified, at most 50 webhooks will be\nreturned. The maximum value is 1000."},
-	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. A page token, received from a previous `ListWebhooks` call.\nProvide this to retrieve the subsequent page."},
+	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. A page token, received from a previous 'ListWebhooks' call.\nProvide this to retrieve the subsequent page."},
 }
 
 // initListCmd initializes the list command.
