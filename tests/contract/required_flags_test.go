@@ -100,7 +100,7 @@ func TestFilesRegisterRequiresURIs(t *testing.T) {
 		t.Errorf("requests = %d, want none", requests.Load())
 	}
 
-	args := append(plainArgs(server.URL), "files", "register", "--uris", "gs://bucket/object")
+	args := append(plainArgs(server.URL), "files", "register", "--uris", `["gs://bucket/object"]`)
 	if result := runCLI(t, t.TempDir(), nil, args...); result.err != nil || requests.Load() != 1 {
 		t.Errorf("register with --uris: err %v, requests %d\nstderr: %s", result.err, requests.Load(), result.stderr)
 	}
