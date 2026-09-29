@@ -617,7 +617,7 @@ func TestHelpJourney(t *testing.T) {
 	// exclusive --model / --agent flag sets; examples are runnable flag
 	// invocations, never one JSON-string flag.
 	for _, want := range []string{
-		`--model gemini-3.6-flash`,
+		`--model gemini-3.8-flash`,
 		`--agent `,
 		`--background`,
 		"Model variant Flags:",
@@ -652,7 +652,7 @@ func TestModelsCatalogFromEnum(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("models failed: %v\nstderr: %s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "gemini-3.6-flash (default)") {
+	if !strings.Contains(result.stdout, "gemini-3.8-flash (default)") {
 		t.Errorf("models does not mark the default model:\n%s", result.stdout)
 	}
 	if !strings.Contains(result.stdout, "gemini-2.5-pro") {
@@ -692,8 +692,8 @@ func TestGenerateIntentCommand(t *testing.T) {
 	if err := json.Unmarshal(request.body, &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
-	if sent.Model != "gemini-3.6-flash" {
-		t.Errorf("model = %q, want schema default gemini-3.6-flash", sent.Model)
+	if sent.Model != "gemini-3.8-flash" {
+		t.Errorf("model = %q, want schema default gemini-3.8-flash", sent.Model)
 	}
 	if sent.Input != "Explain concurrency in one sentence" {
 		t.Errorf("input = %q, want positional prompt", sent.Input)
@@ -1024,8 +1024,8 @@ func TestDefaultModelInjectedWhenNoSelector(t *testing.T) {
 	if err := json.Unmarshal(<-bodies, &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
-	if sent.Model != "gemini-3.6-flash" {
-		t.Errorf("model = %q, want default gemini-3.6-flash injected", sent.Model)
+	if sent.Model != "gemini-3.8-flash" {
+		t.Errorf("model = %q, want default gemini-3.8-flash injected", sent.Model)
 	}
 	if sent.Input != "hello" {
 		t.Errorf("input = %q, want hello preserved", sent.Input)
