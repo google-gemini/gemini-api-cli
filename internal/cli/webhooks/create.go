@@ -29,7 +29,7 @@ import (
 
 var createCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "name", Shorthand: "n", FieldPath: "Body.Name", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The user-provided name of the webhook."},
-	{FlagName: "subscribed-events", Shorthand: "s", FieldPath: "Body.SubscribedEvents", Kind: flagutil.FlagKindStringArray, Required: true, Description: "Required. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated [required]"},
+	{FlagName: "subscribed-events", Shorthand: "s", FieldPath: "Body.SubscribedEvents", Kind: flagutil.FlagKindStringArray, Required: true, EnumValues: []string{"batch.succeeded", "batch.expired", "batch.failed", "interaction.requires_action", "interaction.completed", "interaction.failed", "video.generated"}, Description: "Required. The events that the webhook is subscribed to.\nAvailable events:\n- batch.succeeded\n- batch.expired\n- batch.failed\n- interaction.requires_action\n- interaction.completed\n- interaction.failed\n- video.generated\n(options: batch.succeeded, batch.expired, batch.failed, interaction.requires_action, interaction.completed, interaction.failed, video.generated) [required]"},
 	{FlagName: "uri", Shorthand: "u", FieldPath: "Body.URI", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The URI to which webhook events will be sent. [required]"},
 }
 

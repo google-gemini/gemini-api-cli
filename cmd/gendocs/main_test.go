@@ -17,9 +17,12 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/spf13/cobra"
@@ -171,6 +174,121 @@ func TestParseArgs(t *testing.T) {
 				t.Errorf("parseArgs() messages = %q, want %q", messages, tt.wantMessages)
 			}
 		})
+	}
+}
+
+func TestTruncatedDocFilenameMatchesReadmePath(t *testing.T) {
+	longName := strings.Repeat("long-command-", 24) + "end"
+	tests := []struct {
+		name        string
+		groupName   string
+		commandName string
+		want        string
+	}{
+		{"long command", "group", longName, "docs/cli_group_long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-comma_6df2be76.md"},
+		{"long group and command", longName, longName, "docs/cli_long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-long-command-lon_272558f8.md"},
+		{"unicode command", "group", strings.Repeat("😀é", 65) + "end", "docs/cli_group_😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é😀é_815e7d11.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := &cobra.Command{Use: "cli"}
+			group := &cobra.Command{Use: tt.groupName}
+			command := &cobra.Command{Use: tt.commandName, Run: func(*cobra.Command, []string) {}}
+			root.AddCommand(group)
+			group.AddCommand(command)
+
+			got := truncateCLIDocFilename(strings.ReplaceAll(command.CommandPath(), " ", "_") + cliDocMarkdownExtension)
+			want := strings.TrimPrefix(tt.want, "docs/")
+			if got != want {
+				t.Fatalf("truncated documentation filename = %q, want %q", got, want)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("truncated documentation filename is not valid UTF-8: %q", got)
+			}
+			if len(got) > cliDocMaxFilenameLen {
+				t.Fatalf("truncated documentation filename length = %d, want at most %d", len(got), cliDocMaxFilenameLen)
+			}
+
+			dir := t.TempDir()
+			if err := genMarkdownTreeNoDate(root, dir); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, got)); err != nil {
+				t.Fatal(err)
+			}
+
+			groupFilename := truncateCLIDocFilename(strings.ReplaceAll(group.CommandPath(), " ", "_") + cliDocMarkdownExtension)
+			groupDoc, err := os.ReadFile(filepath.Join(dir, groupFilename))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(groupDoc), "]("+got+")") {
+				t.Fatalf("group documentation does not link to %q:\n%s", got, groupDoc)
+			}
+		})
+	}
+}
+
+func TestGenMarkdownTreeRemovesOrphanedDocs(t *testing.T) {
+	dir := t.TempDir()
+	root := &cobra.Command{Use: "cli"}
+	oldGroup := &cobra.Command{Use: "old-group"}
+	oldCommand := &cobra.Command{Use: "old-command", Run: func(*cobra.Command, []string) {}}
+	oldGroup.AddCommand(oldCommand)
+	root.AddCommand(oldGroup)
+	if err := genMarkdownTreeNoDate(root, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, content := range map[string]string{
+		"cli_notes.md":     "# Custom notes\n",
+		"other_old.md":     "## other old\n\n" + clierrors.HelpFooter + "\n",
+		"cli_unrelated.md": "## cli unrelated\n\nHand-written content\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "cli_directory.md"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	root.RemoveCommand(oldGroup)
+	newGroup := &cobra.Command{Use: "new-group", Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(newGroup)
+	if err := genMarkdownTreeNoDate(root, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"cli_old-group.md", "cli_old-group_old-command.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("orphaned documentation %q still exists: %v", name, err)
+		}
+	}
+	for _, name := range []string{"cli.md", "cli_new-group.md", "cli_notes.md", "other_old.md", "cli_unrelated.md", "cli_directory.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("documentation %q was removed: %v", name, err)
+		}
+	}
+}
+
+func TestGenMarkdownTreeKeepsDocsOnWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	root := &cobra.Command{Use: "cli"}
+	oldCommand := &cobra.Command{Use: "old", Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(oldCommand)
+	if err := genMarkdownTreeNoDate(root, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	root.RemoveCommand(oldCommand)
+	root.AddCommand(&cobra.Command{Use: "missing/parent", Run: func(*cobra.Command, []string) {}})
+	if err := genMarkdownTreeNoDate(root, dir); err == nil {
+		t.Fatal("expected documentation write to fail")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cli_old.md")); err != nil {
+		t.Fatalf("removed existing documentation after a failed write: %v", err)
 	}
 }
 

@@ -28,7 +28,7 @@ import (
 )
 
 var filesRegisterCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "uris", Shorthand: "u", FieldPath: "Body.Uris", Kind: flagutil.FlagKindStringArray, Required: true, Description: "Required. The Google Cloud Storage URIs to register. Example: `gs://bucket/object`. [required]"},
+	{FlagName: "uris", Shorthand: "u", FieldPath: "Body.Uris", Kind: flagutil.FlagKindStringArray, Required: true, Description: "Required. The Google Cloud Storage URIs to register. Example: 'gs://bucket/object'. [required]"},
 }
 
 // initFilesRegisterCmd initializes the files-register command.

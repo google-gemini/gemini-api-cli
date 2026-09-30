@@ -34,7 +34,7 @@ var createCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "description", FieldPath: "Body.Description", Kind: flagutil.FlagKindString, Optional: true, Description: "Agent description for developers to quickly read and understand."},
 	{FlagName: "id", Shorthand: "i", FieldPath: "Body.ID", Kind: flagutil.FlagKindString, Required: true, Description: "The unique identifier for the agent. [required]"},
 	{FlagName: "system-instruction", Shorthand: "s", FieldPath: "Body.SystemInstruction", Kind: flagutil.FlagKindString, Optional: true, Description: "System instruction for the agent."},
-	{FlagName: "tools", Shorthand: "t", FieldPath: "Body.Tools", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"tools,omitempty"`, Description: "The tools available to the agent."},
+	{FlagName: "tools", Shorthand: "t", FieldPath: "Body.Tools", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"tools,omitempty"`, Description: "The tools available to the agent. (JSON array)"},
 }
 
 // initCreateCmd initializes the create command.

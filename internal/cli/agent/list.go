@@ -30,7 +30,7 @@ import (
 var listCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "integer value"},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "string value"},
-	{FlagName: "parent", FieldPath: "Parent", Kind: flagutil.FlagKindString, Optional: true, Description: "Required. The parent resource to list agents from.\nFormat: `projects/{project}/locations/{location}`"},
+	{FlagName: "parent", FieldPath: "Parent", Kind: flagutil.FlagKindString, Optional: true, Description: "Required. The parent resource to list agents from.\nFormat: 'projects/{project}/locations/{location}'"},
 }
 
 // initListCmd initializes the list command.
