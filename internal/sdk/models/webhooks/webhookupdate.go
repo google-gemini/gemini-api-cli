@@ -93,14 +93,6 @@ type WebhookUpdate struct {
 	// Optional. The state of the webhook.
 	State *WebhookUpdateState `json:"state,omitzero"`
 	// Optional. The events that the webhook is subscribed to.
-	// Available events:
-	// - batch.succeeded
-	// - batch.expired
-	// - batch.failed
-	// - interaction.requires_action
-	// - interaction.completed
-	// - interaction.failed
-	// - video.generated
 	SubscribedEvents []WebhookUpdateSubscribedEvent `json:"subscribed_events,omitzero"`
 	// Optional. The URI to which webhook events will be sent.
 	URI *string `json:"uri,omitzero"`
