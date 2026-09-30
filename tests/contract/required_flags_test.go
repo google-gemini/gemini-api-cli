@@ -1,7 +1,6 @@
 package contract_test
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -111,7 +110,11 @@ func TestFilesRegisterRequiresURIs(t *testing.T) {
 	if result := runCLI(t, t.TempDir(), nil, args...); result.err != nil || requests.Load() != 1 {
 		t.Errorf("register with --uris: err %v, requests %d\nstderr: %s", result.err, requests.Load(), result.stderr)
 	}
-	if got, want := strings.TrimSpace(fmt.Sprint(body.Load())), `{"uris":["gs://bucket/object"]}`; got != want {
-		t.Errorf("request body = %s, want %s", got, want)
+	var got string
+	if v := body.Load(); v != nil {
+		got = strings.TrimSpace(v.(string))
+	}
+	if want := `{"uris":["gs://bucket/object"]}`; got != want {
+		t.Errorf("request body = %q, want %q", got, want)
 	}
 }
