@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,8 +80,11 @@ func TestBodylessOperationsRequireTheirIdentifier(t *testing.T) {
 // registration is a usage error instead of a POST of {}.
 func TestFilesRegisterRequiresURIs(t *testing.T) {
 	var requests atomic.Int32
+	var body atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		b, _ := io.ReadAll(r.Body)
+		body.Store(string(b))
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"files":[]}`))
 	}))
@@ -100,8 +104,17 @@ func TestFilesRegisterRequiresURIs(t *testing.T) {
 		t.Errorf("requests = %d, want none", requests.Load())
 	}
 
-	args := append(plainArgs(server.URL), "files", "register", "--uris", "gs://bucket/object")
+	// --uris takes one JSON array; the body must carry its elements, not the
+	// array text as a single string.
+	args := append(plainArgs(server.URL), "files", "register", "--uris", `["gs://bucket/object"]`)
 	if result := runCLI(t, t.TempDir(), nil, args...); result.err != nil || requests.Load() != 1 {
 		t.Errorf("register with --uris: err %v, requests %d\nstderr: %s", result.err, requests.Load(), result.stderr)
+	}
+	var got string
+	if v := body.Load(); v != nil {
+		got = strings.TrimSpace(v.(string))
+	}
+	if want := `{"uris":["gs://bucket/object"]}`; got != want {
+		t.Errorf("request body = %q, want %q", got, want)
 	}
 }
