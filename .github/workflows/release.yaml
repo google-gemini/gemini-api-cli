@@ -17,6 +17,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check tag matches CLI version
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          got=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/version.go)
+          if [ "$want" != "$got" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match internal/cli/version.go ($got): set cli.version in gen.yaml to $want and regenerate before tagging"
+            exit 1
+          fi
+
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

@@ -192,10 +192,10 @@ func WithTimeout(timeout time.Duration) SDKOption {
 // New creates a new instance of the SDK with the provided options
 func New(opts ...SDKOption) *GeminiAPI {
 	sdk := &GeminiAPI{
-		SDKVersion: "0.6.0",
+		SDKVersion: "0.4.0",
 		sdkConfiguration: config.SDKConfiguration{
-			UserAgent:         "speakeasy-sdk/go 0.6.0 internal v1beta google3/third_party/gemini_api_cli/internal/sdk",
-			SDKVersion:        "0.6.0",
+			UserAgent:         "speakeasy-sdk/go 0.4.0 internal v1beta google3/third_party/gemini_api_cli/internal/sdk",
+			SDKVersion:        "0.4.0",
 			GenVersion:        "internal",
 			OpenAPIDocVersion: "v1beta",
 			Globals:           globals.Globals{},

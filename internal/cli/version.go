@@ -29,7 +29,7 @@ import (
 // which propagates the value here (see cmd/gemini-api/main.go):
 //
 //	go build -ldflags "-X main.version=x.y.z" ./cmd/gemini-api
-var Version = "0.6.0"
+var Version = "0.4.0"
 
 // BuildTime is optionally set at build time via ldflags targeting the main package.
 var BuildTime string
