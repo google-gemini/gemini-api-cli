@@ -54,7 +54,13 @@ overridden at build time using Go linker flags:
 		},
 	}
 	parent.AddCommand(cmd)
+	parent.Flags().BoolP("version", "v", false, "Print the CLI version")
 	return nil
+}
+
+func versionFlagRequested(cmd *cobra.Command) bool {
+	requested, err := cmd.Flags().GetBool("version")
+	return err == nil && requested
 }
 
 func printVersion(cmd *cobra.Command) error {

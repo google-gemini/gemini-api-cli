@@ -61,6 +61,9 @@ func NewRootCommand() (*cobra.Command, error) {
 			if usage.UsageRequested(cmd) {
 				return usage.EmitSchema(cmd, cmd.OutOrStdout())
 			}
+			if versionFlagRequested(cmd) {
+				return printVersion(cmd)
+			}
 			if compactHelpGlobalRequested(cmd) {
 				out := cmd.OutOrStdout()
 				fmt.Fprintln(out, "Global flags (apply to every command):")
