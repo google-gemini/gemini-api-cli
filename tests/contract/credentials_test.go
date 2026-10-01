@@ -14,8 +14,6 @@ import (
 // TestCredentialsRequestConstruction pins the wire shape of every credentials
 // operation: method, path, query and the body each union variant produces.
 func TestCredentialsRequestConstruction(t *testing.T) {
-	server, calls := newCaptureServer(t, `{}`)
-
 	cases := []struct {
 		name   string
 		args   []string
@@ -91,6 +89,7 @@ func TestCredentialsRequestConstruction(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			server, calls := newCaptureServer(t, `{}`)
 			result := runCLI(t, t.TempDir(), nil, append(baseArgs(server.URL), tc.args...)...)
 			if result.err != nil {
 				t.Fatalf("failed: %v\nstderr: %s", result.err, result.stderr)
@@ -200,10 +199,11 @@ func TestCredentialsHelpDoesNotRequireVariantFields(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("--help failed: %v\nstderr: %s", result.err, result.stderr)
 			}
-			required, _, found := strings.Cut(result.stdout, "Optional Flags:")
-			if !found {
-				return
+			if !strings.Contains(result.stdout, "--body-param.bearer-token.token") {
+				t.Fatalf("help does not list the bearer_token variant flags:\n%s", result.stdout)
 			}
+			_, required, _ := strings.Cut(result.stdout, "Required Flags:\n")
+			required, _, _ = strings.Cut(required, "\n\n")
 			if strings.Contains(required, "--body-param.") {
 				t.Errorf("help lists union variant fields as required:\n%s", required)
 			}
@@ -239,8 +239,6 @@ func TestCredentialsHelpDocumentsOperations(t *testing.T) {
 // TestCredentialsSecretsNeverPrinted: every write-only secret of every create
 // variant stays out of dry-run previews (human and JSON) and --debug traces.
 func TestCredentialsSecretsNeverPrinted(t *testing.T) {
-	server, calls := newCaptureServer(t, `{}`)
-
 	const secret = "sekr1t-c4nary"
 	variants := map[string]string{
 		"bearer_token token":         `{"type":"bearer_token","id":"b","token":"` + secret + `"}`,
@@ -256,13 +254,11 @@ func TestCredentialsSecretsNeverPrinted(t *testing.T) {
 	for name, body := range variants {
 		for label, mode := range modes {
 			t.Run(name+"/"+label, func(t *testing.T) {
+				server, _ := newCaptureServer(t, `{}`)
 				args := append(append(plainArgs(server.URL), mode...), "credentials", "create", "--body", body)
 				result := runCLI(t, t.TempDir(), nil, args...)
 				if result.err != nil {
 					t.Fatalf("failed: %v\nstderr: %s", result.err, result.stderr)
-				}
-				if label == "debug" {
-					<-calls
 				}
 				if strings.Contains(result.stdout+result.stderr, secret) {
 					t.Errorf("secret leaked\nstdout: %s\nstderr: %s", result.stdout, result.stderr)
