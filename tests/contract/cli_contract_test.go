@@ -19,7 +19,11 @@ import (
 	"time"
 )
 
-var cliBinary string
+var (
+	cliBinary string
+	// repoRoot is the module root, where binaries are built.
+	repoRoot string
+)
 
 func TestMain(m *testing.M) {
 	_, filename, _, ok := runtime.Caller(0)
@@ -27,7 +31,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "resolve contract test path")
 		os.Exit(1)
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	repoRoot = filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 	tempDir, err := os.MkdirTemp("", "gemini-api-contract-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -37,7 +41,7 @@ func TestMain(m *testing.M) {
 
 	cliBinary = filepath.Join(tempDir, "gemini-api")
 	cmd := exec.Command("go", "build", "-o", cliBinary, "./cmd/gemini-api")
-	cmd.Dir = root
+	cmd.Dir = repoRoot
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build gemini-api: %v\n%s", err, output)
 		os.Exit(1)
@@ -62,8 +66,14 @@ func runCLI(t *testing.T, home string, env map[string]string, args ...string) co
 // filenames against it.
 func runCLIInDir(t *testing.T, home, dir string, env map[string]string, args ...string) commandResult {
 	t.Helper()
+	return runBinary(t, cliBinary, home, dir, env, args...)
+}
 
-	cmd := exec.Command(cliBinary, args...)
+// runBinary runs binary in the same isolated environment as the CLI.
+func runBinary(t *testing.T, binary, home, dir string, env map[string]string, args ...string) commandResult {
+	t.Helper()
+
+	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
 	cmd.Env = isolatedEnv(home, env)
 	var stdout bytes.Buffer
@@ -270,6 +280,7 @@ func runCLIWithStdin(t *testing.T, home string, env map[string]string, stdin str
 func isolatedEnv(home string, overrides map[string]string) []string {
 	blocked := map[string]bool{
 		"HOME":                true,
+		"USERPROFILE":         true,
 		"GEMINI_API_KEY":      true,
 		"GEMINI_ACCESS_TOKEN": true,
 		"GEMINI_API_VERSION":  true,
@@ -291,7 +302,7 @@ func isolatedEnv(home string, overrides map[string]string) []string {
 		blocked[key] = true
 	}
 
-	env := make([]string, 0, len(os.Environ())+len(overrides)+1)
+	env := make([]string, 0, len(os.Environ())+len(overrides)+2)
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
 		if !blocked[key] && !strings.HasPrefix(key, "GEMINI_") {
@@ -299,7 +310,8 @@ func isolatedEnv(home string, overrides map[string]string) []string {
 		}
 	}
 
-	env = append(env, "HOME="+home)
+	// os.UserHomeDir reads USERPROFILE on Windows and HOME elsewhere.
+	env = append(env, "HOME="+home, "USERPROFILE="+home)
 	for key, value := range overrides {
 		env = append(env, key+"="+value)
 	}
@@ -422,6 +434,7 @@ func TestCommandInventory(t *testing.T) {
 		`cmd "triggers"`, `cmd "list-executions"`, `cmd "update"`,
 		`cmd "webhooks"`, `cmd "ping"`, `cmd "rotate-signing-secret"`,
 		`cmd "models"`, `cmd "files"`, `cmd "register"`, `cmd "generated-files-list"`,
+		`cmd "auth"`, `cmd "login"`, `cmd "logout"`, `cmd "whoami"`,
 	}
 	for _, fragment := range expected {
 		if !strings.Contains(result.stdout, fragment) {
@@ -440,6 +453,7 @@ func TestCommandInventory(t *testing.T) {
 		"triggers delete", "triggers run", "triggers list-executions",
 		"models list", "models get",
 		"files list", "files get", "files delete", "files register", "files generated-files-list",
+		"auth login", "auth logout", "auth whoami",
 	}
 	for _, command := range operationCommands {
 		parts := append(strings.Fields(command), "--usage")
