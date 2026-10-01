@@ -19,11 +19,7 @@ import (
 	"time"
 )
 
-var (
-	cliBinary string
-	// repoRoot is the module root, where binaries are built.
-	repoRoot string
-)
+var cliBinary string
 
 func TestMain(m *testing.M) {
 	_, filename, _, ok := runtime.Caller(0)
@@ -31,7 +27,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "resolve contract test path")
 		os.Exit(1)
 	}
-	repoRoot = filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 	tempDir, err := os.MkdirTemp("", "gemini-api-contract-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -41,7 +37,7 @@ func TestMain(m *testing.M) {
 
 	cliBinary = filepath.Join(tempDir, "gemini-api")
 	cmd := exec.Command("go", "build", "-o", cliBinary, "./cmd/gemini-api")
-	cmd.Dir = repoRoot
+	cmd.Dir = root
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build gemini-api: %v\n%s", err, output)
 		os.Exit(1)
@@ -66,14 +62,8 @@ func runCLI(t *testing.T, home string, env map[string]string, args ...string) co
 // filenames against it.
 func runCLIInDir(t *testing.T, home, dir string, env map[string]string, args ...string) commandResult {
 	t.Helper()
-	return runBinary(t, cliBinary, home, dir, env, args...)
-}
 
-// runBinary runs binary in the same isolated environment as the CLI.
-func runBinary(t *testing.T, binary, home, dir string, env map[string]string, args ...string) commandResult {
-	t.Helper()
-
-	cmd := exec.Command(binary, args...)
+	cmd := exec.Command(cliBinary, args...)
 	cmd.Dir = dir
 	cmd.Env = isolatedEnv(home, env)
 	var stdout bytes.Buffer
@@ -434,7 +424,6 @@ func TestCommandInventory(t *testing.T) {
 		`cmd "triggers"`, `cmd "list-executions"`, `cmd "update"`,
 		`cmd "webhooks"`, `cmd "ping"`, `cmd "rotate-signing-secret"`,
 		`cmd "models"`, `cmd "files"`, `cmd "register"`, `cmd "generated-files-list"`,
-		`cmd "auth"`, `cmd "login"`, `cmd "logout"`, `cmd "whoami"`,
 	}
 	for _, fragment := range expected {
 		if !strings.Contains(result.stdout, fragment) {
@@ -453,7 +442,6 @@ func TestCommandInventory(t *testing.T) {
 		"triggers delete", "triggers run", "triggers list-executions",
 		"models list", "models get",
 		"files list", "files get", "files delete", "files register", "files generated-files-list",
-		"auth login", "auth logout", "auth whoami",
 	}
 	for _, command := range operationCommands {
 		parts := append(strings.Fields(command), "--usage")
@@ -563,6 +551,12 @@ func TestAuthenticationHeadersAndPrecedence(t *testing.T) {
 			name:         "bearer token overrides API key",
 			configAPIKey: "config-api-key",
 			args:         []string{"--access-token", "access-token"},
+			wantAuth:     "Bearer access-token",
+		},
+		{
+			name:         "custom Authorization header displaces API key",
+			configAPIKey: "config-api-key",
+			args:         []string{"--header", "Authorization: Bearer access-token"},
 			wantAuth:     "Bearer access-token",
 		},
 	}
@@ -1075,13 +1069,29 @@ func TestUserProjectHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	args := append(baseArgs(server.URL), "--user-project", "billing-project", "agent", "list")
-	result := runCLI(t, t.TempDir(), nil, args...)
-	if result.err != nil {
-		t.Fatalf("agent list failed: %v\nstderr: %s", result.err, result.stderr)
-	}
-	if got := (<-headers).Get("x-goog-user-project"); got != "billing-project" {
-		t.Errorf("x-goog-user-project = %q, want billing-project", got)
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "set", args: []string{"--user-project", "billing-project"}, want: "billing-project"},
+		{name: "unset"},
+		{name: "empty", args: []string{"--user-project", ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append(append(baseArgs(server.URL), tt.args...), "agent", "list")
+			result := runCLI(t, t.TempDir(), nil, args...)
+			if result.err != nil {
+				t.Fatalf("agent list failed: %v\nstderr: %s", result.err, result.stderr)
+			}
+			requestHeaders := <-headers
+			if got := requestHeaders.Get("x-goog-user-project"); got != tt.want {
+				t.Errorf("x-goog-user-project = %q, want %q", got, tt.want)
+			}
+			if _, sent := requestHeaders["X-Goog-User-Project"]; sent != (tt.want != "") {
+				t.Errorf("x-goog-user-project sent = %t, want %t", sent, tt.want != "")
+			}
+		})
 	}
 }
 
