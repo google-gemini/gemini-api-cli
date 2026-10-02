@@ -85,6 +85,9 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "lyria-3-pro-preview", "description": "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.", "default": false},
 				{"value": "gemini-robotics-er-1.6-preview", "description": "Gemini Robotics-ER 1.6 Preview", "default": false},
 				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false},
+				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false},
+				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
+				{"value": "gemini-omni-flash-preview", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
 			}
 			if output.IsMachineMode(cmd) {
 				return output.LocalResult(cmd, values)
@@ -117,6 +120,9 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-pro-preview", "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-1.6-preview", "Gemini Robotics-ER 1.6 Preview")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
+			fmt.Fprintf(out, "%-42s %s\n", "lyria-3.5", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-1.1-flash", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-flash-preview", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
 			return nil
 		},
 	}
