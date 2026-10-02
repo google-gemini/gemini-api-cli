@@ -270,6 +270,7 @@ func runCLIWithStdin(t *testing.T, home string, env map[string]string, stdin str
 func isolatedEnv(home string, overrides map[string]string) []string {
 	blocked := map[string]bool{
 		"HOME":                true,
+		"USERPROFILE":         true,
 		"GEMINI_API_KEY":      true,
 		"GEMINI_ACCESS_TOKEN": true,
 		"GEMINI_API_VERSION":  true,
@@ -291,7 +292,7 @@ func isolatedEnv(home string, overrides map[string]string) []string {
 		blocked[key] = true
 	}
 
-	env := make([]string, 0, len(os.Environ())+len(overrides)+1)
+	env := make([]string, 0, len(os.Environ())+len(overrides)+2)
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
 		if !blocked[key] && !strings.HasPrefix(key, "GEMINI_") {
@@ -299,7 +300,8 @@ func isolatedEnv(home string, overrides map[string]string) []string {
 		}
 	}
 
-	env = append(env, "HOME="+home)
+	// os.UserHomeDir reads USERPROFILE on Windows and HOME elsewhere.
+	env = append(env, "HOME="+home, "USERPROFILE="+home)
 	for key, value := range overrides {
 		env = append(env, key+"="+value)
 	}
@@ -549,6 +551,12 @@ func TestAuthenticationHeadersAndPrecedence(t *testing.T) {
 			name:         "bearer token overrides API key",
 			configAPIKey: "config-api-key",
 			args:         []string{"--access-token", "access-token"},
+			wantAuth:     "Bearer access-token",
+		},
+		{
+			name:         "custom Authorization header displaces API key",
+			configAPIKey: "config-api-key",
+			args:         []string{"--header", "Authorization: Bearer access-token"},
 			wantAuth:     "Bearer access-token",
 		},
 	}
@@ -1061,13 +1069,29 @@ func TestUserProjectHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	args := append(baseArgs(server.URL), "--user-project", "billing-project", "agent", "list")
-	result := runCLI(t, t.TempDir(), nil, args...)
-	if result.err != nil {
-		t.Fatalf("agent list failed: %v\nstderr: %s", result.err, result.stderr)
-	}
-	if got := (<-headers).Get("x-goog-user-project"); got != "billing-project" {
-		t.Errorf("x-goog-user-project = %q, want billing-project", got)
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "set", args: []string{"--user-project", "billing-project"}, want: "billing-project"},
+		{name: "unset"},
+		{name: "empty", args: []string{"--user-project", ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append(append(baseArgs(server.URL), tt.args...), "agent", "list")
+			result := runCLI(t, t.TempDir(), nil, args...)
+			if result.err != nil {
+				t.Fatalf("agent list failed: %v\nstderr: %s", result.err, result.stderr)
+			}
+			requestHeaders := <-headers
+			if got := requestHeaders.Get("x-goog-user-project"); got != tt.want {
+				t.Errorf("x-goog-user-project = %q, want %q", got, tt.want)
+			}
+			if _, sent := requestHeaders["X-Goog-User-Project"]; sent != (tt.want != "") {
+				t.Errorf("x-goog-user-project sent = %t, want %t", sent, tt.want != "")
+			}
+		})
 	}
 }
 
