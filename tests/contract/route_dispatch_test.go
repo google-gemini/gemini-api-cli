@@ -18,10 +18,11 @@ import (
 // date works, the wire echo is what matters.
 const explicitAPIRevision = "2026-05-20"
 
-// captureServer records the last request's method, path, headers and JSON body.
+// captureServer records the last request's method, path, query, headers and JSON body.
 type capturedCall struct {
 	method string
 	path   string
+	query  string
 	header http.Header
 	body   map[string]any
 }
@@ -35,7 +36,7 @@ func newCaptureServer(t *testing.T, reply string) (*httptest.Server, chan captur
 		if len(raw) > 0 {
 			_ = json.Unmarshal(raw, &body)
 		}
-		calls <- capturedCall{method: r.Method, path: r.URL.Path, header: r.Header.Clone(), body: body}
+		calls <- capturedCall{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, header: r.Header.Clone(), body: body}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, reply)
 	}))

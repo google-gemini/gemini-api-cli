@@ -422,6 +422,7 @@ func TestCommandInventory(t *testing.T) {
 		`cmd "triggers"`, `cmd "list-executions"`, `cmd "update"`,
 		`cmd "webhooks"`, `cmd "ping"`, `cmd "rotate-signing-secret"`,
 		`cmd "models"`, `cmd "files"`, `cmd "register"`, `cmd "generated-files-list"`,
+		`cmd "credentials"`,
 	}
 	for _, fragment := range expected {
 		if !strings.Contains(result.stdout, fragment) {
@@ -440,6 +441,7 @@ func TestCommandInventory(t *testing.T) {
 		"triggers delete", "triggers run", "triggers list-executions",
 		"models list", "models get",
 		"files list", "files get", "files delete", "files register", "files generated-files-list",
+		"credentials list", "credentials create", "credentials get", "credentials update", "credentials delete",
 	}
 	for _, command := range operationCommands {
 		parts := append(strings.Fields(command), "--usage")
