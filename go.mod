@@ -1,4 +1,4 @@
-module github.com/google-gemini/gemini-api-cli
+module google3/third_party/gemini_api_cli
 
 go 1.26.10
 
