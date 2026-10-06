@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -117,6 +118,76 @@ func TestTTSMultiSpeakerRequest(t *testing.T) {
 	first, _ := speakers[0].(map[string]any)
 	if first["speaker"] != "Alice" || first["voice"] != "Kore" {
 		t.Errorf("speakers[0] = %#v, want Alice=Kore", first)
+	}
+}
+
+// TestTTSMultiSpeakerInput pins the per-model input shape: current TTS models
+// take one text block per speaker turn annotated with its speaker, label
+// removed; the legacy models reject annotations and take the script as one
+// plain block.
+func TestTTSMultiSpeakerInput(t *testing.T) {
+	stub := newInteractionStub(t, ttsAudioResponse([]byte{0x00, 0x01}, "audio/l16", 24000, 1))
+	turn := func(speaker, text string) any {
+		return map[string]any{"type": "text", "text": text,
+			"annotations": []any{map[string]any{"type": "speech_metadata", "speaker": speaker}}}
+	}
+	for model, want := range map[string][]any{
+		"":                                    {turn("Alice", "hi."), turn("Bob", "yo.")},
+		"gemini-3.1-flash-tts-preview":        {map[string]any{"type": "text", "text": "Alice: hi. Bob: yo."}},
+		"models/gemini-3.1-flash-tts-preview": {map[string]any{"type": "text", "text": "Alice: hi. Bob: yo."}},
+	} {
+		dir := t.TempDir()
+		args := append(plainArgs(stub.URL), "tts", "Alice: hi. Bob: yo.",
+			"--multi-speaker", "Alice=Kore,Bob=Puck", "--out", filepath.Join(dir, "d.wav"))
+		if model != "" {
+			args = append(args, "--model", model)
+		}
+		if result := runCLI(t, dir, nil, args...); result.err != nil {
+			t.Fatalf("tts (model %q) failed: %v\nstderr: %s", model, result.err, result.stderr)
+		}
+		if got, _ := stub.body["input"].([]any); !reflect.DeepEqual(got, want) {
+			t.Errorf("model %q: input = %#v, want %#v", model, stub.body["input"], want)
+		}
+	}
+}
+
+// TestTTSMultiSpeakerScriptFile pins a Windows-saved -f script: the UTF-8
+// byte-order mark is dropped and CRLF line ends split turns like LF.
+func TestTTSMultiSpeakerScriptFile(t *testing.T) {
+	stub := newInteractionStub(t, ttsAudioResponse([]byte{0x00, 0x01}, "audio/l16", 24000, 1))
+	dir := t.TempDir()
+	script := filepath.Join(dir, "script.txt")
+	if err := os.WriteFile(script, []byte("\uFEFFAlice: hi.\r\nBob: yo.\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := append(plainArgs(stub.URL), "tts", "-f", script,
+		"--multi-speaker", "Alice=Kore,Bob=Puck", "--out", filepath.Join(dir, "d.wav"))
+	if result := runCLI(t, dir, nil, args...); result.err != nil {
+		t.Fatalf("tts failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	var texts []any
+	for _, block := range stub.body["input"].([]any) {
+		texts = append(texts, block.(map[string]any)["text"])
+	}
+	if want := []any{"hi.", "yo."}; !reflect.DeepEqual(texts, want) {
+		t.Errorf("input texts = %q, want %q", texts, want)
+	}
+}
+
+// TestTTSMultiSpeakerRejectsUnlabelledText pins the local usage error for text
+// before the first speaker label, which the API rejects opaquely; no request
+// is sent.
+func TestTTSMultiSpeakerRejectsUnlabelledText(t *testing.T) {
+	stub := newInteractionStub(t, ttsAudioResponse([]byte{0x00, 0x01}, "audio/l16", 24000, 1))
+	dir := t.TempDir()
+	args := append(plainArgs(stub.URL), "tts", "Intro. Alice: hi. Bob: yo.",
+		"--multi-speaker", "Alice=Kore,Bob=Puck", "--out", filepath.Join(dir, "d.wav"))
+	result := runCLI(t, dir, nil, args...)
+	if code := exitCode(t, result); code != 2 || !strings.Contains(result.stderr, `text before the first speaker label: "Intro."`) {
+		t.Errorf("exit = %d, stderr = %q; want exit 2 and the unlabelled-text error", code, result.stderr)
+	}
+	if n := stub.requests.Load(); n != 0 {
+		t.Errorf("sent %d requests, want none", n)
 	}
 }
 
