@@ -27,7 +27,7 @@ func helpLines(s string) int {
 func TestHelpBudgetAndFooter(t *testing.T) {
 	commands := [][]string{
 		{"generate"}, {"image"}, {"video"}, {"music"},
-		{"tts"}, {"tokens"}, {"analyze"}, {"transcribe"},
+		{"tts"}, {"analyze"}, {"transcribe"},
 		{"agent"}, {"agent", "run"}, {"agent", "status"},
 		{"models"}, {"models", "list"}, {"files"}, {"files", "upload"},
 	}

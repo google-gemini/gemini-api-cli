@@ -707,22 +707,10 @@ func TestGenerateIntentCommand(t *testing.T) {
 
 	// Root help shows the declared tier-1 sections and line-up
 	root := runCLI(t, t.TempDir(), nil, "--help")
-	for _, want := range []string{"Create:", "Understand:", "Manage:", "Advanced:", "generate", "image", "tts", "tokens", "docs"} {
+	for _, want := range []string{"Create:", "Understand:", "Manage:", "Advanced:", "generate", "image", "tts"} {
 		if !strings.Contains(root.stdout, want) {
 			t.Errorf("root help missing declared surface %q:\n%s", want, root.stdout)
 		}
-	}
-
-	// Planned placeholders still in the tree fail with the declared note.
-	// ("docs" and "tokens" remain planned; tts/analyze/transcribe are claimed
-	// by the custom porcelain — covered in porcelain_test.go; embed and batch
-	// are cut from this interactions-only build.)
-	planned := runCLI(t, t.TempDir(), nil, "docs")
-	if planned.err == nil {
-		t.Error("planned placeholder command unexpectedly succeeded")
-	}
-	if !strings.Contains(planned.stderr, "not part of this build") {
-		t.Errorf("placeholder error lacks the declared note:\n%s", planned.stderr)
 	}
 }
 

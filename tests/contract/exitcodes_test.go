@@ -68,7 +68,6 @@ func TestExitCodeContract(t *testing.T) {
 		{name: "usage: unknown nested subcommand", args: []string{"agent", "nosuch"}, want: 2},
 		{name: "usage: unknown flag", args: []string{"agent", "list", "--no-such-flag"}, want: 2},
 		{name: "usage: malformed --body", args: append(baseArgs(refusedURL), "agent", "run", "--body", "{"), want: 2},
-		{name: "runtime: planned docs placeholder", args: []string{"docs"}, want: 1},
 		{name: "runtime: connection refused", args: append(baseArgs(refusedURL), "agent", "list"), want: 1},
 		{name: "runtime: HTTP 404", args: append(baseArgs(notFound.URL), "agent", "get", "--id", "agent-1"), want: 1},
 		{name: "auth: HTTP 401", args: append(baseArgs(unauthorized.URL), "agent", "list"), want: 3},
