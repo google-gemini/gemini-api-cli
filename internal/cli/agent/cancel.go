@@ -38,7 +38,7 @@ func initCancelCmd(parent *cobra.Command) error {
 		Use:     "cancel [id]",
 		Short:   "Cancel an in-progress interaction by interaction ID",
 		Long:    "Cancels an interaction by id. This only applies to background interactions\nthat are still running.",
-		Example: "",
+		Example: "  gemini-api agent cancel --id <id>",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runCancelCmd,
 		Annotations: map[string]string{
