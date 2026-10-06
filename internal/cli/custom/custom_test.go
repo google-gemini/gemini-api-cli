@@ -516,11 +516,13 @@ func TestSpeakerTurns(t *testing.T) {
 		{"Alice: 42. Bob: That is correct.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "42."), turn("Bob", "That is correct.")}},
 		// A combining mark is part of the word: neither "\u0936\u094d\u0930\u0940\u0930\u093e\u092e:" nor "\u0930\u093e\u092e\u0940:" holds a label for "\u0930\u093e\u092e".
 		{"Alice: \u0936\u094d\u0930\u0940\u0930\u093e\u092e: \u0930\u093e\u092e\u0940: hi. \u0930\u093e\u092e: yo.", []string{"Alice", "\u0930\u093e\u092e"}, []speakerTurn{turn("Alice", "\u0936\u094d\u0930\u0940\u0930\u093e\u092e: \u0930\u093e\u092e\u0940: hi."), turn("\u0930\u093e\u092e", "yo.")}},
-		// Marker scanning stops at the previous label: names made of marker runes
-		// stay labels, and a marker right after an empty label goes with the next.
+		// Marker scanning stops at the previous label, so names made of marker
+		// runes stay labels; a punctuation-only turn after a label is kept.
 		{"\U0001F600: \U0001F916: hi.", []string{"\U0001F600", "\U0001F916"}, []speakerTurn{turn("\U0001F916", "hi.")}},
 		{"\U0001F600: hi.\n\U0001F916: yo.", []string{"\U0001F600", "\U0001F916"}, []speakerTurn{turn("\U0001F600", "hi."), turn("\U0001F916", "yo.")}},
-		{"Alice: - Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+		{"Alice: - Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "-"), bob}},
+		{"Alice: ... Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "..."), bob}},
+		{"Alice: \u2014 Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "\u2014"), bob}},
 		// "Annual:" is not a label for "Ann"; an undeclared "Carol:" stays in the turn.
 		{"Ann: Annual: report. Carol: yes. Bo: ok.", []string{"Ann", "Bo"}, []speakerTurn{turn("Ann", "Annual: report. Carol: yes."), turn("Bo", "ok.")}},
 		// The longer name wins over a declared prefix of it.

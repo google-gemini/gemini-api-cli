@@ -264,23 +264,21 @@ func isMarkerRune(r rune) bool {
 // the label at start begins ("- Alice:", "> Alice:", "“Alice:", "1. Alice:"),
 // so the marker goes with the label instead of the previous turn or the text
 // before the first label. Without one, it returns start: punctuation or a
-// number after words on the same line ("hi. - Bob:", "Alice: 42. Bob:") stays
-// in the previous turn. The scan stops at floor, the end of the previous
-// label, so a name made of marker runes ("😀: 🤖:") is never claimed as the
-// next label's marker.
+// number after words or a label on the same line ("hi. - Bob:",
+// "Alice: 42. Bob:", "Alice: ... Bob:") stays in the previous turn. The scan
+// stops at floor, the end of the previous label, so a name made of marker
+// runes ("😀: 🤖:") is never claimed as the next label's marker; the line
+// start is still judged on the whole text.
 func lineMarkerStart(text string, floor, start int) int {
 	before := strings.TrimRightFunc(text[floor:start], isHorizontalSpace)
 	rest := strings.TrimRightFunc(before, isMarkerRune)
 	if rest == before {
 		return start
 	}
-	check := rest
 	if marker := before[len(rest):]; marker == "." || marker == ")" {
-		if digits := strings.TrimRightFunc(rest, unicode.IsDigit); len(digits) < len(rest) {
-			rest, check = digits, text[:floor+len(digits)]
-		}
+		rest = strings.TrimRightFunc(rest, unicode.IsDigit)
 	}
-	if line := strings.TrimRightFunc(check, isHorizontalSpace); line != "" {
+	if line := strings.TrimRightFunc(text[:floor+len(rest)], isHorizontalSpace); line != "" {
 		if last, _ := utf8.DecodeLastRuneInString(line); !isLineBreak(last) {
 			return start
 		}
