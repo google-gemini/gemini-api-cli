@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -477,6 +478,145 @@ func TestBuildSpeechConfig(t *testing.T) {
 	} {
 		if got, _, err := buildSpeechConfig(ttsCommand(t, flags...)); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("buildSpeechConfig(%v) = %+v, %v; want an error containing %q", flags, got, err, wantErr)
+		}
+	}
+}
+
+func TestSpeakerTurns(t *testing.T) {
+	turn := func(speaker, text string) speakerTurn { return speakerTurn{speaker: speaker, text: text} }
+	alice, bob := turn("Alice", "hi."), turn("Bob", "yo.")
+	valid := []struct {
+		text     string
+		speakers []string
+		want     []speakerTurn
+	}{
+		{"Alice: hi. Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"  Alice: hi.\nBob:yo.\n\nAlice : bye.\n", []string{"Alice", "Bob"}, []speakerTurn{alice, bob, turn("Alice", "bye.")}},
+		{"Alice: hi.\r\nBob: yo.\r\n", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"Alice: hi\nBob: yo", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "hi"), turn("Bob", "yo")}},
+		// Every rune strings.Fields splits on separates labels and name words.
+		{"Alice: hi.\u00a0Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"Alice: hi.\u3000Bob\u2028: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"Dr\u00a0 Who: hi.", []string{"Dr Who"}, []speakerTurn{turn("Dr Who", "hi.")}},
+		// A label may follow punctuation or a line break, but not a word on the same line.
+		{"Alice: \"hi.\"Bob: \"yo.\"", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "\"hi.\""), turn("Bob", "\"yo.\"")}},
+		{"Ann: hi. MaryAnn: x. 2Ann: y. Ann: yo.", []string{"Ann", "Bo"}, []speakerTurn{turn("Ann", "hi. MaryAnn: x. 2Ann: y."), turn("Ann", "yo.")}},
+		{"Alice: I told Bob: wait here.\nBob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "I told Bob: wait here."), bob}},
+		// Line-initial bullets before speaker labels are stripped cleanly on every turn.
+		{"- Alice: hi.\n- Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"* Alice: hi.\n• Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"> Alice: hi.\n  >> Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob}},
+		{"1. Alice: hi.\n2) Bob: yo.\n10. Alice: bye.", []string{"Alice", "Bob"}, []speakerTurn{alice, bob, turn("Alice", "bye.")}},
+		// A quote opening the line goes with the label; a closing one stays in the turn.
+		{"\"Alice: hi.\"\n\"Bob: yo.\"", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "hi.\""), turn("Bob", "yo.\"")}},
+		{"\u201cAlice: hi.\u201d Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "hi.\u201d"), bob}},
+		// Punctuation or digits after words on the same line stay in the previous turn.
+		{"Alice: hi. - Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "hi. -"), bob}},
+		{"Alice: I have 2. Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "I have 2."), bob}},
+		{"Alice: 42. Bob: That is correct.", []string{"Alice", "Bob"}, []speakerTurn{turn("Alice", "42."), turn("Bob", "That is correct.")}},
+		// A combining mark is part of the word: neither "\u0936\u094d\u0930\u0940\u0930\u093e\u092e:" nor "\u0930\u093e\u092e\u0940:" holds a label for "\u0930\u093e\u092e".
+		{"Alice: \u0936\u094d\u0930\u0940\u0930\u093e\u092e: \u0930\u093e\u092e\u0940: hi. \u0930\u093e\u092e: yo.", []string{"Alice", "\u0930\u093e\u092e"}, []speakerTurn{turn("Alice", "\u0936\u094d\u0930\u0940\u0930\u093e\u092e: \u0930\u093e\u092e\u0940: hi."), turn("\u0930\u093e\u092e", "yo.")}},
+		// Marker scanning stops at the previous label: names made of marker runes
+		// stay labels, and a marker right after an empty label goes with the next.
+		{"\U0001F600: \U0001F916: hi.", []string{"\U0001F600", "\U0001F916"}, []speakerTurn{turn("\U0001F916", "hi.")}},
+		{"\U0001F600: hi.\n\U0001F916: yo.", []string{"\U0001F600", "\U0001F916"}, []speakerTurn{turn("\U0001F600", "hi."), turn("\U0001F916", "yo.")}},
+		{"Alice: - Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+		// "Annual:" is not a label for "Ann"; an undeclared "Carol:" stays in the turn.
+		{"Ann: Annual: report. Carol: yes. Bo: ok.", []string{"Ann", "Bo"}, []speakerTurn{turn("Ann", "Annual: report. Carol: yes."), turn("Bo", "ok.")}},
+		// The longer name wins over a declared prefix of it.
+		{"Alice: hi. Al: yo.", []string{"Al", "Alice"}, []speakerTurn{alice, turn("Al", "yo.")}},
+		{"Dr  Who: hi.\nA.B: yo. AxB: no.", []string{"Dr Who", "A.B"}, []speakerTurn{turn("Dr Who", "hi."), turn("A.B", "yo. AxB: no.")}},
+		// A label with nothing to say is dropped, whether or not space follows.
+		{"Alice: Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+		{"Alice:Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+	}
+	for _, tt := range valid {
+		if got, err := speakerTurns(tt.text, tt.speakers); err != nil || !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("speakerTurns(%q, %q) = %+v, %v; want %+v", tt.text, tt.speakers, got, err, tt.want)
+		}
+	}
+
+	for text, wantErr := range map[string]string{
+		"hi. Bob: yo.":                      `text before the first speaker label: "hi."`,
+		"- hi. Bob: yo.":                    `text before the first speaker label: "- hi."`,
+		"(intro) Bob: yo.":                  `text before the first speaker label: "(intro)"`,
+		"1.5 Bob: yo.":                      `text before the first speaker label: "1.5"`,
+		strings.Repeat("é", 70) + " Bob: x": `label: "` + strings.Repeat("é", 60) + `…"`,
+		"alice: hi. bob: yo.":               "the text has no speaker label",
+		"Alice:  \n Bob: \n":                "every speaker turn is empty",
+	} {
+		if got, err := speakerTurns(text, []string{"Alice", "Bob"}); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("speakerTurns(%q) = %+v, %v; want an error containing %q", text, got, err, wantErr)
+		}
+	}
+}
+
+func TestTTSInput(t *testing.T) {
+	speech := func(flags ...string) *interactions.SpeechConfigUnion {
+		t.Helper()
+		s, _, err := buildSpeechConfig(ttsCommand(t, flags...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	single, multi := speech(), speech("--multi-speaker", "Alice=Kore,Bob=Puck")
+	const script = "Alice: hi. Bob: yo."
+	plain := []interactions.Content{textContentBlock(script)}
+	annotated := func(speaker, text string) interactions.Content {
+		return interactions.CreateContentText(interactions.TextContent{
+			Text: text,
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Speaker: stringPtr(speaker)})},
+		})
+	}
+	turns := []interactions.Content{annotated("Alice", "hi."), annotated("Bob", "yo.")}
+	for _, tt := range []struct {
+		model  string
+		speech *interactions.SpeechConfigUnion
+		want   []interactions.Content
+	}{
+		{defaultTTSModel, single, plain},
+		{defaultTTSModel, multi, turns},
+		{"gemini-3.8-flash-lite-tts", multi, turns},
+		{"gemini-3.1-flash-tts-preview", multi, plain},
+		{"gemini-2.5-flash-preview-tts", multi, plain},
+		{"gemini-2.5-pro-preview-tts", multi, plain},
+		{"gemini-2.5-flash-tts", multi, plain},
+		{"gemini-2.5-pro-tts", multi, plain},
+	} {
+		if got, absent, err := ttsInput(tt.model, script, tt.speech); err != nil || absent != nil || !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("ttsInput(%s, multi=%t) = %+v, %q, %v; want %+v", tt.model, tt.speech.SpeakerConfig != nil, got, absent, err, tt.want)
+		}
+	}
+
+	// Absent speakers follow the parsed turns on current models and a word
+	// match on legacy ones.
+	for _, tt := range []struct {
+		model, text string
+		speech      *interactions.SpeechConfigUnion
+		want        []string
+	}{
+		{defaultTTSModel, "Dr  Who: hi. Bob: yo.", speech("--multi-speaker", "Dr Who=Kore,Bob=Puck"), nil},
+		{defaultTTSModel, "Alice: hi, Bob.", multi, []string{"Bob"}},
+		{"gemini-3.1-flash-tts-preview", "Alice: hi, Bob.", multi, nil},
+		{"gemini-3.1-flash-tts-preview", "Alice: hi.", multi, []string{"Bob"}},
+		{"gemini-3.1-flash-tts-preview", "Alice: \u0936\u094d\u0930\u0940\u0930\u093e\u092e \u0930\u093e\u092e\u0940.", speech("--multi-speaker", "Alice=Kore,\u0930\u093e\u092e=Puck"), []string{"\u0930\u093e\u092e"}},
+	} {
+		if _, absent, err := ttsInput(tt.model, tt.text, tt.speech); err != nil || !slices.Equal(absent, tt.want) {
+			t.Errorf("ttsInput(%s, %q) absent = %q, %v; want %q", tt.model, tt.text, absent, err, tt.want)
+		}
+	}
+}
+
+func TestDecodeText(t *testing.T) {
+	for in, want := range map[string]string{
+		"\uFEFFAlice: hi.\r\n": "Alice: hi.",
+		"  hi \n":              "hi",
+		"hi\uFEFF":             "hi\uFEFF",
+	} {
+		if got := decodeText([]byte(in)); got != want {
+			t.Errorf("decodeText(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

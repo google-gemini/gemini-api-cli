@@ -211,6 +211,12 @@ func resolveModel(cmd *cobra.Command, def string) (string, error) {
 func stringPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool       { return &b }
 
+// decodeText trims file or stdin text, dropping the UTF-8 byte-order mark
+// Windows editors prepend.
+func decodeText(data []byte) string {
+	return strings.TrimSpace(strings.TrimPrefix(string(data), "\uFEFF"))
+}
+
 // textInput resolves a single text input from exactly one of: positional args,
 // a --<fileFlag> file, or --<stdinFlag> stdin. More than one source is a usage
 // error; the returned text is trimmed and non-empty (or "" when none supplied).
@@ -240,7 +246,7 @@ func textInput(cmd *cobra.Command, args []string, fileFlag, stdinFlag string) (s
 		if err != nil {
 			return "", usageError(fmt.Sprintf("cannot read --%s %q: %v", fileFlag, filePath, err))
 		}
-		text := strings.TrimSpace(string(data))
+		text := decodeText(data)
 		if text == "" {
 			return "", usageError(fmt.Sprintf("--%s %q is empty", fileFlag, filePath))
 		}
@@ -250,7 +256,7 @@ func textInput(cmd *cobra.Command, args []string, fileFlag, stdinFlag string) (s
 		if err != nil {
 			return "", usageError(fmt.Sprintf("cannot read stdin: %v", err))
 		}
-		text := strings.TrimSpace(string(data))
+		text := decodeText(data)
 		if text == "" {
 			return "", usageError("stdin is empty")
 		}
