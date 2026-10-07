@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  SPEAKEASY_VERSION: v2.943.0
-
 jobs:
   goreleaser:
     runs-on: ubuntu-latest

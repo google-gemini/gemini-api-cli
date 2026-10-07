@@ -9,6 +9,9 @@ on:
 permissions:
     contents: read
 
+env:
+    SPEAKEASY_VERSION: v2.943.0
+
 jobs:
     non-live-validation:
         runs-on: ubuntu-latest
