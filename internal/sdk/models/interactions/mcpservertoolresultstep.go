@@ -23,83 +23,69 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-type MCPServerToolResultStepResult struct {
-}
-
-func (m MCPServerToolResultStepResult) MarshalJSON() ([]byte, error) {
-	return utils.MarshalJSON(m, "", false)
-}
-
-func (m *MCPServerToolResultStepResult) UnmarshalJSON(data []byte) error {
-	if err := utils.UnmarshalJSON(data, &m, "", false, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-type MCPServerToolResultStepResultUnionType string
+type MCPServerToolResultStepResultType string
 
 const (
-	MCPServerToolResultStepResultUnionTypeArrayOfFunctionResultSubcontent MCPServerToolResultStepResultUnionType = "arrayOfFunctionResultSubcontent"
-	MCPServerToolResultStepResultUnionTypeMCPServerToolResultStepResult   MCPServerToolResultStepResultUnionType = "MCPServerToolResultStep_result"
-	MCPServerToolResultStepResultUnionTypeStr                             MCPServerToolResultStepResultUnionType = "str"
-	MCPServerToolResultStepResultUnionTypeUnknown                         MCPServerToolResultStepResultUnionType = "Unknown"
+	MCPServerToolResultStepResultTypeArrayOfFunctionResultSubcontent MCPServerToolResultStepResultType = "arrayOfFunctionResultSubcontent"
+	MCPServerToolResultStepResultTypeMapOfAny                        MCPServerToolResultStepResultType = "mapOfAny"
+	MCPServerToolResultStepResultTypeStr                             MCPServerToolResultStepResultType = "str"
+	MCPServerToolResultStepResultTypeUnknown                         MCPServerToolResultStepResultType = "Unknown"
 )
 
-// MCPServerToolResultStepResultUnion - Required. The output from the MCP server call. Can be simple text or rich content.
-type MCPServerToolResultStepResultUnion struct {
-	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent     `queryParam:"inline" union:"member"`
-	MCPServerToolResultStepResult   *MCPServerToolResultStepResult `queryParam:"inline" union:"member"`
-	Str                             *string                        `queryParam:"inline" union:"member"`
-	UnknownRaw                      json.RawMessage                `json:"-" union:"unknown"`
+// MCPServerToolResultStepResult - Required. The output from the MCP server call. Can be simple text or rich content.
+type MCPServerToolResultStepResult struct {
+	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent `queryParam:"inline" union:"member"`
+	MapOfAny                        map[string]any             `queryParam:"inline" union:"member"`
+	Str                             *string                    `queryParam:"inline" union:"member"`
+	UnknownRaw                      json.RawMessage            `json:"-" union:"unknown"`
 
-	Type MCPServerToolResultStepResultUnionType
+	Type MCPServerToolResultStepResultType
 }
 
-func CreateMCPServerToolResultStepResultUnionArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) MCPServerToolResultStepResultUnion {
-	typ := MCPServerToolResultStepResultUnionTypeArrayOfFunctionResultSubcontent
+func CreateMCPServerToolResultStepResultArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) MCPServerToolResultStepResult {
+	typ := MCPServerToolResultStepResultTypeArrayOfFunctionResultSubcontent
 
-	return MCPServerToolResultStepResultUnion{
+	return MCPServerToolResultStepResult{
 		ArrayOfFunctionResultSubcontent: arrayOfFunctionResultSubcontent,
 		Type:                            typ,
 	}
 }
 
-func CreateMCPServerToolResultStepResultUnionMCPServerToolResultStepResult(mcpServerToolResultStepResult MCPServerToolResultStepResult) MCPServerToolResultStepResultUnion {
-	typ := MCPServerToolResultStepResultUnionTypeMCPServerToolResultStepResult
+func CreateMCPServerToolResultStepResultMapOfAny(mapOfAny map[string]any) MCPServerToolResultStepResult {
+	typ := MCPServerToolResultStepResultTypeMapOfAny
 
-	return MCPServerToolResultStepResultUnion{
-		MCPServerToolResultStepResult: &mcpServerToolResultStepResult,
-		Type:                          typ,
+	return MCPServerToolResultStepResult{
+		MapOfAny: mapOfAny,
+		Type:     typ,
 	}
 }
 
-func CreateMCPServerToolResultStepResultUnionStr(str string) MCPServerToolResultStepResultUnion {
-	typ := MCPServerToolResultStepResultUnionTypeStr
+func CreateMCPServerToolResultStepResultStr(str string) MCPServerToolResultStepResult {
+	typ := MCPServerToolResultStepResultTypeStr
 
-	return MCPServerToolResultStepResultUnion{
+	return MCPServerToolResultStepResult{
 		Str:  &str,
 		Type: typ,
 	}
 }
 
-func CreateMCPServerToolResultStepResultUnionUnknown(raw json.RawMessage) MCPServerToolResultStepResultUnion {
-	return MCPServerToolResultStepResultUnion{
+func CreateMCPServerToolResultStepResultUnknown(raw json.RawMessage) MCPServerToolResultStepResult {
+	return MCPServerToolResultStepResult{
 		UnknownRaw: raw,
-		Type:       MCPServerToolResultStepResultUnionTypeUnknown,
+		Type:       MCPServerToolResultStepResultTypeUnknown,
 	}
 }
 
-func (u MCPServerToolResultStepResultUnion) GetUnknownRaw() json.RawMessage {
+func (u MCPServerToolResultStepResult) GetUnknownRaw() json.RawMessage {
 	return u.UnknownRaw
 }
 
-func (u MCPServerToolResultStepResultUnion) IsUnknown() bool {
-	return u.Type == MCPServerToolResultStepResultUnionTypeUnknown
+func (u MCPServerToolResultStepResult) IsUnknown() bool {
+	return u.Type == MCPServerToolResultStepResultTypeUnknown
 }
 
-func (u *MCPServerToolResultStepResultUnion) UnmarshalJSON(data []byte) error {
-	*u = MCPServerToolResultStepResultUnion{}
+func (u *MCPServerToolResultStepResult) UnmarshalJSON(data []byte) error {
+	*u = MCPServerToolResultStepResult{}
 
 	var candidates []utils.UnionCandidate
 
@@ -107,30 +93,30 @@ func (u *MCPServerToolResultStepResultUnion) UnmarshalJSON(data []byte) error {
 	var arrayOfFunctionResultSubcontent []FunctionResultSubcontent = []FunctionResultSubcontent{}
 	if err := utils.UnmarshalJSON(data, &arrayOfFunctionResultSubcontent, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultStepResultUnionTypeArrayOfFunctionResultSubcontent,
+			Type:  MCPServerToolResultStepResultTypeArrayOfFunctionResultSubcontent,
 			Value: arrayOfFunctionResultSubcontent,
 		})
 	}
 
-	var mcpServerToolResultStepResult MCPServerToolResultStepResult = MCPServerToolResultStepResult{}
-	if err := utils.UnmarshalJSON(data, &mcpServerToolResultStepResult, "", true, nil); err == nil {
+	var mapOfAny map[string]any = map[string]any{}
+	if err := utils.UnmarshalJSON(data, &mapOfAny, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultStepResultUnionTypeMCPServerToolResultStepResult,
-			Value: &mcpServerToolResultStepResult,
+			Type:  MCPServerToolResultStepResultTypeMapOfAny,
+			Value: mapOfAny,
 		})
 	}
 
 	var str string = ""
 	if err := utils.UnmarshalJSON(data, &str, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultStepResultUnionTypeStr,
+			Type:  MCPServerToolResultStepResultTypeStr,
 			Value: &str,
 		})
 	}
 
 	if len(candidates) == 0 {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = MCPServerToolResultStepResultUnionTypeUnknown
+		u.Type = MCPServerToolResultStepResultTypeUnknown
 		return nil
 	}
 
@@ -138,36 +124,36 @@ func (u *MCPServerToolResultStepResultUnion) UnmarshalJSON(data []byte) error {
 	best := utils.PickBestUnionCandidate(candidates, data)
 	if best == nil {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = MCPServerToolResultStepResultUnionTypeUnknown
+		u.Type = MCPServerToolResultStepResultTypeUnknown
 		return nil
 	}
 
 	// Set the union type and value based on the best candidate
-	u.Type = best.Type.(MCPServerToolResultStepResultUnionType)
+	u.Type = best.Type.(MCPServerToolResultStepResultType)
 	switch best.Type {
-	case MCPServerToolResultStepResultUnionTypeArrayOfFunctionResultSubcontent:
+	case MCPServerToolResultStepResultTypeArrayOfFunctionResultSubcontent:
 		u.ArrayOfFunctionResultSubcontent = best.Value.([]FunctionResultSubcontent)
 		return nil
-	case MCPServerToolResultStepResultUnionTypeMCPServerToolResultStepResult:
-		u.MCPServerToolResultStepResult = best.Value.(*MCPServerToolResultStepResult)
+	case MCPServerToolResultStepResultTypeMapOfAny:
+		u.MapOfAny = best.Value.(map[string]any)
 		return nil
-	case MCPServerToolResultStepResultUnionTypeStr:
+	case MCPServerToolResultStepResultTypeStr:
 		u.Str = best.Value.(*string)
 		return nil
 	}
 
 	u.UnknownRaw = json.RawMessage(data)
-	u.Type = MCPServerToolResultStepResultUnionTypeUnknown
+	u.Type = MCPServerToolResultStepResultTypeUnknown
 	return nil
 }
 
-func (u MCPServerToolResultStepResultUnion) MarshalJSON() ([]byte, error) {
+func (u MCPServerToolResultStepResult) MarshalJSON() ([]byte, error) {
 	if u.ArrayOfFunctionResultSubcontent != nil {
 		return utils.MarshalJSON(u.ArrayOfFunctionResultSubcontent, "", true)
 	}
 
-	if u.MCPServerToolResultStepResult != nil {
-		return utils.MarshalJSON(u.MCPServerToolResultStepResult, "", true)
+	if u.MapOfAny != nil {
+		return utils.MarshalJSON(u.MapOfAny, "", true)
 	}
 
 	if u.Str != nil {
@@ -177,7 +163,7 @@ func (u MCPServerToolResultStepResultUnion) MarshalJSON() ([]byte, error) {
 	if u.UnknownRaw != nil {
 		return json.RawMessage(u.UnknownRaw), nil
 	}
-	return nil, errors.New("could not marshal union type MCPServerToolResultStepResultUnion: all fields are null")
+	return nil, errors.New("could not marshal union type MCPServerToolResultStepResult: all fields are null")
 }
 
 // MCPServerToolResultStep - MCPServer tool result step.
@@ -187,7 +173,7 @@ type MCPServerToolResultStep struct {
 	// Name of the tool which is called for this specific tool call.
 	Name *string `json:"name,omitzero"`
 	// Required. The output from the MCP server call. Can be simple text or rich content.
-	Result MCPServerToolResultStepResultUnion `json:"result"`
+	Result MCPServerToolResultStepResult `json:"result"`
 	// The name of the used MCP server.
 	ServerName *string `json:"server_name,omitzero"`
 	//lint:ignore U1000 accessed via reflection for JSON marshaling
@@ -219,9 +205,9 @@ func (m *MCPServerToolResultStep) GetName() *string {
 	return m.Name
 }
 
-func (m *MCPServerToolResultStep) GetResult() MCPServerToolResultStepResultUnion {
+func (m *MCPServerToolResultStep) GetResult() MCPServerToolResultStepResult {
 	if m == nil {
-		return MCPServerToolResultStepResultUnion{}
+		return MCPServerToolResultStepResult{}
 	}
 	return m.Result
 }

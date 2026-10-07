@@ -23,83 +23,69 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-type FunctionResultStepResult struct {
-}
-
-func (f FunctionResultStepResult) MarshalJSON() ([]byte, error) {
-	return utils.MarshalJSON(f, "", false)
-}
-
-func (f *FunctionResultStepResult) UnmarshalJSON(data []byte) error {
-	if err := utils.UnmarshalJSON(data, &f, "", false, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-type FunctionResultStepResultUnionType string
+type FunctionResultStepResultType string
 
 const (
-	FunctionResultStepResultUnionTypeArrayOfFunctionResultSubcontent FunctionResultStepResultUnionType = "arrayOfFunctionResultSubcontent"
-	FunctionResultStepResultUnionTypeFunctionResultStepResult        FunctionResultStepResultUnionType = "FunctionResultStep_result"
-	FunctionResultStepResultUnionTypeStr                             FunctionResultStepResultUnionType = "str"
-	FunctionResultStepResultUnionTypeUnknown                         FunctionResultStepResultUnionType = "Unknown"
+	FunctionResultStepResultTypeArrayOfFunctionResultSubcontent FunctionResultStepResultType = "arrayOfFunctionResultSubcontent"
+	FunctionResultStepResultTypeMapOfAny                        FunctionResultStepResultType = "mapOfAny"
+	FunctionResultStepResultTypeStr                             FunctionResultStepResultType = "str"
+	FunctionResultStepResultTypeUnknown                         FunctionResultStepResultType = "Unknown"
 )
 
-// FunctionResultStepResultUnion - Required. The result of the tool call.
-type FunctionResultStepResultUnion struct {
+// FunctionResultStepResult - Required. The result of the tool call.
+type FunctionResultStepResult struct {
 	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent `queryParam:"inline" union:"member"`
-	FunctionResultStepResult        *FunctionResultStepResult  `queryParam:"inline" union:"member"`
+	MapOfAny                        map[string]any             `queryParam:"inline" union:"member"`
 	Str                             *string                    `queryParam:"inline" union:"member"`
 	UnknownRaw                      json.RawMessage            `json:"-" union:"unknown"`
 
-	Type FunctionResultStepResultUnionType
+	Type FunctionResultStepResultType
 }
 
-func CreateFunctionResultStepResultUnionArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) FunctionResultStepResultUnion {
-	typ := FunctionResultStepResultUnionTypeArrayOfFunctionResultSubcontent
+func CreateFunctionResultStepResultArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) FunctionResultStepResult {
+	typ := FunctionResultStepResultTypeArrayOfFunctionResultSubcontent
 
-	return FunctionResultStepResultUnion{
+	return FunctionResultStepResult{
 		ArrayOfFunctionResultSubcontent: arrayOfFunctionResultSubcontent,
 		Type:                            typ,
 	}
 }
 
-func CreateFunctionResultStepResultUnionFunctionResultStepResult(functionResultStepResult FunctionResultStepResult) FunctionResultStepResultUnion {
-	typ := FunctionResultStepResultUnionTypeFunctionResultStepResult
+func CreateFunctionResultStepResultMapOfAny(mapOfAny map[string]any) FunctionResultStepResult {
+	typ := FunctionResultStepResultTypeMapOfAny
 
-	return FunctionResultStepResultUnion{
-		FunctionResultStepResult: &functionResultStepResult,
-		Type:                     typ,
+	return FunctionResultStepResult{
+		MapOfAny: mapOfAny,
+		Type:     typ,
 	}
 }
 
-func CreateFunctionResultStepResultUnionStr(str string) FunctionResultStepResultUnion {
-	typ := FunctionResultStepResultUnionTypeStr
+func CreateFunctionResultStepResultStr(str string) FunctionResultStepResult {
+	typ := FunctionResultStepResultTypeStr
 
-	return FunctionResultStepResultUnion{
+	return FunctionResultStepResult{
 		Str:  &str,
 		Type: typ,
 	}
 }
 
-func CreateFunctionResultStepResultUnionUnknown(raw json.RawMessage) FunctionResultStepResultUnion {
-	return FunctionResultStepResultUnion{
+func CreateFunctionResultStepResultUnknown(raw json.RawMessage) FunctionResultStepResult {
+	return FunctionResultStepResult{
 		UnknownRaw: raw,
-		Type:       FunctionResultStepResultUnionTypeUnknown,
+		Type:       FunctionResultStepResultTypeUnknown,
 	}
 }
 
-func (u FunctionResultStepResultUnion) GetUnknownRaw() json.RawMessage {
+func (u FunctionResultStepResult) GetUnknownRaw() json.RawMessage {
 	return u.UnknownRaw
 }
 
-func (u FunctionResultStepResultUnion) IsUnknown() bool {
-	return u.Type == FunctionResultStepResultUnionTypeUnknown
+func (u FunctionResultStepResult) IsUnknown() bool {
+	return u.Type == FunctionResultStepResultTypeUnknown
 }
 
-func (u *FunctionResultStepResultUnion) UnmarshalJSON(data []byte) error {
-	*u = FunctionResultStepResultUnion{}
+func (u *FunctionResultStepResult) UnmarshalJSON(data []byte) error {
+	*u = FunctionResultStepResult{}
 
 	var candidates []utils.UnionCandidate
 
@@ -107,30 +93,30 @@ func (u *FunctionResultStepResultUnion) UnmarshalJSON(data []byte) error {
 	var arrayOfFunctionResultSubcontent []FunctionResultSubcontent = []FunctionResultSubcontent{}
 	if err := utils.UnmarshalJSON(data, &arrayOfFunctionResultSubcontent, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultStepResultUnionTypeArrayOfFunctionResultSubcontent,
+			Type:  FunctionResultStepResultTypeArrayOfFunctionResultSubcontent,
 			Value: arrayOfFunctionResultSubcontent,
 		})
 	}
 
-	var functionResultStepResult FunctionResultStepResult = FunctionResultStepResult{}
-	if err := utils.UnmarshalJSON(data, &functionResultStepResult, "", true, nil); err == nil {
+	var mapOfAny map[string]any = map[string]any{}
+	if err := utils.UnmarshalJSON(data, &mapOfAny, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultStepResultUnionTypeFunctionResultStepResult,
-			Value: &functionResultStepResult,
+			Type:  FunctionResultStepResultTypeMapOfAny,
+			Value: mapOfAny,
 		})
 	}
 
 	var str string = ""
 	if err := utils.UnmarshalJSON(data, &str, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultStepResultUnionTypeStr,
+			Type:  FunctionResultStepResultTypeStr,
 			Value: &str,
 		})
 	}
 
 	if len(candidates) == 0 {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = FunctionResultStepResultUnionTypeUnknown
+		u.Type = FunctionResultStepResultTypeUnknown
 		return nil
 	}
 
@@ -138,36 +124,36 @@ func (u *FunctionResultStepResultUnion) UnmarshalJSON(data []byte) error {
 	best := utils.PickBestUnionCandidate(candidates, data)
 	if best == nil {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = FunctionResultStepResultUnionTypeUnknown
+		u.Type = FunctionResultStepResultTypeUnknown
 		return nil
 	}
 
 	// Set the union type and value based on the best candidate
-	u.Type = best.Type.(FunctionResultStepResultUnionType)
+	u.Type = best.Type.(FunctionResultStepResultType)
 	switch best.Type {
-	case FunctionResultStepResultUnionTypeArrayOfFunctionResultSubcontent:
+	case FunctionResultStepResultTypeArrayOfFunctionResultSubcontent:
 		u.ArrayOfFunctionResultSubcontent = best.Value.([]FunctionResultSubcontent)
 		return nil
-	case FunctionResultStepResultUnionTypeFunctionResultStepResult:
-		u.FunctionResultStepResult = best.Value.(*FunctionResultStepResult)
+	case FunctionResultStepResultTypeMapOfAny:
+		u.MapOfAny = best.Value.(map[string]any)
 		return nil
-	case FunctionResultStepResultUnionTypeStr:
+	case FunctionResultStepResultTypeStr:
 		u.Str = best.Value.(*string)
 		return nil
 	}
 
 	u.UnknownRaw = json.RawMessage(data)
-	u.Type = FunctionResultStepResultUnionTypeUnknown
+	u.Type = FunctionResultStepResultTypeUnknown
 	return nil
 }
 
-func (u FunctionResultStepResultUnion) MarshalJSON() ([]byte, error) {
+func (u FunctionResultStepResult) MarshalJSON() ([]byte, error) {
 	if u.ArrayOfFunctionResultSubcontent != nil {
 		return utils.MarshalJSON(u.ArrayOfFunctionResultSubcontent, "", true)
 	}
 
-	if u.FunctionResultStepResult != nil {
-		return utils.MarshalJSON(u.FunctionResultStepResult, "", true)
+	if u.MapOfAny != nil {
+		return utils.MarshalJSON(u.MapOfAny, "", true)
 	}
 
 	if u.Str != nil {
@@ -177,7 +163,7 @@ func (u FunctionResultStepResultUnion) MarshalJSON() ([]byte, error) {
 	if u.UnknownRaw != nil {
 		return json.RawMessage(u.UnknownRaw), nil
 	}
-	return nil, errors.New("could not marshal union type FunctionResultStepResultUnion: all fields are null")
+	return nil, errors.New("could not marshal union type FunctionResultStepResult: all fields are null")
 }
 
 // FunctionResultStep - Result of a function tool call.
@@ -189,7 +175,7 @@ type FunctionResultStep struct {
 	// The name of the tool that was called.
 	Name *string `json:"name,omitzero"`
 	// Required. The result of the tool call.
-	Result FunctionResultStepResultUnion `json:"result"`
+	Result FunctionResultStepResult `json:"result"`
 	//lint:ignore U1000 accessed via reflection for JSON marshaling
 	type_ string `const:"function_result" json:"type"`
 }
@@ -226,9 +212,9 @@ func (f *FunctionResultStep) GetName() *string {
 	return f.Name
 }
 
-func (f *FunctionResultStep) GetResult() FunctionResultStepResultUnion {
+func (f *FunctionResultStep) GetResult() FunctionResultStepResult {
 	if f == nil {
-		return FunctionResultStepResultUnion{}
+		return FunctionResultStepResult{}
 	}
 	return f.Result
 }

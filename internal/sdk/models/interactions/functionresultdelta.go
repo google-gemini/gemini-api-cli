@@ -23,82 +23,68 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-type FunctionResultDeltaResult struct {
-}
-
-func (f FunctionResultDeltaResult) MarshalJSON() ([]byte, error) {
-	return utils.MarshalJSON(f, "", false)
-}
-
-func (f *FunctionResultDeltaResult) UnmarshalJSON(data []byte) error {
-	if err := utils.UnmarshalJSON(data, &f, "", false, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-type FunctionResultDeltaResultUnionType string
+type FunctionResultDeltaResultType string
 
 const (
-	FunctionResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent FunctionResultDeltaResultUnionType = "arrayOfFunctionResultSubcontent"
-	FunctionResultDeltaResultUnionTypeFunctionResultDeltaResult       FunctionResultDeltaResultUnionType = "FunctionResultDelta_result"
-	FunctionResultDeltaResultUnionTypeStr                             FunctionResultDeltaResultUnionType = "str"
-	FunctionResultDeltaResultUnionTypeUnknown                         FunctionResultDeltaResultUnionType = "Unknown"
+	FunctionResultDeltaResultTypeArrayOfFunctionResultSubcontent FunctionResultDeltaResultType = "arrayOfFunctionResultSubcontent"
+	FunctionResultDeltaResultTypeMapOfAny                        FunctionResultDeltaResultType = "mapOfAny"
+	FunctionResultDeltaResultTypeStr                             FunctionResultDeltaResultType = "str"
+	FunctionResultDeltaResultTypeUnknown                         FunctionResultDeltaResultType = "Unknown"
 )
 
-type FunctionResultDeltaResultUnion struct {
+type FunctionResultDeltaResult struct {
 	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent `queryParam:"inline" union:"member"`
-	FunctionResultDeltaResult       *FunctionResultDeltaResult `queryParam:"inline" union:"member"`
+	MapOfAny                        map[string]any             `queryParam:"inline" union:"member"`
 	Str                             *string                    `queryParam:"inline" union:"member"`
 	UnknownRaw                      json.RawMessage            `json:"-" union:"unknown"`
 
-	Type FunctionResultDeltaResultUnionType
+	Type FunctionResultDeltaResultType
 }
 
-func CreateFunctionResultDeltaResultUnionArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) FunctionResultDeltaResultUnion {
-	typ := FunctionResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent
+func CreateFunctionResultDeltaResultArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) FunctionResultDeltaResult {
+	typ := FunctionResultDeltaResultTypeArrayOfFunctionResultSubcontent
 
-	return FunctionResultDeltaResultUnion{
+	return FunctionResultDeltaResult{
 		ArrayOfFunctionResultSubcontent: arrayOfFunctionResultSubcontent,
 		Type:                            typ,
 	}
 }
 
-func CreateFunctionResultDeltaResultUnionFunctionResultDeltaResult(functionResultDeltaResult FunctionResultDeltaResult) FunctionResultDeltaResultUnion {
-	typ := FunctionResultDeltaResultUnionTypeFunctionResultDeltaResult
+func CreateFunctionResultDeltaResultMapOfAny(mapOfAny map[string]any) FunctionResultDeltaResult {
+	typ := FunctionResultDeltaResultTypeMapOfAny
 
-	return FunctionResultDeltaResultUnion{
-		FunctionResultDeltaResult: &functionResultDeltaResult,
-		Type:                      typ,
+	return FunctionResultDeltaResult{
+		MapOfAny: mapOfAny,
+		Type:     typ,
 	}
 }
 
-func CreateFunctionResultDeltaResultUnionStr(str string) FunctionResultDeltaResultUnion {
-	typ := FunctionResultDeltaResultUnionTypeStr
+func CreateFunctionResultDeltaResultStr(str string) FunctionResultDeltaResult {
+	typ := FunctionResultDeltaResultTypeStr
 
-	return FunctionResultDeltaResultUnion{
+	return FunctionResultDeltaResult{
 		Str:  &str,
 		Type: typ,
 	}
 }
 
-func CreateFunctionResultDeltaResultUnionUnknown(raw json.RawMessage) FunctionResultDeltaResultUnion {
-	return FunctionResultDeltaResultUnion{
+func CreateFunctionResultDeltaResultUnknown(raw json.RawMessage) FunctionResultDeltaResult {
+	return FunctionResultDeltaResult{
 		UnknownRaw: raw,
-		Type:       FunctionResultDeltaResultUnionTypeUnknown,
+		Type:       FunctionResultDeltaResultTypeUnknown,
 	}
 }
 
-func (u FunctionResultDeltaResultUnion) GetUnknownRaw() json.RawMessage {
+func (u FunctionResultDeltaResult) GetUnknownRaw() json.RawMessage {
 	return u.UnknownRaw
 }
 
-func (u FunctionResultDeltaResultUnion) IsUnknown() bool {
-	return u.Type == FunctionResultDeltaResultUnionTypeUnknown
+func (u FunctionResultDeltaResult) IsUnknown() bool {
+	return u.Type == FunctionResultDeltaResultTypeUnknown
 }
 
-func (u *FunctionResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
-	*u = FunctionResultDeltaResultUnion{}
+func (u *FunctionResultDeltaResult) UnmarshalJSON(data []byte) error {
+	*u = FunctionResultDeltaResult{}
 
 	var candidates []utils.UnionCandidate
 
@@ -106,30 +92,30 @@ func (u *FunctionResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
 	var arrayOfFunctionResultSubcontent []FunctionResultSubcontent = []FunctionResultSubcontent{}
 	if err := utils.UnmarshalJSON(data, &arrayOfFunctionResultSubcontent, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent,
+			Type:  FunctionResultDeltaResultTypeArrayOfFunctionResultSubcontent,
 			Value: arrayOfFunctionResultSubcontent,
 		})
 	}
 
-	var functionResultDeltaResult FunctionResultDeltaResult = FunctionResultDeltaResult{}
-	if err := utils.UnmarshalJSON(data, &functionResultDeltaResult, "", true, nil); err == nil {
+	var mapOfAny map[string]any = map[string]any{}
+	if err := utils.UnmarshalJSON(data, &mapOfAny, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultDeltaResultUnionTypeFunctionResultDeltaResult,
-			Value: &functionResultDeltaResult,
+			Type:  FunctionResultDeltaResultTypeMapOfAny,
+			Value: mapOfAny,
 		})
 	}
 
 	var str string = ""
 	if err := utils.UnmarshalJSON(data, &str, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  FunctionResultDeltaResultUnionTypeStr,
+			Type:  FunctionResultDeltaResultTypeStr,
 			Value: &str,
 		})
 	}
 
 	if len(candidates) == 0 {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = FunctionResultDeltaResultUnionTypeUnknown
+		u.Type = FunctionResultDeltaResultTypeUnknown
 		return nil
 	}
 
@@ -137,36 +123,36 @@ func (u *FunctionResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
 	best := utils.PickBestUnionCandidate(candidates, data)
 	if best == nil {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = FunctionResultDeltaResultUnionTypeUnknown
+		u.Type = FunctionResultDeltaResultTypeUnknown
 		return nil
 	}
 
 	// Set the union type and value based on the best candidate
-	u.Type = best.Type.(FunctionResultDeltaResultUnionType)
+	u.Type = best.Type.(FunctionResultDeltaResultType)
 	switch best.Type {
-	case FunctionResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent:
+	case FunctionResultDeltaResultTypeArrayOfFunctionResultSubcontent:
 		u.ArrayOfFunctionResultSubcontent = best.Value.([]FunctionResultSubcontent)
 		return nil
-	case FunctionResultDeltaResultUnionTypeFunctionResultDeltaResult:
-		u.FunctionResultDeltaResult = best.Value.(*FunctionResultDeltaResult)
+	case FunctionResultDeltaResultTypeMapOfAny:
+		u.MapOfAny = best.Value.(map[string]any)
 		return nil
-	case FunctionResultDeltaResultUnionTypeStr:
+	case FunctionResultDeltaResultTypeStr:
 		u.Str = best.Value.(*string)
 		return nil
 	}
 
 	u.UnknownRaw = json.RawMessage(data)
-	u.Type = FunctionResultDeltaResultUnionTypeUnknown
+	u.Type = FunctionResultDeltaResultTypeUnknown
 	return nil
 }
 
-func (u FunctionResultDeltaResultUnion) MarshalJSON() ([]byte, error) {
+func (u FunctionResultDeltaResult) MarshalJSON() ([]byte, error) {
 	if u.ArrayOfFunctionResultSubcontent != nil {
 		return utils.MarshalJSON(u.ArrayOfFunctionResultSubcontent, "", true)
 	}
 
-	if u.FunctionResultDeltaResult != nil {
-		return utils.MarshalJSON(u.FunctionResultDeltaResult, "", true)
+	if u.MapOfAny != nil {
+		return utils.MarshalJSON(u.MapOfAny, "", true)
 	}
 
 	if u.Str != nil {
@@ -176,13 +162,13 @@ func (u FunctionResultDeltaResultUnion) MarshalJSON() ([]byte, error) {
 	if u.UnknownRaw != nil {
 		return json.RawMessage(u.UnknownRaw), nil
 	}
-	return nil, errors.New("could not marshal union type FunctionResultDeltaResultUnion: all fields are null")
+	return nil, errors.New("could not marshal union type FunctionResultDeltaResult: all fields are null")
 }
 
 type FunctionResultDelta struct {
-	IsError *bool                          `json:"is_error,omitzero"`
-	Name    *string                        `json:"name,omitzero"`
-	Result  FunctionResultDeltaResultUnion `json:"result"`
+	IsError *bool                     `json:"is_error,omitzero"`
+	Name    *string                   `json:"name,omitzero"`
+	Result  FunctionResultDeltaResult `json:"result"`
 	//lint:ignore U1000 accessed via reflection for JSON marshaling
 	type_ string `const:"function_result" json:"type"`
 }
@@ -212,9 +198,9 @@ func (f *FunctionResultDelta) GetName() *string {
 	return f.Name
 }
 
-func (f *FunctionResultDelta) GetResult() FunctionResultDeltaResultUnion {
+func (f *FunctionResultDelta) GetResult() FunctionResultDeltaResult {
 	if f == nil {
-		return FunctionResultDeltaResultUnion{}
+		return FunctionResultDeltaResult{}
 	}
 	return f.Result
 }

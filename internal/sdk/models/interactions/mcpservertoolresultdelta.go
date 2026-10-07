@@ -23,82 +23,68 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-type MCPServerToolResultDeltaResult struct {
-}
-
-func (m MCPServerToolResultDeltaResult) MarshalJSON() ([]byte, error) {
-	return utils.MarshalJSON(m, "", false)
-}
-
-func (m *MCPServerToolResultDeltaResult) UnmarshalJSON(data []byte) error {
-	if err := utils.UnmarshalJSON(data, &m, "", false, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-type MCPServerToolResultDeltaResultUnionType string
+type MCPServerToolResultDeltaResultType string
 
 const (
-	MCPServerToolResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent MCPServerToolResultDeltaResultUnionType = "arrayOfFunctionResultSubcontent"
-	MCPServerToolResultDeltaResultUnionTypeMCPServerToolResultDeltaResult  MCPServerToolResultDeltaResultUnionType = "MCPServerToolResultDelta_result"
-	MCPServerToolResultDeltaResultUnionTypeStr                             MCPServerToolResultDeltaResultUnionType = "str"
-	MCPServerToolResultDeltaResultUnionTypeUnknown                         MCPServerToolResultDeltaResultUnionType = "Unknown"
+	MCPServerToolResultDeltaResultTypeArrayOfFunctionResultSubcontent MCPServerToolResultDeltaResultType = "arrayOfFunctionResultSubcontent"
+	MCPServerToolResultDeltaResultTypeMapOfAny                        MCPServerToolResultDeltaResultType = "mapOfAny"
+	MCPServerToolResultDeltaResultTypeStr                             MCPServerToolResultDeltaResultType = "str"
+	MCPServerToolResultDeltaResultTypeUnknown                         MCPServerToolResultDeltaResultType = "Unknown"
 )
 
-type MCPServerToolResultDeltaResultUnion struct {
-	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent      `queryParam:"inline" union:"member"`
-	MCPServerToolResultDeltaResult  *MCPServerToolResultDeltaResult `queryParam:"inline" union:"member"`
-	Str                             *string                         `queryParam:"inline" union:"member"`
-	UnknownRaw                      json.RawMessage                 `json:"-" union:"unknown"`
+type MCPServerToolResultDeltaResult struct {
+	ArrayOfFunctionResultSubcontent []FunctionResultSubcontent `queryParam:"inline" union:"member"`
+	MapOfAny                        map[string]any             `queryParam:"inline" union:"member"`
+	Str                             *string                    `queryParam:"inline" union:"member"`
+	UnknownRaw                      json.RawMessage            `json:"-" union:"unknown"`
 
-	Type MCPServerToolResultDeltaResultUnionType
+	Type MCPServerToolResultDeltaResultType
 }
 
-func CreateMCPServerToolResultDeltaResultUnionArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) MCPServerToolResultDeltaResultUnion {
-	typ := MCPServerToolResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent
+func CreateMCPServerToolResultDeltaResultArrayOfFunctionResultSubcontent(arrayOfFunctionResultSubcontent []FunctionResultSubcontent) MCPServerToolResultDeltaResult {
+	typ := MCPServerToolResultDeltaResultTypeArrayOfFunctionResultSubcontent
 
-	return MCPServerToolResultDeltaResultUnion{
+	return MCPServerToolResultDeltaResult{
 		ArrayOfFunctionResultSubcontent: arrayOfFunctionResultSubcontent,
 		Type:                            typ,
 	}
 }
 
-func CreateMCPServerToolResultDeltaResultUnionMCPServerToolResultDeltaResult(mcpServerToolResultDeltaResult MCPServerToolResultDeltaResult) MCPServerToolResultDeltaResultUnion {
-	typ := MCPServerToolResultDeltaResultUnionTypeMCPServerToolResultDeltaResult
+func CreateMCPServerToolResultDeltaResultMapOfAny(mapOfAny map[string]any) MCPServerToolResultDeltaResult {
+	typ := MCPServerToolResultDeltaResultTypeMapOfAny
 
-	return MCPServerToolResultDeltaResultUnion{
-		MCPServerToolResultDeltaResult: &mcpServerToolResultDeltaResult,
-		Type:                           typ,
+	return MCPServerToolResultDeltaResult{
+		MapOfAny: mapOfAny,
+		Type:     typ,
 	}
 }
 
-func CreateMCPServerToolResultDeltaResultUnionStr(str string) MCPServerToolResultDeltaResultUnion {
-	typ := MCPServerToolResultDeltaResultUnionTypeStr
+func CreateMCPServerToolResultDeltaResultStr(str string) MCPServerToolResultDeltaResult {
+	typ := MCPServerToolResultDeltaResultTypeStr
 
-	return MCPServerToolResultDeltaResultUnion{
+	return MCPServerToolResultDeltaResult{
 		Str:  &str,
 		Type: typ,
 	}
 }
 
-func CreateMCPServerToolResultDeltaResultUnionUnknown(raw json.RawMessage) MCPServerToolResultDeltaResultUnion {
-	return MCPServerToolResultDeltaResultUnion{
+func CreateMCPServerToolResultDeltaResultUnknown(raw json.RawMessage) MCPServerToolResultDeltaResult {
+	return MCPServerToolResultDeltaResult{
 		UnknownRaw: raw,
-		Type:       MCPServerToolResultDeltaResultUnionTypeUnknown,
+		Type:       MCPServerToolResultDeltaResultTypeUnknown,
 	}
 }
 
-func (u MCPServerToolResultDeltaResultUnion) GetUnknownRaw() json.RawMessage {
+func (u MCPServerToolResultDeltaResult) GetUnknownRaw() json.RawMessage {
 	return u.UnknownRaw
 }
 
-func (u MCPServerToolResultDeltaResultUnion) IsUnknown() bool {
-	return u.Type == MCPServerToolResultDeltaResultUnionTypeUnknown
+func (u MCPServerToolResultDeltaResult) IsUnknown() bool {
+	return u.Type == MCPServerToolResultDeltaResultTypeUnknown
 }
 
-func (u *MCPServerToolResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
-	*u = MCPServerToolResultDeltaResultUnion{}
+func (u *MCPServerToolResultDeltaResult) UnmarshalJSON(data []byte) error {
+	*u = MCPServerToolResultDeltaResult{}
 
 	var candidates []utils.UnionCandidate
 
@@ -106,30 +92,30 @@ func (u *MCPServerToolResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
 	var arrayOfFunctionResultSubcontent []FunctionResultSubcontent = []FunctionResultSubcontent{}
 	if err := utils.UnmarshalJSON(data, &arrayOfFunctionResultSubcontent, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent,
+			Type:  MCPServerToolResultDeltaResultTypeArrayOfFunctionResultSubcontent,
 			Value: arrayOfFunctionResultSubcontent,
 		})
 	}
 
-	var mcpServerToolResultDeltaResult MCPServerToolResultDeltaResult = MCPServerToolResultDeltaResult{}
-	if err := utils.UnmarshalJSON(data, &mcpServerToolResultDeltaResult, "", true, nil); err == nil {
+	var mapOfAny map[string]any = map[string]any{}
+	if err := utils.UnmarshalJSON(data, &mapOfAny, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultDeltaResultUnionTypeMCPServerToolResultDeltaResult,
-			Value: &mcpServerToolResultDeltaResult,
+			Type:  MCPServerToolResultDeltaResultTypeMapOfAny,
+			Value: mapOfAny,
 		})
 	}
 
 	var str string = ""
 	if err := utils.UnmarshalJSON(data, &str, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  MCPServerToolResultDeltaResultUnionTypeStr,
+			Type:  MCPServerToolResultDeltaResultTypeStr,
 			Value: &str,
 		})
 	}
 
 	if len(candidates) == 0 {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = MCPServerToolResultDeltaResultUnionTypeUnknown
+		u.Type = MCPServerToolResultDeltaResultTypeUnknown
 		return nil
 	}
 
@@ -137,36 +123,36 @@ func (u *MCPServerToolResultDeltaResultUnion) UnmarshalJSON(data []byte) error {
 	best := utils.PickBestUnionCandidate(candidates, data)
 	if best == nil {
 		u.UnknownRaw = json.RawMessage(data)
-		u.Type = MCPServerToolResultDeltaResultUnionTypeUnknown
+		u.Type = MCPServerToolResultDeltaResultTypeUnknown
 		return nil
 	}
 
 	// Set the union type and value based on the best candidate
-	u.Type = best.Type.(MCPServerToolResultDeltaResultUnionType)
+	u.Type = best.Type.(MCPServerToolResultDeltaResultType)
 	switch best.Type {
-	case MCPServerToolResultDeltaResultUnionTypeArrayOfFunctionResultSubcontent:
+	case MCPServerToolResultDeltaResultTypeArrayOfFunctionResultSubcontent:
 		u.ArrayOfFunctionResultSubcontent = best.Value.([]FunctionResultSubcontent)
 		return nil
-	case MCPServerToolResultDeltaResultUnionTypeMCPServerToolResultDeltaResult:
-		u.MCPServerToolResultDeltaResult = best.Value.(*MCPServerToolResultDeltaResult)
+	case MCPServerToolResultDeltaResultTypeMapOfAny:
+		u.MapOfAny = best.Value.(map[string]any)
 		return nil
-	case MCPServerToolResultDeltaResultUnionTypeStr:
+	case MCPServerToolResultDeltaResultTypeStr:
 		u.Str = best.Value.(*string)
 		return nil
 	}
 
 	u.UnknownRaw = json.RawMessage(data)
-	u.Type = MCPServerToolResultDeltaResultUnionTypeUnknown
+	u.Type = MCPServerToolResultDeltaResultTypeUnknown
 	return nil
 }
 
-func (u MCPServerToolResultDeltaResultUnion) MarshalJSON() ([]byte, error) {
+func (u MCPServerToolResultDeltaResult) MarshalJSON() ([]byte, error) {
 	if u.ArrayOfFunctionResultSubcontent != nil {
 		return utils.MarshalJSON(u.ArrayOfFunctionResultSubcontent, "", true)
 	}
 
-	if u.MCPServerToolResultDeltaResult != nil {
-		return utils.MarshalJSON(u.MCPServerToolResultDeltaResult, "", true)
+	if u.MapOfAny != nil {
+		return utils.MarshalJSON(u.MapOfAny, "", true)
 	}
 
 	if u.Str != nil {
@@ -176,13 +162,13 @@ func (u MCPServerToolResultDeltaResultUnion) MarshalJSON() ([]byte, error) {
 	if u.UnknownRaw != nil {
 		return json.RawMessage(u.UnknownRaw), nil
 	}
-	return nil, errors.New("could not marshal union type MCPServerToolResultDeltaResultUnion: all fields are null")
+	return nil, errors.New("could not marshal union type MCPServerToolResultDeltaResult: all fields are null")
 }
 
 type MCPServerToolResultDelta struct {
-	Name       *string                             `json:"name,omitzero"`
-	Result     MCPServerToolResultDeltaResultUnion `json:"result"`
-	ServerName *string                             `json:"server_name,omitzero"`
+	Name       *string                        `json:"name,omitzero"`
+	Result     MCPServerToolResultDeltaResult `json:"result"`
+	ServerName *string                        `json:"server_name,omitzero"`
 	//lint:ignore U1000 accessed via reflection for JSON marshaling
 	type_ string `const:"mcp_server_tool_result" json:"type"`
 }
@@ -205,9 +191,9 @@ func (m *MCPServerToolResultDelta) GetName() *string {
 	return m.Name
 }
 
-func (m *MCPServerToolResultDelta) GetResult() MCPServerToolResultDeltaResultUnion {
+func (m *MCPServerToolResultDelta) GetResult() MCPServerToolResultDeltaResult {
 	if m == nil {
-		return MCPServerToolResultDeltaResultUnion{}
+		return MCPServerToolResultDeltaResult{}
 	}
 	return m.Result
 }

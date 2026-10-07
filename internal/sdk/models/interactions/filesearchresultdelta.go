@@ -21,7 +21,7 @@ import (
 )
 
 type FileSearchResultDelta struct {
-	Result []FileSearchResult `json:"result"`
+	Result []map[string]any `json:"result"`
 	// A signature hash for backend validation.
 	Signature *string `json:"signature,omitzero"`
 	//lint:ignore U1000 accessed via reflection for JSON marshaling
@@ -39,9 +39,9 @@ func (f *FileSearchResultDelta) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (f *FileSearchResultDelta) GetResult() []FileSearchResult {
+func (f *FileSearchResultDelta) GetResult() []map[string]any {
 	if f == nil {
-		return []FileSearchResult{}
+		return []map[string]any{}
 	}
 	return f.Result
 }
