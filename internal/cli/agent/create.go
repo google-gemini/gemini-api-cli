@@ -30,7 +30,7 @@ import (
 var createCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "agent-config", Shorthand: "a", FieldPath: "Body.AgentConfig", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"max_total_tokens\": string, \"model\": string })"}},
 	{FlagName: "base-agent", FieldPath: "Body.BaseAgent", Kind: flagutil.FlagKindString, Required: true, Description: "The base agent to extend. [required]"},
-	{FlagName: "base-environment", FieldPath: "Body.BaseEnvironment", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"env\": object | string, \"environment_id\": string, \"network\": object | string | string, \"sources\": object[] } | string)"}},
+	{FlagName: "base-environment", FieldPath: "Body.BaseEnvironment", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"env\": object | string, \"environment_id\": string, \"network\": object | string, \"sources\": object[] } | string)"}},
 	{FlagName: "description", FieldPath: "Body.Description", Kind: flagutil.FlagKindString, Optional: true, Description: "Agent description for developers to quickly read and understand."},
 	{FlagName: "id", Shorthand: "i", FieldPath: "Body.ID", Kind: flagutil.FlagKindString, Required: true, Description: "The unique identifier for the agent. [required]"},
 	{FlagName: "system-instruction", Shorthand: "s", FieldPath: "Body.SystemInstruction", Kind: flagutil.FlagKindString, Optional: true, Description: "System instruction for the agent."},

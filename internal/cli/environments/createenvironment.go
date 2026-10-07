@@ -29,7 +29,7 @@ import (
 
 var createEnvironmentCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "from-environment", Shorthand: "f", FieldPath: "Body.FromEnvironment", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The source environment to copy/fork from.\nFormat: 'environments/{environment_id}' or '{environment_id}'.\nWhen specified, 'sources' and 'env' must be empty."},
-	{FlagName: "network", Shorthand: "n", FieldPath: "Body.Network", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"allowlist\": object[] } | Disabled | CreateEnvironmentRequest_network_enum)"}},
+	{FlagName: "network", Shorthand: "n", FieldPath: "Body.Network", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"allowlist\": object[] | string } | CreateEnvironmentRequest_network_enum)"}},
 	{FlagName: "sources", Shorthand: "s", FieldPath: "Body.Sources", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"sources,omitempty"`, Description: "Sources to be mounted into the environment. (JSON array)"},
 }
 
