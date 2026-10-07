@@ -129,7 +129,7 @@ func TestImageArtifactOutput(t *testing.T) {
 	if err := json.Unmarshal(<-requests, &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
 	}
-	if sent.Model != "gemini-3.1-flash-image" || sent.ResponseFormat.Type != "image" {
+	if sent.Model != "gemini-nano-banana-2.1" || sent.ResponseFormat.Type != "image" {
 		t.Errorf("request presets = %+v, want image model + image response format", sent)
 	}
 
@@ -205,7 +205,7 @@ func TestImageArtifactOutput(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("image --dry-run failed: %v\nstderr: %s", result.err, result.stderr)
 	}
-	if !strings.Contains(result.stderr, "[DRY-RUN]") || !strings.Contains(result.stderr, "gemini-3.1-flash-image") {
+	if !strings.Contains(result.stderr, "[DRY-RUN]") || !strings.Contains(result.stderr, "gemini-nano-banana-2.1") {
 		t.Errorf("dry-run preview missing:\n%s", result.stderr)
 	}
 	if entries, _ := os.ReadDir(dryDir); len(entries) != 0 {

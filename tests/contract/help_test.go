@@ -71,7 +71,7 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 			"Learn: https://ai.google.dev/gemini-api/docs/text-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"image"}, []string{
-			"Defaults: model gemini-3.1-flash-image · output ./gemini-image-{timestamp}-{rand}.{ext}",
+			"Defaults: model gemini-nano-banana-2.1 · output ./gemini-image-{timestamp}-{rand}.{ext}",
 			"Learn: https://ai.google.dev/gemini-api/docs/image-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"tts"}, []string{
