@@ -71,9 +71,11 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "gemini-3.1-pro-preview", "description": "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.", "default": false},
 				{"value": "gemini-3.1-pro-preview-customtools", "description": "Gemini 3.1 Pro Preview optimized for custom tool usage", "default": false},
 				{"value": "gemini-3.1-flash-lite", "description": "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.", "default": false},
+				{"value": "gemini-3.1-flash-lite-image", "description": "Gemini 3.1 Flash Lite Image.", "default": false},
 				{"value": "gemini-3-pro-image", "description": "Gemini 3 Pro Image", "default": false},
 				{"value": "nano-banana-pro-preview", "description": "Gemini 3 Pro Image Preview", "default": false},
 				{"value": "gemini-3.1-flash-image", "description": "Gemini 3.1 Flash Image.", "default": false},
+				{"value": "gemini-nano-banana-2.1", "description": "Gemini Nano Banana 2.1.", "default": false},
 				{"value": "gemini-3.1-flash-tts-preview", "description": "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.", "default": false},
 				{"value": "gemini-3.5-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
 				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
@@ -106,9 +108,11 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-pro-preview", "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-pro-preview-customtools", "Gemini 3.1 Pro Preview optimized for custom tool usage")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-lite", "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-lite-image", "Gemini 3.1 Flash Lite Image.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3-pro-image", "Gemini 3 Pro Image")
 			fmt.Fprintf(out, "%-42s %s\n", "nano-banana-pro-preview", "Gemini 3 Pro Image Preview")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-image", "Gemini 3.1 Flash Image.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-nano-banana-2.1", "Gemini Nano Banana 2.1.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-tts-preview", "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.6-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")

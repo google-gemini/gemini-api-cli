@@ -32,7 +32,7 @@ import (
 func InitIntentImage(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "image [prompt]",
-		Short:   "Generate or edit images (gemini-3.1-flash-image)",
+		Short:   "Generate or edit images (gemini-nano-banana-2.1)",
 		Long:    "Generate an image from a text prompt via the Interactions API\n(image response modality) and write it to a file; stdout\ncarries the file path. Use --out to choose the file (or a\ndirectory), --raw-response to see the API response instead.\n\nArguments:\n  <prompt>  Image prompt",
 		Example: "  gemini-api image \"a lighthouse at sunset\"\n  gemini-api image \"product shot, white bg\" --out shots/hero.png",
 		Args:    cobra.ArbitraryArgs,
@@ -41,7 +41,7 @@ func InitIntentImage(parent *cobra.Command) error {
 			"speakeasy_operation":            "CreateInteraction",
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-3.1-flash-image · output ./gemini-image-{timestamp}-{rand}.{ext}",
+			"speakeasy_help_defaults":        "model gemini-nano-banana-2.1 · output ./gemini-image-{timestamp}-{rand}.{ext}",
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/image-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"image\",\"defaultPath\":\"gemini-image-{timestamp}-{rand}.{ext}\"}",
@@ -58,7 +58,7 @@ func InitIntentImage(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Override the image model (e.g. gemini-3-pro-image, nano-banana-pro-preview, default: gemini-3.1-flash-image)")
+	cmd.Flags().StringP("model", "m", "", "Override the image model (e.g. gemini-3.1-flash-image, gemini-3.1-flash-lite-image, gemini-3-pro-image, nano-banana-pro-preview, default: gemini-nano-banana-2.1)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
@@ -96,7 +96,7 @@ func InitIntentImage(parent *cobra.Command) error {
 var intentImagePreset = flagutil.PresetMerge{
 	Command: "image",
 	Variant: "ModelInteraction",
-	Preset:  "{\"model\":\"gemini-3.1-flash-image\",\"response_format\":{\"type\":\"image\"},\"stream\":false}",
+	Preset:  "{\"model\":\"gemini-nano-banana-2.1\",\"response_format\":{\"type\":\"image\"},\"stream\":false}",
 	Foreign: []string{"agent"},
 	Escape:  "gemini-api agent run",
 }

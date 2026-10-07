@@ -371,7 +371,7 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
   gemini-api generate "Explain concurrency in one sentence"
   ```
 
-* [`image`](docs/gemini-api_image.md) - Generate or edit images (gemini-3.1-flash-image)
+* [`image`](docs/gemini-api_image.md) - Generate or edit images (gemini-nano-banana-2.1)
 
   ```bash
   # Generate an image (prints the written file path)
