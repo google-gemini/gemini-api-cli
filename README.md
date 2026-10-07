@@ -125,7 +125,7 @@ gemini-api completion powershell | Out-String | Invoke-Expression
 gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026
 
 # Choose a different model
-gemini-api generate "Write a haiku about APIs" --model gemini-2.5-pro
+gemini-api generate "Write a haiku about APIs" --model gemini-pro-latest
 
 # Generate an image (prints the written file path)
 gemini-api image "a lighthouse at sunset"
@@ -366,7 +366,7 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
   ```bash
   # Choose a different model
-  gemini-api generate "Write a haiku about APIs" --model gemini-2.5-pro
+  gemini-api generate "Write a haiku about APIs" --model gemini-pro-latest
   # Generate with the default model (streams the reply)
   gemini-api generate "Explain concurrency in one sentence"
   ```

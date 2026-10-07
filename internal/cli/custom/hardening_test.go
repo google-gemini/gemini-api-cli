@@ -169,7 +169,7 @@ func FuzzTimestampRoundTrip(f *testing.F) {
 }
 
 func FuzzIdentifierNormalizers(f *testing.F) {
-	for _, seed := range []string{"files/abc-123", "models/gemini-2.5-flash", "../x", "files/", "a/b", "%2e%2e", " x "} {
+	for _, seed := range []string{"files/abc-123", "models/gemini-flash-latest", "../x", "files/", "a/b", "%2e%2e", " x "} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, in string) {

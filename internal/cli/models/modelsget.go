@@ -29,7 +29,7 @@ import (
 )
 
 var modelsGetCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "model", Shorthand: "m", FieldPath: "Model", Kind: flagutil.FlagKindString, Required: true, Description: "Model id, e.g. gemini-2.5-flash [required]"},
+	{FlagName: "model", Shorthand: "m", FieldPath: "Model", Kind: flagutil.FlagKindString, Required: true, Description: "Model id, e.g. gemini-flash-latest [required]"},
 }
 
 // initModelsGetCmd initializes the models-get command.
@@ -38,7 +38,7 @@ func initModelsGetCmd(parent *cobra.Command) error {
 		Use:     "get [model]",
 		Short:   "Get a model's live metadata (version, token limits, supported methods)",
 		Long:    "Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://ai.google.dev/gemini-api/docs/models",
-		Example: "  gemini-api models get --model gemini-2.5-flash",
+		Example: "  gemini-api models get --model gemini-flash-latest",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runModelsGetCmd,
 		Annotations: map[string]string{
@@ -49,11 +49,11 @@ func initModelsGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.ModelsGetRequest](modelsGetCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for models-get: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "model", "Model id, e.g. gemini-2.5-flash (or pass it as the [model] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "model", "Model id, e.g. gemini-flash-latest (or pass it as the [model] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "model", Summary: "Model id, e.g. gemini-2.5-flash", Required: true, SatisfiedBy: []string{"model"}},
+		{Name: "model", Summary: "Model id, e.g. gemini-flash-latest", Required: true, SatisfiedBy: []string{"model"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for models-get: %w", err)
 	}

@@ -33,8 +33,8 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "generate [prompt]",
 		Short:   "Text & multimodal generation (gemini-3.8-flash)",
-		Long:    "Send a prompt to a Gemini model and print the reply as it is\ngenerated; text deltas are streamed directly to stdout. Uses the\nschema's default model (gemini-3.8-flash) unless --model or a full\n--body names one. --stream=false returns one complete interaction;\n--output-format json shows the raw NDJSON event stream. Thinking\nmodels such as gemini-3.8-flash may emit their deltas in a burst\nafter thinking; gemini-2.5-flash streams visibly. Full request\ncontrol: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
-		Example: "  gemini-api generate \"Write a haiku about APIs\" --model gemini-2.5-pro\n  gemini-api generate \"Explain concurrency in one sentence\"",
+		Long:    "Send a prompt to a Gemini model and print the reply as it is\ngenerated; text deltas are streamed directly to stdout. Uses the\nschema's default model (gemini-3.8-flash) unless --model or a full\n--body names one. --stream=false returns one complete interaction;\n--output-format json shows the raw NDJSON event stream. Thinking\nmodels such as gemini-3.8-flash may emit their deltas in a burst\nafter thinking; gemini-flash-lite-latest streams visibly. Full request\ncontrol: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
+		Example: "  gemini-api generate \"Write a haiku about APIs\" --model gemini-pro-latest\n  gemini-api generate \"Explain concurrency in one sentence\"",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentGenerateCmd,
 		Annotations: map[string]string{
@@ -58,7 +58,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemini-2.5-flash, gemini-2.5-pro, gemma-4-26b-a4b-it, gemma-4-31b-it, ..., default: gemini-3.8-flash)")
+	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-3.8-flash)")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",

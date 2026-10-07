@@ -214,13 +214,13 @@ func normalizeFilePositional(id string) (string, error) {
 var modelIDShape = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 // normalizeModelPositional strips an optional "models/" prefix so both
-// "models get gemini-2.5-flash" and "models get models/gemini-2.5-flash"
+// "models get gemini-flash-latest" and "models get models/gemini-flash-latest"
 // resolve to the bare id the path parameter expects, and rejects empty or
 // malformed ids before they reach the API.
 func normalizeModelPositional(id string) (string, error) {
 	id = strings.TrimPrefix(strings.TrimSpace(id), "models/")
 	if !modelIDShape.MatchString(id) {
-		return "", fmt.Errorf("invalid model id %q; expected a model name like \"gemini-2.5-flash\"", id)
+		return "", fmt.Errorf("invalid model id %q; expected a model name like \"gemini-flash-latest\"", id)
 	}
 	return id, nil
 }

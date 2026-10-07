@@ -58,14 +58,12 @@ func newModelsCatalogCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			values := []map[string]interface{}{
-				{"value": "gemini-2.5-flash", "description": "Our first hybrid reasoning model which supports a 1M token context window and has thinking budgets.", "default": false},
-				{"value": "gemini-2.5-pro", "description": "Our state-of-the-art multipurpose model, which excels at coding and complex reasoning tasks.", "default": false},
 				{"value": "gemma-4-26b-a4b-it", "description": "Gemma 4 26B A4B IT", "default": false},
 				{"value": "gemma-4-31b-it", "description": "Gemma 4 31B IT", "default": false},
 				{"value": "gemini-flash-latest", "description": "Latest release of Gemini Flash", "default": false},
 				{"value": "gemini-flash-lite-latest", "description": "Latest release of Gemini Flash-Lite", "default": false},
 				{"value": "gemini-pro-latest", "description": "Latest release of Gemini Pro", "default": false},
-				{"value": "gemini-2.5-flash-lite", "description": "Our smallest and most cost effective model, built for at scale usage.", "default": false},
+				{"value": "gemini-3.5-flash-lite", "description": "Our smallest and most cost effective model, built for at scale usage.", "default": false},
 				{"value": "gemini-2.5-flash-image", "description": "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.", "default": false},
 				{"value": "gemini-3-flash-preview", "description": "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.", "default": false},
 				{"value": "gemini-3.1-pro-preview", "description": "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.", "default": false},
@@ -85,7 +83,6 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "gemini-3.8-flash-lite-tts", "description": "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.", "default": false},
 				{"value": "lyria-3-clip-preview", "description": "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.", "default": false},
 				{"value": "lyria-3-pro-preview", "description": "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.", "default": false},
-				{"value": "gemini-robotics-er-1.6-preview", "description": "Gemini Robotics-ER 1.6 Preview", "default": false},
 				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false},
 				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false},
 				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
@@ -95,14 +92,12 @@ func newModelsCatalogCmd() *cobra.Command {
 				return output.LocalResult(cmd, values)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-2.5-flash", "Our first hybrid reasoning model which supports a 1M token context window and has thinking budgets.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-2.5-pro", "Our state-of-the-art multipurpose model, which excels at coding and complex reasoning tasks.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT")
 			fmt.Fprintf(out, "%-42s %s\n", "gemma-4-31b-it", "Gemma 4 31B IT")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-flash-latest", "Latest release of Gemini Flash")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-flash-lite-latest", "Latest release of Gemini Flash-Lite")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-pro-latest", "Latest release of Gemini Pro")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-2.5-flash-lite", "Our smallest and most cost effective model, built for at scale usage.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash-lite", "Our smallest and most cost effective model, built for at scale usage.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-2.5-flash-image", "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3-flash-preview", "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-pro-preview", "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.")
@@ -122,7 +117,6 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash-lite-tts", "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.")
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-clip-preview", "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.")
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-pro-preview", "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-1.6-preview", "Gemini Robotics-ER 1.6 Preview")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3.5", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-1.1-flash", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
