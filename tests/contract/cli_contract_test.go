@@ -663,7 +663,7 @@ func TestModelsCatalogFromEnum(t *testing.T) {
 	if !strings.Contains(result.stdout, "gemini-3.8-flash (default)") {
 		t.Errorf("models does not mark the default model:\n%s", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "gemini-2.5-pro") {
+	if !strings.Contains(result.stdout, "gemini-pro-latest") {
 		t.Errorf("models does not list enum values:\n%s", result.stdout)
 	}
 }
