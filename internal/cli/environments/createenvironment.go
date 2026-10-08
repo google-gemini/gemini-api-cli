@@ -37,7 +37,7 @@ var createEnvironmentCmdMeta = []flagutil.FlagMeta{
 func initCreateEnvironmentCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "create",
-		Short:   "Creates an environment.",
+		Short:   "Create a sandbox environment",
 		Long:    "Creates an environment.",
 		Example: "  gemini-api environments create",
 		Args:    cobra.NoArgs,

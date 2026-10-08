@@ -90,6 +90,8 @@ type ListCredentialsResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
 	CredentialListResponse *credentials.CredentialListResponse
+
+	Next func() (*ListCredentialsResponse, error)
 }
 
 func (l ListCredentialsResponse) MarshalJSON() ([]byte, error) {

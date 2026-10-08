@@ -29,7 +29,7 @@ import (
 )
 
 var getCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook to retrieve. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The ID of the webhook to retrieve. [required]"},
 }
 
 // initGetCmd initializes the get command.
@@ -38,7 +38,7 @@ func initGetCmd(parent *cobra.Command) error {
 		Use:     "get [id]",
 		Short:   "Get a webhook by ID",
 		Long:    "Gets a specific Webhook.",
-		Example: "",
+		Example: "  gemini-api webhooks get --id WEBHOOK_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetCmd,
 		Annotations: map[string]string{

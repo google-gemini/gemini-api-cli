@@ -29,7 +29,7 @@ import (
 )
 
 var runCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource name of the trigger. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource name of the trigger. [required]"},
 }
 
 // initRunCmd initializes the run command.
@@ -38,7 +38,7 @@ func initRunCmd(parent *cobra.Command) error {
 		Use:     "run [id]",
 		Short:   "Run a trigger immediately",
 		Long:    "Runs a trigger immediately.",
-		Example: "",
+		Example: "  gemini-api triggers run --id TRIGGER_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runRunCmd,
 		Annotations: map[string]string{

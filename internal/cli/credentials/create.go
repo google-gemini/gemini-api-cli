@@ -32,7 +32,7 @@ var createCmdMeta = []flagutil.FlagMeta{
 		{DiscriminatorValue: "environment_variable", FlagName: "body-param.environment-variable", FieldName: "EnvironmentVariableConfig", CanExpand: false, Description: "EnvironmentVariableConfig variant as JSON"},
 		{DiscriminatorValue: "bearer_token", FlagName: "body-param.bearer-token", FieldName: "HTTPBearerConfig", CanExpand: true, Description: "HttpBearerConfig variant as JSON", Fields: []flagutil.FlagMeta{
 			{FlagName: "body-param.bearer-token.header-name", FieldPath: "HeaderName", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Header name to inject the token into. Defaults to\n'Authorization'."},
-			{FlagName: "body-param.bearer-token.id", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "[required]"},
+			{FlagName: "body-param.bearer-token.id", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Unique identifier for the credential. [required]"},
 			{FlagName: "body-param.bearer-token.prefix", FieldPath: "Prefix", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Prefix to prepend to the token. Defaults to 'Bearer'. Set to ''\nfor no prefix."},
 			{FlagName: "body-param.bearer-token.token", FieldPath: "Token", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Input only. The static bearer token. Write-only; never returned in responses. [required]"},
 		}},
@@ -44,9 +44,9 @@ var createCmdMeta = []flagutil.FlagMeta{
 func initCreateCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "create",
-		Short:   "Creates a new credential.",
+		Short:   "Create a credential",
 		Long:    "Creates a new credential.",
-		Example: "",
+		Example: "  gemini-api credentials create --body '{\"id\":\"github-token\",\"token\":\"YOUR_GITHUB_TOKEN\",\"type\":\"bearer_token\"}'\n  gemini-api credentials create --body '{\"id\":\"search-api-key\",\"injection_location\":\"header\",\"type\":\"environment_variable\",\"value\":\"YOUR_API_KEY\"}'",
 		Args:    cobra.NoArgs,
 		RunE:    runCreateCmd,
 		Annotations: map[string]string{

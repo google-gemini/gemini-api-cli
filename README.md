@@ -400,7 +400,6 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 ### Understand
 
 * [`analyze`](docs/gemini-api_analyze.md) - Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-3.8-flash)
-* [`tokens`](docs/gemini-api_tokens.md) - Count tokens without generating — _not in this build_: "tokens" needs the classic GenAI API surface, which is not part of this interactions-only build
 * [`transcribe`](docs/gemini-api_transcribe.md) - Audio/video → text (timestamps, captions) (gemini-3.8-flash)
 
 ### Manage
@@ -437,13 +436,19 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 
 ### Advanced
 
-* [`credentials`](docs/gemini-api_credentials.md) - Operations for credentials
-  * [`list`](docs/gemini-api_credentials_list.md) - Lists credentials.
-  * [`create`](docs/gemini-api_credentials_create.md) - Creates a new credential.
-  * [`delete`](docs/gemini-api_credentials_delete.md) - Deletes a credential.
-  * [`get`](docs/gemini-api_credentials_get.md) - Gets a credential by ID.
-  * [`update`](docs/gemini-api_credentials_update.md) - Updates a credential.
-* [`docs`](docs/gemini-api_docs.md) - Gemini API documentation & guides — _not in this build_: "docs" curated guides are not part of this build yet. Meanwhile browse https://ai.google.dev/gemini-api/docs
+* [`credentials`](docs/gemini-api_credentials.md) - Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests
+  * [`list`](docs/gemini-api_credentials_list.md) - List credentials
+  * [`create`](docs/gemini-api_credentials_create.md) - Create a credential
+  * [`delete`](docs/gemini-api_credentials_delete.md) - Delete a credential by ID
+  * [`get`](docs/gemini-api_credentials_get.md) - Get a credential by ID
+  * [`update`](docs/gemini-api_credentials_update.md) - Update a credential by ID
+* [`environments`](docs/gemini-api_environments.md) - Manage sandbox environments and inspect environment files
+  * [`list`](docs/gemini-api_environments_list.md) - List sandbox environments
+  * [`create`](docs/gemini-api_environments_create.md) - Create a sandbox environment
+  * [`delete`](docs/gemini-api_environments_delete.md) - Delete a sandbox environment by ID
+  * [`get`](docs/gemini-api_environments_get.md) - Get a sandbox environment by ID
+  * [`files`](docs/gemini-api_environments_files.md) - List and inspect files in an environment's snapshot
+    * [`list`](docs/gemini-api_environments_files_list.md) - List or inspect files in an environment snapshot
 * [`triggers`](docs/gemini-api_triggers.md) - Schedule and manage cron triggers that run managed agents
   * [`list`](docs/gemini-api_triggers_list.md) - List triggers for a project
   * [`delete`](docs/gemini-api_triggers_delete.md) - Delete a trigger by ID
@@ -459,16 +464,6 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
   * [`update`](docs/gemini-api_webhooks_update.md) - Update a webhook by ID
   * [`ping`](docs/gemini-api_webhooks_ping.md) - Send a ping event to a webhook
   * [`rotate-signing-secret`](docs/gemini-api_webhooks_rotate-signing-secret.md) - Rotate the signing secret for a webhook
-
-### Additional commands
-
-* [`environments`](docs/gemini-api_environments.md) - Manage sandbox environments and inspect environment files
-  * [`list`](docs/gemini-api_environments_list.md) - Lists environments.
-  * [`create`](docs/gemini-api_environments_create.md) - Creates an environment.
-  * [`delete`](docs/gemini-api_environments_delete.md) - Deletes an environment.
-  * [`get`](docs/gemini-api_environments_get.md) - Gets an environment.
-  * [`files`](docs/gemini-api_environments_files.md) - List and inspect files in an environment's snapshot
-    * [`list`](docs/gemini-api_environments_files_list.md) - Retrieves file metadata or directory contents from an environment's snapshot.
 <!-- End Commands [operations] -->
 
 <!-- Start Request Body Input [stdinpiping] -->

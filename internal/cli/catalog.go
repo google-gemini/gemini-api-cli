@@ -58,69 +58,82 @@ func newModelsCatalogCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			values := []map[string]interface{}{
-				{"value": "gemma-4-26b-a4b-it", "description": "Gemma 4 26B A4B IT", "default": false},
-				{"value": "gemma-4-31b-it", "description": "Gemma 4 31B IT", "default": false},
-				{"value": "gemini-flash-latest", "description": "Latest release of Gemini Flash", "default": false},
-				{"value": "gemini-flash-lite-latest", "description": "Latest release of Gemini Flash-Lite", "default": false},
-				{"value": "gemini-pro-latest", "description": "Latest release of Gemini Pro", "default": false},
-				{"value": "gemini-3.5-flash-lite", "description": "Our smallest and most cost effective model, built for at scale usage.", "default": false},
-				{"value": "gemini-2.5-flash-image", "description": "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.", "default": false},
-				{"value": "gemini-3-flash-preview", "description": "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.", "default": false},
-				{"value": "gemini-3.1-pro-preview", "description": "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.", "default": false},
-				{"value": "gemini-3.1-pro-preview-customtools", "description": "Gemini 3.1 Pro Preview optimized for custom tool usage", "default": false},
-				{"value": "gemini-3.1-flash-lite", "description": "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.", "default": false},
-				{"value": "gemini-3.1-flash-lite-image", "description": "Gemini 3.1 Flash Lite Image.", "default": false},
-				{"value": "gemini-3-pro-image", "description": "Gemini 3 Pro Image", "default": false},
-				{"value": "nano-banana-pro-preview", "description": "Gemini 3 Pro Image Preview", "default": false},
-				{"value": "gemini-3.1-flash-image", "description": "Gemini 3.1 Flash Image.", "default": false},
-				{"value": "gemini-nano-banana-2.1", "description": "Gemini Nano Banana 2.1.", "default": false, "default_for": []string{"image"}},
-				{"value": "gemini-3.1-flash-tts-preview", "description": "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.", "default": false},
-				{"value": "gemini-3.5-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
-				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
-				{"value": "gemini-3.7-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
-				{"value": "gemini-3.8-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": true},
-				{"value": "gemini-3.8-flash-tts", "description": "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.", "default": false},
-				{"value": "gemini-3.8-flash-lite-tts", "description": "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.", "default": false},
-				{"value": "lyria-3-clip-preview", "description": "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.", "default": false},
-				{"value": "lyria-3-pro-preview", "description": "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.", "default": false},
-				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false},
-				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false, "default_for": []string{"music"}},
-				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "default_for": []string{"video"}},
-				{"value": "gemini-omni-flash-preview", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
+				{"value": "gemma-4-26b-a4b-it", "description": "Gemma 4 26B A4B IT", "default": false, "group": "Gemma"},
+				{"value": "gemma-4-31b-it", "description": "Gemma 4 31B IT", "default": false, "group": "Gemma"},
+				{"value": "gemini-flash-latest", "description": "Latest release of Gemini Flash", "default": false, "group": "Gemini"},
+				{"value": "gemini-flash-lite-latest", "description": "Latest release of Gemini Flash-Lite", "default": false, "group": "Gemini"},
+				{"value": "gemini-pro-latest", "description": "Latest release of Gemini Pro", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.5-flash-lite", "description": "Our smallest and most cost effective model, built for at scale usage.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3-flash-preview", "description": "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.1-pro-preview", "description": "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.1-pro-preview-customtools", "description": "Gemini 3.1 Pro Preview optimized for custom tool usage", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.1-flash-lite", "description": "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.5-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.7-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false, "group": "Gemini"},
+				{"value": "gemini-3.8-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": true, "group": "Gemini"},
+				{"value": "gemini-2.5-flash-image", "description": "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.", "default": false, "group": "Image"},
+				{"value": "gemini-3.1-flash-lite-image", "description": "Gemini 3.1 Flash Lite Image.", "default": false, "group": "Image"},
+				{"value": "gemini-3-pro-image", "description": "Gemini 3 Pro Image", "default": false, "group": "Image"},
+				{"value": "nano-banana-pro-preview", "description": "Gemini 3 Pro Image Preview", "default": false, "group": "Image"},
+				{"value": "gemini-3.1-flash-image", "description": "Gemini 3.1 Flash Image.", "default": false, "group": "Image"},
+				{"value": "gemini-nano-banana-2.1", "description": "Gemini Nano Banana 2.1.", "default": false, "default_for": []string{"image"}, "group": "Image"},
+				{"value": "gemini-3.1-flash-tts-preview", "description": "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.", "default": false, "group": "Speech"},
+				{"value": "gemini-3.8-flash-tts", "description": "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.", "default": false, "group": "Speech"},
+				{"value": "gemini-3.8-flash-lite-tts", "description": "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.", "default": false, "group": "Speech"},
+				{"value": "lyria-3-clip-preview", "description": "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.", "default": false, "group": "Music"},
+				{"value": "lyria-3-pro-preview", "description": "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.", "default": false, "group": "Music"},
+				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false, "default_for": []string{"music"}, "group": "Music"},
+				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false, "group": "Robotics"},
+				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "default_for": []string{"video"}, "group": "Video"},
+				{"value": "gemini-omni-flash-preview", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "group": "Video"},
 			}
 			if output.IsMachineMode(cmd) {
 				return output.LocalResult(cmd, values)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%-42s %s\n", "gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT")
-			fmt.Fprintf(out, "%-42s %s\n", "gemma-4-31b-it", "Gemma 4 31B IT")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-flash-latest", "Latest release of Gemini Flash")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-flash-lite-latest", "Latest release of Gemini Flash-Lite")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-pro-latest", "Latest release of Gemini Pro")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash-lite", "Our smallest and most cost effective model, built for at scale usage.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-2.5-flash-image", "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3-flash-preview", "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-pro-preview", "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-pro-preview-customtools", "Gemini 3.1 Pro Preview optimized for custom tool usage")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-lite", "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-lite-image", "Gemini 3.1 Flash Lite Image.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3-pro-image", "Gemini 3 Pro Image")
-			fmt.Fprintf(out, "%-42s %s\n", "nano-banana-pro-preview", "Gemini 3 Pro Image Preview")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-image", "Gemini 3.1 Flash Image.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-nano-banana-2.1 (default: image)", "Gemini Nano Banana 2.1.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-tts-preview", "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.6-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.7-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash (default)", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash-tts", "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.8-flash-lite-tts", "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.")
-			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-clip-preview", "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.")
-			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-pro-preview", "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
-			fmt.Fprintf(out, "%-42s %s\n", "lyria-3.5 (default: music)", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-1.1-flash (default: video)", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-flash-preview", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintln(out, "Gemma:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemma-4-26b-a4b-it", "Gemma 4 26B A4B IT")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemma-4-31b-it", "Gemma 4 31B IT")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Gemini:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-flash-latest", "Latest release of Gemini Flash")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-flash-lite-latest", "Latest release of Gemini Flash-Lite")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-pro-latest", "Latest release of Gemini Pro")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.5-flash-lite", "Our smallest and most cost effective model, built for at scale usage.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3-flash-preview", "Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-pro-preview", "Our latest SOTA reasoning model with unprecedented depth and nuance, and powerful multimodal understanding and coding capabilities.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-pro-preview-customtools", "Gemini 3.1 Pro Preview optimized for custom tool usage")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-flash-lite", "Our most cost-efficient model, optimized for high-volume agentic tasks, translation, and simple data processing.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.5-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.6-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.7-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.8-flash (default)", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Image:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-2.5-flash-image", "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-flash-lite-image", "Gemini 3.1 Flash Lite Image.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3-pro-image", "Gemini 3 Pro Image")
+			fmt.Fprintf(out, "  %-42s %s\n", "nano-banana-pro-preview", "Gemini 3 Pro Image Preview")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-flash-image", "Gemini 3.1 Flash Image.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-nano-banana-2.1 (default: image)", "Gemini Nano Banana 2.1.")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Speech:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.1-flash-tts-preview", "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.8-flash-tts", "Gemini 3.8 Flash TTS - Flagship TTS model for Voice Design and dual-speaker screenplay control. Prompt custom vocal personas, direct line-by-line delivery, and add vocal bursts.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.8-flash-lite-tts", "Gemini 3.8 Flash Lite TTS - High-speed and cost-efficient, ideal for rapid dubbing, media localization, and high-throughput voice agents. Direct replacement for gemini-3.1-flash-tts-preview.")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Music:")
+			fmt.Fprintf(out, "  %-42s %s\n", "lyria-3-clip-preview", "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.")
+			fmt.Fprintf(out, "  %-42s %s\n", "lyria-3-pro-preview", "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.")
+			fmt.Fprintf(out, "  %-42s %s\n", "lyria-3.5 (default: music)", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Robotics:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "Video:")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-1.1-flash (default: video)", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-flash-preview", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
 			return nil
 		},
 	}

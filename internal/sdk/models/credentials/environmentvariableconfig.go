@@ -124,6 +124,7 @@ func (u EnvironmentVariableConfigInjectionLocation) MarshalJSON() ([]byte, error
 
 // EnvironmentVariableConfig - Configuration for environment variable credentials.
 type EnvironmentVariableConfig struct {
+	// Required. Unique identifier for the credential.
 	ID string `json:"id"`
 	// Required. Locations where the environment variable can be injected in
 	// outgoing HTTP requests. Must contain at least one location.

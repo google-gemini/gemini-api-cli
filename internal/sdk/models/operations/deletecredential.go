@@ -48,8 +48,7 @@ func (d *DeleteCredentialGlobals) GetAPIVersion() *string {
 type DeleteCredentialRequest struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
-	// Required. Resource ID segment making up resource `name`. It identifies the resource
-	// within its parent collection as described in https://google.aip.dev/122.
+	// Credential ID, as given on create
 	ID string `pathParam:"style=simple,explode=false,name=id"`
 }
 

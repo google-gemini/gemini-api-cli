@@ -24,8 +24,8 @@ import (
 func InitCredentialsRoot(parent *cobra.Command) error {
 	var CredentialsCmd = &cobra.Command{
 		Use:         "credentials",
-		Short:       "Operations for credentials",
-		Long:        "Operations for credentials",
+		Short:       "Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests",
+		Long:        "Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests",
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{"speakeasy_cli_group": "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {

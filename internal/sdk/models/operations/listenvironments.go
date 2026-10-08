@@ -91,6 +91,8 @@ type ListEnvironmentsResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
 	ListEnvironmentsResponse *environments.ListEnvironmentsResponse
+
+	Next func() (*ListEnvironmentsResponse, error)
 }
 
 func (l ListEnvironmentsResponse) MarshalJSON() ([]byte, error) {

@@ -29,7 +29,7 @@ import (
 )
 
 var cancelCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the interaction to cancel. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The name of the interaction to cancel. [required]"},
 }
 
 // initCancelCmd initializes the cancel command.

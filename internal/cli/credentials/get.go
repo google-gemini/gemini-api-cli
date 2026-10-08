@@ -29,16 +29,16 @@ import (
 )
 
 var getCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Credential ID, as given on create [required]"},
 }
 
 // initGetCmd initializes the get command.
 func initGetCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "get [id]",
-		Short:   "Gets a credential by ID.",
+		Short:   "Get a credential by ID",
 		Long:    "Gets a credential by ID.",
-		Example: "",
+		Example: "  gemini-api credentials get --id github-token",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetCmd,
 		Annotations: map[string]string{
@@ -49,11 +49,11 @@ func initGetCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.GetCredentialRequest](getCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for get: %w", err)
 	}
-	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122. (or pass it as the [id] argument)", true); err != nil {
+	if err := flagutil.DeclarePositionalFlag(cmd, "id", "Credential ID, as given on create (or pass it as the [id] argument)", true); err != nil {
 		return err
 	}
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
-		{Name: "id", Summary: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.", Required: true, SatisfiedBy: []string{"id"}},
+		{Name: "id", Summary: "Credential ID, as given on create", Required: true, SatisfiedBy: []string{"id"}},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for get: %w", err)
 	}

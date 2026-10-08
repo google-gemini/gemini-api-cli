@@ -71,16 +71,6 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 	} else {
 		owner.GroupID = "understand"
 	}
-	if owner := findOwningCommand(rootCmd, "docs"); owner == nil {
-		rootCmd.AddCommand(newPlannedCmd("docs", "Gemini API documentation & guides", "", "advanced", "\"docs\" curated guides are not part of this build yet. Meanwhile browse https://ai.google.dev/gemini-api/docs"))
-	} else {
-		owner.GroupID = "advanced"
-	}
-	if owner := findOwningCommand(rootCmd, "tokens"); owner == nil {
-		rootCmd.AddCommand(newPlannedCmd("tokens", "Count tokens without generating", "", "understand", "\"tokens\" needs the classic GenAI API surface, which is not part of this interactions-only build"))
-	} else {
-		owner.GroupID = "understand"
-	}
 	if owner := findOwningCommand(rootCmd, "transcribe"); owner == nil {
 		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions) (gemini-3.8-flash)", "", "understand"))
 	} else {
@@ -98,6 +88,9 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		return err
 	}
 	if err := setCommandGroup(rootCmd, "credentials", "advanced"); err != nil {
+		return err
+	}
+	if err := setCommandGroup(rootCmd, "environments", "advanced"); err != nil {
 		return err
 	}
 	if err := setCommandGroup(rootCmd, "files", "manage"); err != nil {
@@ -189,13 +182,12 @@ var intentDeclarationOrder = []intentOrderEntry{
 	{ParentPath: []string{}, Name: "analyze"},
 	{ParentPath: []string{}, Name: "configure"},
 	{ParentPath: []string{}, Name: "credentials"},
-	{ParentPath: []string{}, Name: "docs"},
+	{ParentPath: []string{}, Name: "environments"},
 	{ParentPath: []string{}, Name: "files"},
 	{ParentPath: []string{}, Name: "generate"},
 	{ParentPath: []string{}, Name: "image"},
 	{ParentPath: []string{}, Name: "models"},
 	{ParentPath: []string{}, Name: "music"},
-	{ParentPath: []string{}, Name: "tokens"},
 	{ParentPath: []string{}, Name: "transcribe"},
 	{ParentPath: []string{}, Name: "triggers"},
 	{ParentPath: []string{}, Name: "tts"},

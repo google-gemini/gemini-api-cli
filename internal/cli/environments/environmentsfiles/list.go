@@ -28,7 +28,7 @@ import (
 )
 
 var listCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Description: "Environment to read, as environments/<id> or a bare id [required]"},
+	{FlagName: "environment", Shorthand: "e", FieldPath: "Environment", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Environment to read, as environments/<id> or a bare id [required]"},
 	{FlagName: "path", Shorthand: "p", FieldPath: "Path", Kind: flagutil.FlagKindString, Required: true, Description: "File or directory path relative to the workspace root, e.g. src; a leading slash is ignored [required]"},
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Optional. Maximum number of entries to return per page (for directory listing)."},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Pagination token for directory listing."},
@@ -39,7 +39,7 @@ var listCmdMeta = []flagutil.FlagMeta{
 func initListCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "list",
-		Short:   "Retrieves file metadata or directory contents from an environment's snapshot.",
+		Short:   "List or inspect files in an environment snapshot",
 		Long:    "Retrieves file metadata or directory contents from an environment's snapshot.",
 		Example: "  gemini-api environments files list --environment env_abc123 --path src",
 		Args:    cobra.NoArgs,

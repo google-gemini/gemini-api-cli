@@ -29,7 +29,7 @@ import (
 )
 
 var deleteInteractionCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the interaction to delete. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The name of the interaction to delete. [required]"},
 }
 
 // initDeleteInteractionCmd initializes the delete-interaction command.

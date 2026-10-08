@@ -29,7 +29,7 @@ import (
 )
 
 var deleteCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook to delete. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The ID of the webhook to delete. [required]"},
 }
 
 // initDeleteCmd initializes the delete command.
@@ -38,7 +38,7 @@ func initDeleteCmd(parent *cobra.Command) error {
 		Use:     "delete [id]",
 		Short:   "Delete a webhook by ID",
 		Long:    "Deletes a Webhook.",
-		Example: "",
+		Example: "  gemini-api webhooks delete --id WEBHOOK_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteCmd,
 		Annotations: map[string]string{

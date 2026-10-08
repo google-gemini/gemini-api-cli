@@ -29,7 +29,7 @@ import (
 )
 
 var getCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource name of the trigger. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource name of the trigger. [required]"},
 }
 
 // initGetCmd initializes the get command.
@@ -38,7 +38,7 @@ func initGetCmd(parent *cobra.Command) error {
 		Use:     "get [id]",
 		Short:   "Get a trigger by ID",
 		Long:    "Gets details of a single trigger.",
-		Example: "",
+		Example: "  gemini-api triggers get --id TRIGGER_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runGetCmd,
 		Annotations: map[string]string{

@@ -84,7 +84,8 @@ type GeminiAPI struct {
 	//
 	// Note: agent IDs and interaction IDs are distinct resources. "agent status"
 	// takes an interaction ID; to inspect an agent definition use "agent get".
-	Agent       *Agent
+	Agent *Agent
+	// Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests
 	Credentials *Credentials
 	// Manage sandbox environments and inspect environment files
 	Environments *Environments

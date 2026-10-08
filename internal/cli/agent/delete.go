@@ -29,7 +29,7 @@ import (
 )
 
 var deleteCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The name of the agent to delete. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The name of the agent to delete. [required]"},
 }
 
 // initDeleteCmd initializes the delete command.

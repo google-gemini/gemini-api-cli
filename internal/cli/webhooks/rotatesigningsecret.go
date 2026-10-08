@@ -29,7 +29,7 @@ import (
 )
 
 var rotateSigningSecretCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook for which to generate a signing secret. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The ID of the webhook for which to generate a signing secret. [required]"},
 	{FlagName: "revocation-behavior", Shorthand: "r", FieldPath: "Body.RevocationBehavior", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"revoke_previous_secrets_after_h24", "revoke_previous_secrets_immediately"}, Description: "Optional. The revocation behavior for previous signing secrets. (options: revoke_previous_secrets_after_h24, revoke_previous_secrets_immediately)"},
 }
 
@@ -39,7 +39,7 @@ func initRotateSigningSecretCmd(parent *cobra.Command) error {
 		Use:     "rotate-signing-secret [id]",
 		Short:   "Rotate the signing secret for a webhook",
 		Long:    "Generates a new signing secret for a Webhook.",
-		Example: "",
+		Example: "  gemini-api webhooks rotate-signing-secret --id WEBHOOK_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runRotateSigningSecretCmd,
 		Aliases: []string{"rss"},

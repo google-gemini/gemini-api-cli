@@ -26,7 +26,8 @@ type OAuth2Config struct {
 	ClientID string `json:"client_id"`
 	// Required. Input only. OAuth2 client secret. Write-only; never returned in responses.
 	ClientSecret string `json:"client_secret"`
-	ID           string `json:"id"`
+	// Required. Unique identifier for the credential.
+	ID string `json:"id"`
 	// Required. Input only. OAuth2 refresh token. Write-only; never returned in responses.
 	RefreshToken string `json:"refresh_token"`
 	// Optional. List of OAuth2 scopes.

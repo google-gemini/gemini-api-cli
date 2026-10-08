@@ -31,7 +31,7 @@ import (
 var listExecutionsCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "The maximum number of executions to return per page."},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "A page token from a previous ListTriggerExecutions call."},
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The trigger ID to list executions from. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The trigger ID to list executions from. [required]"},
 }
 
 // initListExecutionsCmd initializes the list-executions command.
@@ -40,7 +40,7 @@ func initListExecutionsCmd(parent *cobra.Command) error {
 		Use:     "list-executions [id]",
 		Short:   "List executions for a trigger",
 		Long:    "Lists executions for a trigger.",
-		Example: "",
+		Example: "  gemini-api triggers list-executions --id TRIGGER_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runListExecutionsCmd,
 		Aliases: []string{"le"},

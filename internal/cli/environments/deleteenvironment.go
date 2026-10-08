@@ -29,14 +29,14 @@ import (
 )
 
 var deleteEnvironmentCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
 }
 
 // initDeleteEnvironmentCmd initializes the delete-environment command.
 func initDeleteEnvironmentCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "delete [id]",
-		Short:   "Deletes an environment.",
+		Short:   "Delete a sandbox environment by ID",
 		Long:    "Deletes an environment.",
 		Example: "  gemini-api environments delete --id env_abc123",
 		Args:    flagutil.PositionalFlagArgs,

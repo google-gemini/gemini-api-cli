@@ -29,14 +29,14 @@ import (
 )
 
 var getEnvironmentCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource ID segment making up resource 'name'. It identifies the resource\nwithin its parent collection as described in https://google.aip.dev/122.\n[required]"},
 }
 
 // initGetEnvironmentCmd initializes the get-environment command.
 func initGetEnvironmentCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "get [id]",
-		Short:   "Gets an environment.",
+		Short:   "Get a sandbox environment by ID",
 		Long:    "Gets an environment.",
 		Example: "  gemini-api environments get --id env_abc123",
 		Args:    flagutil.PositionalFlagArgs,

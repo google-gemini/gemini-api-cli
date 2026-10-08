@@ -59,10 +59,11 @@ type ListAgentsRequest struct {
 	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
-	PageSize   *int    `queryParam:"style=form,explode=true,name=page_size"`
-	PageToken  *string `queryParam:"style=form,explode=true,name=page_token"`
-	// Required. The parent resource to list agents from.
-	// Format: `projects/{project}/locations/{location}`
+	// Maximum number of agents to return per page
+	PageSize *int `queryParam:"style=form,explode=true,name=page_size"`
+	// Page token from a previous agent list call
+	PageToken *string `queryParam:"style=form,explode=true,name=page_token"`
+	// Parent resource to list agents from, as projects/<project>/locations/<location>
 	Parent *string `queryParam:"style=form,explode=true,name=parent"`
 }
 

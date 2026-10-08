@@ -29,7 +29,7 @@ import (
 )
 
 var deleteCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. Resource name of the trigger. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource name of the trigger. [required]"},
 }
 
 // initDeleteCmd initializes the delete command.
@@ -38,7 +38,7 @@ func initDeleteCmd(parent *cobra.Command) error {
 		Use:     "delete [id]",
 		Short:   "Delete a trigger by ID",
 		Long:    "Deletes a trigger.",
-		Example: "",
+		Example: "  gemini-api triggers delete --id TRIGGER_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runDeleteCmd,
 		Annotations: map[string]string{

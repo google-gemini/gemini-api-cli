@@ -29,7 +29,7 @@ import (
 )
 
 var updateCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook to update. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The ID of the webhook to update. [required]"},
 	{FlagName: "update-mask", FieldPath: "UpdateMask", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional list of fields to update."},
 	{FlagName: "name", Shorthand: "n", FieldPath: "Body.Name", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The user-provided name of the webhook."},
 	{FlagName: "state", FieldPath: "Body.State", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"enabled", "disabled", "disabled_due_to_failed_deliveries"}, Description: "Optional. The state of the webhook. (options: enabled, disabled, disabled_due_to_failed_deliveries)"},

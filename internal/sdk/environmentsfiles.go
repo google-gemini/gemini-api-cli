@@ -47,7 +47,8 @@ func newEnvironmentsFiles(rootSDK *GeminiAPI, sdkConfig config.SDKConfiguration,
 	}
 }
 
-// List - Retrieves file metadata or directory contents from an environment's snapshot.
+// List or inspect files in an environment snapshot
+// Retrieves file metadata or directory contents from an environment's snapshot.
 func (s *EnvironmentsFiles) List(ctx context.Context, request operations.GetEnvironmentFilesRequest, opts ...operations.Option) (*operations.GetEnvironmentFilesResponse, error) {
 	globals := operations.GetEnvironmentFilesGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

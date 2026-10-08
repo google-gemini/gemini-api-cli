@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/environments"
@@ -31,6 +33,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
+	"github.com/spyzhov/ajson"
 )
 
 // Environments - Manage sandbox environments and inspect environment files
@@ -52,7 +55,8 @@ func newEnvironments(rootSDK *GeminiAPI, sdkConfig config.SDKConfiguration, hook
 	}
 }
 
-// ListEnvironments - Lists environments.
+// ListEnvironments - List sandbox environments
+// Lists environments.
 func (s *Environments) ListEnvironments(ctx context.Context, request *operations.ListEnvironmentsRequest, opts ...operations.Option) (*operations.ListEnvironmentsResponse, error) {
 	globals := operations.ListEnvironmentsGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -96,6 +100,7 @@ func (s *Environments) ListEnvironments(ctx context.Context, request *operations
 	if timeout == nil {
 		timeout = s.sdkConfiguration.Timeout
 	}
+	paginationCtx := ctx
 
 	var streamCancel context.CancelFunc
 
@@ -235,6 +240,53 @@ func (s *Environments) ListEnvironments(ctx context.Context, request *operations
 			Response: httpRes,
 		},
 	}
+	res.Next = func() (*operations.ListEnvironmentsResponse, error) {
+		if request == nil {
+			request = &operations.ListEnvironmentsRequest{}
+		}
+		rawBody, err := utils.ConsumeRawBody(httpRes)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := ajson.Unmarshal(rawBody)
+		if err != nil {
+			return nil, err
+		}
+		nC, err := ajson.Eval(b, "$.next_page_token")
+		if err != nil {
+			return nil, err
+		}
+		var nCVal string
+
+		if nC.IsNumeric() {
+			numVal, err := nC.GetNumeric()
+			if err != nil {
+				return nil, err
+			}
+			// GetNumeric returns as float64 so convert to the appropriate type.
+			nCVal = strconv.FormatFloat(numVal, 'f', 0, 64)
+		} else {
+			val, err := nC.Value()
+			if err != nil {
+				return nil, err
+			}
+			if val == nil {
+				return nil, nil
+			}
+			nCVal = val.(string)
+			if strings.TrimSpace(nCVal) == "" {
+				return nil, nil
+			}
+		}
+		request.PageToken = &nCVal
+
+		return s.ListEnvironments(
+			paginationCtx,
+			request,
+			opts...,
+		)
+	}
 
 	switch {
 	case httpRes.StatusCode >= 400 && httpRes.StatusCode < 500:
@@ -281,7 +333,8 @@ func (s *Environments) ListEnvironments(ctx context.Context, request *operations
 
 }
 
-// CreateEnvironment - Creates an environment.
+// CreateEnvironment - Create a sandbox environment
+// Creates an environment.
 func (s *Environments) CreateEnvironment(ctx context.Context, request operations.CreateEnvironmentRequest, opts ...operations.Option) (*operations.CreateEnvironmentResponse, error) {
 	globals := operations.CreateEnvironmentGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -441,7 +494,8 @@ func (s *Environments) CreateEnvironment(ctx context.Context, request operations
 
 }
 
-// DeleteEnvironment - Deletes an environment.
+// DeleteEnvironment - Delete a sandbox environment by ID
+// Deletes an environment.
 func (s *Environments) DeleteEnvironment(ctx context.Context, request operations.DeleteEnvironmentRequest, opts ...operations.Option) (*operations.DeleteEnvironmentResponse, error) {
 	globals := operations.DeleteEnvironmentGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -594,7 +648,8 @@ func (s *Environments) DeleteEnvironment(ctx context.Context, request operations
 
 }
 
-// GetEnvironment - Gets an environment.
+// GetEnvironment - Get a sandbox environment by ID
+// Gets an environment.
 func (s *Environments) GetEnvironment(ctx context.Context, request operations.GetEnvironmentRequest, opts ...operations.Option) (*operations.GetEnvironmentResponse, error) {
 	globals := operations.GetEnvironmentGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

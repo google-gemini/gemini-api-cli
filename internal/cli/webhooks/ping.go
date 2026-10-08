@@ -29,7 +29,7 @@ import (
 )
 
 var pingCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook to ping. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The ID of the webhook to ping. [required]"},
 }
 
 // initPingCmd initializes the ping command.
@@ -38,7 +38,7 @@ func initPingCmd(parent *cobra.Command) error {
 		Use:     "ping [id]",
 		Short:   "Send a ping event to a webhook",
 		Long:    "Sends a ping event to a Webhook.",
-		Example: "",
+		Example: "  gemini-api webhooks ping --id WEBHOOK_ID",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runPingCmd,
 		Annotations: map[string]string{

@@ -25,7 +25,8 @@ type HTTPBearerConfig struct {
 	// Optional. Header name to inject the token into. Defaults to
 	// 'Authorization'.
 	HeaderName *string `json:"header_name,omitzero"`
-	ID         string  `json:"id"`
+	// Required. Unique identifier for the credential.
+	ID string `json:"id"`
 	// Optional. Prefix to prepend to the token. Defaults to 'Bearer'. Set to ''
 	// for no prefix.
 	Prefix *string `json:"prefix,omitzero"`

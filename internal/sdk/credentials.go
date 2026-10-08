@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/credentials"
@@ -31,8 +33,10 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
+	"github.com/spyzhov/ajson"
 )
 
+// Credentials - Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests
 type Credentials struct {
 	rootSDK          *GeminiAPI
 	sdkConfiguration config.SDKConfiguration
@@ -47,7 +51,8 @@ func newCredentials(rootSDK *GeminiAPI, sdkConfig config.SDKConfiguration, hooks
 	}
 }
 
-// List - Lists credentials.
+// List credentials
+// Lists credentials.
 func (s *Credentials) List(ctx context.Context, request *operations.ListCredentialsRequest, opts ...operations.Option) (*operations.ListCredentialsResponse, error) {
 	globals := operations.ListCredentialsGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -91,6 +96,7 @@ func (s *Credentials) List(ctx context.Context, request *operations.ListCredenti
 	if timeout == nil {
 		timeout = s.sdkConfiguration.Timeout
 	}
+	paginationCtx := ctx
 
 	var streamCancel context.CancelFunc
 
@@ -230,6 +236,53 @@ func (s *Credentials) List(ctx context.Context, request *operations.ListCredenti
 			Response: httpRes,
 		},
 	}
+	res.Next = func() (*operations.ListCredentialsResponse, error) {
+		if request == nil {
+			request = &operations.ListCredentialsRequest{}
+		}
+		rawBody, err := utils.ConsumeRawBody(httpRes)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := ajson.Unmarshal(rawBody)
+		if err != nil {
+			return nil, err
+		}
+		nC, err := ajson.Eval(b, "$.next_page_token")
+		if err != nil {
+			return nil, err
+		}
+		var nCVal string
+
+		if nC.IsNumeric() {
+			numVal, err := nC.GetNumeric()
+			if err != nil {
+				return nil, err
+			}
+			// GetNumeric returns as float64 so convert to the appropriate type.
+			nCVal = strconv.FormatFloat(numVal, 'f', 0, 64)
+		} else {
+			val, err := nC.Value()
+			if err != nil {
+				return nil, err
+			}
+			if val == nil {
+				return nil, nil
+			}
+			nCVal = val.(string)
+			if strings.TrimSpace(nCVal) == "" {
+				return nil, nil
+			}
+		}
+		request.PageToken = &nCVal
+
+		return s.List(
+			paginationCtx,
+			request,
+			opts...,
+		)
+	}
 
 	switch {
 	case httpRes.StatusCode >= 400 && httpRes.StatusCode < 500:
@@ -276,7 +329,8 @@ func (s *Credentials) List(ctx context.Context, request *operations.ListCredenti
 
 }
 
-// Create - Creates a new credential.
+// Create a credential
+// Creates a new credential.
 func (s *Credentials) Create(ctx context.Context, request operations.CreateCredentialRequest, opts ...operations.Option) (*operations.CreateCredentialResponse, error) {
 	globals := operations.CreateCredentialGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -436,7 +490,8 @@ func (s *Credentials) Create(ctx context.Context, request operations.CreateCrede
 
 }
 
-// Delete - Deletes a credential.
+// Delete a credential by ID
+// Deletes a credential.
 func (s *Credentials) Delete(ctx context.Context, request operations.DeleteCredentialRequest, opts ...operations.Option) (*operations.DeleteCredentialResponse, error) {
 	globals := operations.DeleteCredentialGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -589,7 +644,8 @@ func (s *Credentials) Delete(ctx context.Context, request operations.DeleteCrede
 
 }
 
-// Get - Gets a credential by ID.
+// Get a credential by ID
+// Gets a credential by ID.
 func (s *Credentials) Get(ctx context.Context, request operations.GetCredentialRequest, opts ...operations.Option) (*operations.GetCredentialResponse, error) {
 	globals := operations.GetCredentialGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -814,7 +870,8 @@ func (s *Credentials) Get(ctx context.Context, request operations.GetCredentialR
 
 }
 
-// Update - Updates a credential.
+// Update a credential by ID
+// Updates a credential.
 func (s *Credentials) Update(ctx context.Context, request operations.UpdateCredentialRequest, opts ...operations.Option) (*operations.UpdateCredentialResponse, error) {
 	globals := operations.UpdateCredentialGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

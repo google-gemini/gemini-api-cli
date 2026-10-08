@@ -346,7 +346,7 @@ func (s *Agent) List(ctx context.Context, request *operations.ListAgentsRequest,
 }
 
 // Create a managed agent definition
-// Creates a new Agent (Typed version for SDK).
+// Creates a managed agent definition that extends a base agent.
 func (s *Agent) Create(ctx context.Context, request operations.CreateAgentRequest, opts ...operations.Option) (*operations.CreateAgentResponse, error) {
 	globals := operations.CreateAgentGlobals{
 		APIVersion:  s.sdkConfiguration.Globals.APIVersion,
