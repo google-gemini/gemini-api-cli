@@ -19,8 +19,8 @@ package explorer
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Run launches the interactive explorer TUI.
@@ -28,7 +28,7 @@ import (
 func Run(root *cobra.Command, version string) ([]string, error) {
 	tree := BuildTree(root)
 	m := newModel(tree, version)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m)
 	result, err := p.Run()
 	if err != nil {
 		return nil, err

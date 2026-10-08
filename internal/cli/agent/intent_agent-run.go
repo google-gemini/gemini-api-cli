@@ -47,48 +47,48 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
 	flagutil.RegisterFlags(cmd, intentMeta)
 	flagutil.SetMetaPromptOptional(cmd, intentMeta, false)
-	cmd.Flags().String("body", "", "Request body as JSON (advanced; replaces intent arguments). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
+	cmd.Flags().String("body", "", "Request body as JSON (advanced; merges with intent inputs, rejecting duplicate keys). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
 	cmd.Flags().StringP("agent", "", "", "Managed agent to run (see \"gemini-api agent list\") (e.g. deep-research-pro-preview-12-2025, deep-research-preview-04-2026, deep-research-max-preview-04-2026, antigravity-preview-05-2026)")
+	flagutil.MarkRequestInput(cmd, "agent")
 	_ = flagutil.AnnotatePromptFlag(cmd, "agent", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
 		Order:    0,
-		// A supplied whole body carries this flag's bound key (and the
-		// backing operation flag supplies it directly): no prompt then.
+
 		BodySources: []string{"body"},
 	})
 	_ = cmd.Flags().SetAnnotation("agent", "speakeasy:group", []string{"Agent variant"})
 	_ = cmd.Flags().SetAnnotation("agent", "speakeasy:group-order", []string{"0"})
 	cmd.Flags().BoolP("background", "", false, "Return immediately with an interaction ID; poll with \"gemini-api agent status\"")
+	flagutil.MarkRequestInput(cmd, "background")
 	_ = flagutil.AnnotatePromptFlag(cmd, "background", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
 		Order:    1,
-		// A supplied whole body carries this flag's bound key (and the
-		// backing operation flag supplies it directly): no prompt then.
+
 		BodySources: []string{"body"},
 	})
 	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-3.8-flash)")
+	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
 		Order:    2,
-		// A supplied whole body carries this flag's bound key (and the
-		// backing operation flag supplies it directly): no prompt then.
+
 		BodySources: []string{"body"},
 	})
 	_ = cmd.Flags().SetAnnotation("model", "speakeasy:group", []string{"Model variant"})
 	_ = cmd.Flags().SetAnnotation("model", "speakeasy:group-order", []string{"1"})
 	cmd.Flags().BoolP("stream", "", false, "Stream the reply as it is generated; use --stream=false for one complete interaction (default: true)")
+	flagutil.MarkRequestInput(cmd, "stream")
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
 		Order:    3,
-		// A supplied whole body carries this flag's bound key (and the
-		// backing operation flag supplies it directly): no prompt then.
+
 		BodySources: []string{"body"},
 	})
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{

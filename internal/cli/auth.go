@@ -23,9 +23,9 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/interactive"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/huh/v2"
 	"golang.org/x/term"
 )
 
@@ -259,8 +259,12 @@ func runAuthLogoutCmd(cmd *cobra.Command, args []string) error {
 }
 
 // authFormTheme builds the form theme for auth login.
-func authFormTheme() *huh.Theme {
-	t := *huh.ThemeBase()
+func authFormTheme() huh.Theme {
+	return huh.ThemeFunc(authFormStyles)
+}
+
+func authFormStyles(isDark bool) *huh.Styles {
+	t := *huh.ThemeBase(isDark)
 
 	accent := lipgloss.Color("#38BDF8")
 	dimmed := lipgloss.Color("#64748B")

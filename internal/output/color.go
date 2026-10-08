@@ -18,24 +18,33 @@ package output
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"os"
+	"strings"
 
+	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
 // ANSI color codes for JSON syntax highlighting.
 const (
 	colorReset  = "\033[0m"
-	colorKey    = "\033[1;34m" // Bold blue
-	colorString = "\033[32m"   // Green
-	colorNumber = "\033[33m"   // Yellow
-	colorBool   = "\033[35m"   // Magenta
-	colorNull   = "\033[36m"   // Cyan
+	colorKey    = "\033[1;38;2;56;189;248m"
+	colorString = "\033[32m" // Green
+	colorNumber = "\033[33m" // Yellow
+	colorBool   = "\033[35m" // Magenta
+	colorNull   = "\033[36m" // Cyan
 )
 
 // ShouldColorize determines whether output should include ANSI color codes.
 // It checks agent mode, the --color flag value, NO_COLOR / FORCE_COLOR env vars, and TTY status.
 func ShouldColorize(colorFlag string) bool {
+	return shouldColorizeWriter(colorFlag, os.Stdout)
+}
+
+func shouldColorizeWriter(colorFlag string, out io.Writer) bool {
 	// Agent mode: never colorize — output must be machine-parseable.
 	if IsAgentMode() {
 		return false
@@ -53,8 +62,51 @@ func ShouldColorize(colorFlag string) bool {
 		if _, ok := os.LookupEnv("FORCE_COLOR"); ok {
 			return true
 		}
-		return term.IsTerminal(int(os.Stdout.Fd()))
+		file, ok := out.(*os.File)
+		return ok && term.IsTerminal(int(file.Fd()))
 	}
+}
+
+func InstallHelpStyling(cmd *cobra.Command) {
+	for _, child := range cmd.Commands() {
+		InstallHelpStyling(child)
+	}
+	help := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(current *cobra.Command, args []string) {
+		InitAgentMode(current)
+		colorFlag, _ := flagutil.GetStringFlag(current, "color")
+		out := current.OutOrStdout()
+		if !shouldColorizeWriter(colorFlag, out) {
+			help(current, args)
+			return
+		}
+
+		previousOut := localOutWriter(current)
+		var buf bytes.Buffer
+		current.SetOut(&buf)
+		defer current.SetOut(previousOut)
+		help(current, args)
+		current.SetOut(previousOut)
+		_ = WriteHelp(current, buf.String())
+	})
+}
+
+func WriteHelp(cmd *cobra.Command, text string) error {
+	InitAgentMode(cmd)
+	colorFlag, _ := flagutil.GetStringFlag(cmd, "color")
+	out := cmd.OutOrStdout()
+	if shouldColorizeWriter(colorFlag, out) {
+		lines := strings.SplitAfter(text, "\n")
+		for i, line := range lines {
+			heading := strings.TrimSuffix(line, "\n")
+			if strings.TrimSpace(heading) == heading && strings.HasSuffix(heading, ":") {
+				lines[i] = colorKey + heading + colorReset + strings.TrimPrefix(line, heading)
+			}
+		}
+		text = strings.Join(lines, "")
+	}
+	_, err := fmt.Fprint(out, text)
+	return err
 }
 
 // ColorizeJSON adds ANSI color codes to formatted JSON output.
@@ -138,4 +190,31 @@ func ColorizeJSON(data []byte) []byte {
 	}
 
 	return buf.Bytes()
+}
+
+func terminalFd(w io.Writer) (int, bool) {
+	f, ok := w.(interface{ Fd() uintptr })
+	if !ok {
+		return 0, false
+	}
+	return int(f.Fd()), true
+}
+
+// isInteractiveTTY checks if a writer is connected to an interactive terminal.
+// Returns false for buffers, pipes, and redirected file descriptors.
+func isInteractiveTTY(w io.Writer) bool {
+	fd, ok := terminalFd(w)
+	return ok && term.IsTerminal(fd)
+}
+
+func terminalWidth(w io.Writer) int {
+	fd, ok := terminalFd(w)
+	if !ok {
+		return 0
+	}
+	width, _, err := term.GetSize(fd)
+	if err != nil {
+		return 0
+	}
+	return width
 }

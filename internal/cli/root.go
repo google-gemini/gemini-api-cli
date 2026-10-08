@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/cli/agent"
@@ -65,11 +66,7 @@ func NewRootCommand() (*cobra.Command, error) {
 				return printVersion(cmd)
 			}
 			if compactHelpGlobalRequested(cmd) {
-				out := cmd.OutOrStdout()
-				fmt.Fprintln(out, "Global flags (apply to every command):")
-				fmt.Fprintln(out)
-				_, err := fmt.Fprintln(out, renderGroupedFlags(cmd.Root().PersistentFlags(), "Global Flags"))
-				return err
+				return output.WriteHelp(cmd, "Global flags (apply to every command):\n\n"+renderGroupedFlags(cmd.Root().PersistentFlags(), "Global Flags")+"\n")
 			}
 			return cmd.Help()
 		},
@@ -91,6 +88,7 @@ func NewRootCommand() (*cobra.Command, error) {
 			}
 			output.InitAgentMode(cmd)
 			flagutil.SetStdinReadDeadline(output.IsAgentMode())
+			flagutil.ResetStdinSkip()
 			return nil
 		},
 	}
@@ -227,6 +225,7 @@ func NewRootCommand() (*cobra.Command, error) {
 	usage.Intercept(rootCmd)
 	// Cobra validates Args before any PersistentPreRunE runs.
 	output.InstallErrorHandling(rootCmd)
+	output.InstallHelpStyling(rootCmd)
 
 	return rootCmd, nil
 }
@@ -237,8 +236,22 @@ func Execute() error {
 	if err != nil {
 		return err
 	}
+	ctx, stop := InterruptContext(context.Background())
+	defer stop()
 
-	return ExecuteRoot(context.Background(), rootCmd, os.Args[1:])
+	return ExecuteRoot(ctx, rootCmd, os.Args[1:])
+}
+
+// InterruptContext cancels on the first interrupt. The default signal
+// behavior is restored once the context is done, so a second interrupt still
+// terminates a command that does not observe its context.
+func InterruptContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, stop
 }
 
 func ExecuteRoot(ctx context.Context, root *cobra.Command, args []string) error {
@@ -273,7 +286,7 @@ func initExploreCmd(parent *cobra.Command) {
 			if err := interactive.Resolve(cmd).ValidateDirectExplore(); err != nil {
 				return err
 			}
-			return runExplorer(cmd.Root())
+			return runExplorer(cmd.Context(), cmd.Root())
 		},
 	})
 }
@@ -303,7 +316,7 @@ func ExplorerHandoffArgs(root *cobra.Command, selectedArgs []string) []string {
 }
 
 // runExplorer launches the explorer TUI and handles command execution handoff.
-func runExplorer(root *cobra.Command) error {
+func runExplorer(ctx context.Context, root *cobra.Command) error {
 	selectedArgs, err := explorer.Run(root, Version)
 	if err != nil {
 		return err
@@ -316,7 +329,7 @@ func runExplorer(root *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	return ExecuteRoot(context.Background(), freshRoot, ExplorerHandoffArgs(root, selectedArgs))
+	return ExecuteRoot(ctx, freshRoot, ExplorerHandoffArgs(root, selectedArgs))
 }
 
 // globalFlagGroupOrder defines the display order for flag groups in help output.

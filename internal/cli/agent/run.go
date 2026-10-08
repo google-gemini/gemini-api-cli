@@ -50,7 +50,7 @@ func initRunCmd(parent *cobra.Command) error {
 		return fmt.Errorf("invalid metadata for run: %w", err)
 	}
 	cmd.Flags().String("body", "", "Request body as JSON (alternative to individual flags). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
-	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
+	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Required: false, Kind: "json", BodyFlag: true})
 	cmd.Annotations[flagutil.AnnotationWholeBodyFlag] = "body"
 	if err := flagutil.AnnotateBodyFields(cmd, runCmdMeta, "Body", "body"); err != nil {
 		return fmt.Errorf("annotate body fields for run: %w", err)
@@ -61,6 +61,7 @@ func initRunCmd(parent *cobra.Command) error {
 	if err := cmd.Flags().SetAnnotation("stream", flagutil.AnnotationOpDeclaredInput, []string{"stream"}); err != nil {
 		return err
 	}
+	flagutil.MarkRequestInput(cmd, "stream")
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		PromptOptional:  true,
 		Kind:            "bool",

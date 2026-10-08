@@ -117,6 +117,33 @@ func (e *asyncRuntimeError) MachineErrorFields() map[string]interface{} {
 	return fields
 }
 
+type asyncPollError struct {
+	err    error
+	id     string
+	resume string
+}
+
+func (e *asyncPollError) Error() string { return e.err.Error() }
+
+func (e *asyncPollError) Unwrap() error { return e.err }
+
+func (e *asyncPollError) MachineErrorFields() map[string]interface{} {
+	fields := map[string]interface{}{}
+	var inner interface{ MachineErrorFields() map[string]interface{} }
+	if errors.As(e.err, &inner) {
+		for key, value := range inner.MachineErrorFields() {
+			fields[key] = value
+		}
+	}
+	fields["id"] = e.id
+	fields["resume"] = e.resume
+	return fields
+}
+
+func (e *asyncPollError) CLIHints() []string {
+	return append(append([]string(nil), errorCLIHints(e.err)...), "Resume polling with: "+e.resume)
+}
+
 type asyncTimings struct {
 	interval    time.Duration
 	maxInterval time.Duration
@@ -158,11 +185,34 @@ func AsyncResult(cmd *cobra.Command, createResponse interface{}, newPoll AsyncPo
 	if err != nil {
 		return Error(cmd, err)
 	}
-	interval := timings.interval
-	deadline := started.Add(timings.timeout)
-	pollCtx, cancel := context.WithDeadline(cmd.Context(), deadline)
+	pollCtx, cancel := context.WithDeadline(cmd.Context(), started.Add(timings.timeout))
 	defer cancel()
 
+	progress := newAsyncProgress(cmd)
+	outcome := awaitAsync(cmd, pollCtx, cfg, timings, id, resume, started, poll, progress)
+	progress.clear()
+	switch {
+	case outcome.err != nil:
+		return Error(cmd, outcome.err)
+	case outcome.runtimeErr != nil:
+		return renderAsyncError(cmd, outcome.runtimeErr)
+	default:
+		return renderAsyncSnapshot(cmd, outcome.snapshot, outcome.allowArtifact)
+	}
+}
+
+type asyncOutcome struct {
+	snapshot      asyncSnapshot
+	allowArtifact bool
+	runtimeErr    *asyncRuntimeError
+	err           error
+}
+
+func awaitAsync(cmd *cobra.Command, pollCtx context.Context, cfg *asyncConfig, timings asyncTimings, id, resume string, started time.Time, poll AsyncPollFunc, progress *asyncProgress) asyncOutcome {
+	interval := timings.interval
+	timedOut := func() asyncOutcome {
+		return asyncOutcome{runtimeErr: &asyncRuntimeError{reason: ReasonCLIAsyncTimeout, message: fmt.Sprintf("timed out waiting for %s", cfg.Command), id: id, resume: resume}}
+	}
 	for {
 		timer := time.NewTimer(interval)
 		select {
@@ -175,49 +225,49 @@ func AsyncResult(cmd *cobra.Command, createResponse interface{}, newPoll AsyncPo
 				}
 			}
 			if errors.Is(pollCtx.Err(), context.DeadlineExceeded) && cmd.Context().Err() == nil {
-				return renderAsyncError(cmd, &asyncRuntimeError{reason: ReasonCLIAsyncTimeout, message: fmt.Sprintf("timed out waiting for %s", cfg.Command), id: id, resume: resume})
+				return timedOut()
 			}
-			return Error(cmd, fmt.Errorf("waiting for %s (%s) canceled: %w", cfg.Command, id, pollCtx.Err()))
+			return asyncOutcome{err: fmt.Errorf("waiting for %s (%s) canceled: %w", cfg.Command, id, pollCtx.Err())}
 		}
 
 		response, err := poll(pollCtx)
 		if err != nil {
-			if errors.Is(pollCtx.Err(), context.DeadlineExceeded) && cmd.Context().Err() == nil {
-				return renderAsyncError(cmd, &asyncRuntimeError{reason: ReasonCLIAsyncTimeout, message: fmt.Sprintf("timed out waiting for %s", cfg.Command), id: id, resume: resume})
+			if errors.Is(err, context.DeadlineExceeded) && errors.Is(pollCtx.Err(), context.DeadlineExceeded) && cmd.Context().Err() == nil {
+				return timedOut()
 			}
-			return Error(cmd, err)
+			return asyncOutcome{err: &asyncPollError{err: err, id: id, resume: resume}}
 		}
 		snapshot, err := snapshotAsyncResponse(response)
 		if err != nil {
-			return renderAsyncError(cmd, protocolAsyncError(cfg, id, cfg.Resume, "poll response: "+err.Error(), nil))
+			return asyncOutcome{runtimeErr: protocolAsyncError(cfg, id, cfg.Resume, "poll response: "+err.Error(), nil)}
 		}
 		stateValue, ok := asyncPointer(snapshot.parsed, cfg.StatePointer)
 		state, isString := stateValue.(string)
 		if !ok || !isString || state == "" {
-			return renderAsyncError(cmd, protocolAsyncError(cfg, id, cfg.Resume, "poll response does not contain a non-empty string state at "+cfg.StatePointer, snapshot.parsed))
+			return asyncOutcome{runtimeErr: protocolAsyncError(cfg, id, cfg.Resume, "poll response does not contain a non-empty string state at "+cfg.StatePointer, snapshot.parsed)}
 		}
 		classification, known := cfg.States[state]
 		if !known {
-			return renderAsyncError(cmd, &asyncRuntimeError{reason: ReasonCLIAsyncUnknownState, message: fmt.Sprintf("poll response returned unknown state %q", state), id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField})
+			return asyncOutcome{runtimeErr: &asyncRuntimeError{reason: ReasonCLIAsyncUnknownState, message: fmt.Sprintf("poll response returned unknown state %q", state), id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField}}
 		}
 
 		switch classification {
 		case "success":
-			return renderAsyncSnapshot(cmd, snapshot, true)
+			return asyncOutcome{snapshot: snapshot, allowArtifact: true}
 		case "handoff":
-			return renderAsyncSnapshot(cmd, snapshot, false)
+			return asyncOutcome{snapshot: snapshot}
 		case "failure":
 			message := fmt.Sprintf("%s reached failure state %q", cfg.Command, state)
 			if detail := asyncFailureDetail(cfg, snapshot.parsed); detail != "" {
 				message += ": " + detail
 			}
-			return renderAsyncError(cmd, &asyncRuntimeError{reason: ReasonCLIAsyncFailed, message: message, id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField})
+			return asyncOutcome{runtimeErr: &asyncRuntimeError{reason: ReasonCLIAsyncFailed, message: message, id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField}}
 		case "pending":
 			if !IsMachineMode(cmd) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Waiting for %s (%s: %s, %s elapsed)…%s", cfg.Command, id, state, asyncElapsed(time.Since(started)), string(rune(10)))
+				progress.update(fmt.Sprintf("Waiting for %s (%s: %s, %s elapsed)…", cfg.Command, id, state, asyncElapsed(time.Since(started))))
 			}
 		default:
-			return renderAsyncError(cmd, &asyncRuntimeError{reason: ReasonCLIProtocol, message: fmt.Sprintf("generated async table has invalid classification %q for state %q", classification, state), id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField})
+			return asyncOutcome{runtimeErr: &asyncRuntimeError{reason: ReasonCLIProtocol, message: fmt.Sprintf("generated async table has invalid classification %q for state %q", classification, state), id: id, resume: resume, payload: snapshot.parsed, errorField: cfg.ErrorField}}
 		}
 
 		next := time.Duration(float64(interval) * cfg.Backoff)
@@ -225,6 +275,42 @@ func AsyncResult(cmd *cobra.Command, createResponse interface{}, newPoll AsyncPo
 			next = timings.maxInterval
 		}
 		interval = next
+	}
+}
+
+type asyncProgress struct {
+	out   io.Writer
+	live  bool
+	shown bool
+}
+
+const asyncClearLine = "\r\033[2K"
+
+func newAsyncProgress(cmd *cobra.Command) *asyncProgress {
+	out := cmd.ErrOrStderr()
+	debug, _ := flagutil.GetBoolFlag(cmd, "debug")
+	dryRun, _ := flagutil.GetBoolFlag(cmd, "dry-run")
+	return &asyncProgress{out: out, live: isInteractiveTTY(out) && !debug && !dryRun}
+}
+
+func (p *asyncProgress) update(message string) {
+	if !p.live {
+		fmt.Fprintln(p.out, message)
+		return
+	}
+	if width := terminalWidth(p.out); width > 1 {
+		if runes := []rune(message); len(runes) >= width {
+			message = string(runes[:width-2]) + "…"
+		}
+	}
+	fmt.Fprint(p.out, asyncClearLine+message)
+	p.shown = true
+}
+
+func (p *asyncProgress) clear() {
+	if p.shown {
+		fmt.Fprint(p.out, asyncClearLine)
+		p.shown = false
 	}
 }
 

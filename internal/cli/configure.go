@@ -27,9 +27,9 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/huh/v2"
 	"golang.org/x/term"
 )
 
@@ -243,8 +243,12 @@ func dryRunLocalNoop(cmd *cobra.Command, message string) bool {
 }
 
 // configureFormTheme builds the form theme for the configure command.
-func configureFormTheme() *huh.Theme {
-	t := *huh.ThemeBase()
+func configureFormTheme() huh.Theme {
+	return huh.ThemeFunc(configureFormStyles)
+}
+
+func configureFormStyles(isDark bool) *huh.Styles {
+	t := *huh.ThemeBase(isDark)
 
 	accent := lipgloss.Color("#38BDF8")
 	dimmed := lipgloss.Color("#64748B")

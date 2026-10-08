@@ -37,6 +37,7 @@ Sources are shown as:
   [env]     - Set via environment variable (GEMINI_*)
   [keyring] - Set via OS keychain (stored by configure command)
   [config]  - Set via config file (~/.config/gemini-api/config.yaml)
+  [default] - Built-in global parameter flag default
   [unset]   - Not configured
 
 Credential values are masked for security.`,
@@ -70,15 +71,15 @@ func runWhoamiCmd(cmd *cobra.Command, args []string) error {
 		info["credentials"] = credentials
 		parameters := map[string]any{}
 		{
-			value, source := config.ResolveCredential(cmd, "api-version")
+			value, source := config.ResolveCredential(cmd, "api-version", true)
 			parameters["api-version"] = map[string]any{"source": source, "value": value}
 		}
 		{
-			value, source := config.ResolveCredential(cmd, "api-revision")
+			value, source := config.ResolveCredential(cmd, "api-revision", false)
 			parameters["api-revision"] = map[string]any{"source": source, "value": value}
 		}
 		{
-			value, source := config.ResolveCredential(cmd, "user-project")
+			value, source := config.ResolveCredential(cmd, "user-project", false)
 			parameters["user-project"] = map[string]any{"source": source, "value": value}
 		}
 		info["global_parameters"] = parameters
@@ -111,19 +112,19 @@ func runWhoamiCmd(cmd *cobra.Command, args []string) error {
 
 	// Which version of the API to use
 	{
-		value, source := config.ResolveCredential(cmd, "api-version")
+		value, source := config.ResolveCredential(cmd, "api-version", true)
 		fmt.Fprintf(out, "  --%-25s [%-7s] %s\n", "api-version", source, value)
 	}
 
 	// Interactions API revision to request
 	{
-		value, source := config.ResolveCredential(cmd, "api-revision")
+		value, source := config.ResolveCredential(cmd, "api-revision", false)
 		fmt.Fprintf(out, "  --%-25s [%-7s] %s\n", "api-revision", source, value)
 	}
 
 	// Quota project header to send with Google GenAI API requests
 	{
-		value, source := config.ResolveCredential(cmd, "user-project")
+		value, source := config.ResolveCredential(cmd, "user-project", false)
 		fmt.Fprintf(out, "  --%-25s [%-7s] %s\n", "user-project", source, value)
 	}
 

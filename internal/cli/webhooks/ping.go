@@ -30,7 +30,6 @@ import (
 
 var pingCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Description: "Required. The ID of the webhook to ping. [required]"},
-	{FlagName: "body-param", Shorthand: "b", FieldPath: "Body", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `request:"mediaType=application/json"`, Description: "Required. The request body."},
 }
 
 // initPingCmd initializes the ping command.
@@ -50,8 +49,8 @@ func initPingCmd(parent *cobra.Command) error {
 	if err := flagutil.ValidateMeta[operations.PingWebhookRequest](pingCmdMeta); err != nil {
 		return fmt.Errorf("invalid metadata for ping: %w", err)
 	}
-	cmd.Flags().String("body", "", "Request body as JSON (alternative to individual flags). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
-	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
+	cmd.Flags().String("body", "", "Request body as JSON. Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
+	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Required: false, Kind: "json", BodyFlag: true})
 	cmd.Annotations[flagutil.AnnotationWholeBodyFlag] = "body"
 	if err := flagutil.AnnotateBodyFields(cmd, pingCmdMeta, "Body", "body"); err != nil {
 		return fmt.Errorf("annotate body fields for ping: %w", err)
@@ -101,7 +100,10 @@ func runPingCmd(cmd *cobra.Command, args []string) error {
 	if output.WantsRawJSON(cmd) {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
+	stopProgress := output.StartRequestProgress(cmd)
+	defer stopProgress()
 	res, err := s.Webhooks.Ping(cmd.Context(), *req, sdkOpts...)
+	stopProgress()
 	if err != nil {
 		return output.Error(cmd, err)
 	}

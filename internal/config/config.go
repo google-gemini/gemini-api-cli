@@ -190,19 +190,23 @@ func GetConfigValue(key string) string {
 }
 
 // ResolveCredential resolves a credential value using the priority chain:
-// flag > env var > config file. Returns the value and its source
-// ("flag", "env", "config", or "unset").
+// flag > env var > config file > flag default. Returns the value and its source
+// ("flag", "env", "config", "default", or "unset").
 // Used for global parameters. For security credentials, use ResolveSecurityCredential
 // which includes the OS keychain tier.
-func ResolveCredential(cmd *cobra.Command, flagName string) (value, source string) {
-	if val, changed := flagutil.GetStringFlag(cmd, flagName); changed && val != "" {
-		return val, "flag"
+func ResolveCredential(cmd *cobra.Command, flagName string, hasSchemaDefault bool) (value, source string) {
+	flagValue, changed := flagutil.GetStringFlag(cmd, flagName)
+	if changed && flagValue != "" {
+		return flagValue, "flag"
 	}
 	if val := GetEnvValue(flagName); val != "" {
 		return val, "env"
 	}
 	if val := GetConfigValue(flagName); val != "" {
 		return val, "config"
+	}
+	if hasSchemaDefault && !changed && flagValue != "" {
+		return flagValue, "default"
 	}
 	return "", "unset"
 }

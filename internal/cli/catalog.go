@@ -73,7 +73,7 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "gemini-3-pro-image", "description": "Gemini 3 Pro Image", "default": false},
 				{"value": "nano-banana-pro-preview", "description": "Gemini 3 Pro Image Preview", "default": false},
 				{"value": "gemini-3.1-flash-image", "description": "Gemini 3.1 Flash Image.", "default": false},
-				{"value": "gemini-nano-banana-2.1", "description": "Gemini Nano Banana 2.1.", "default": false},
+				{"value": "gemini-nano-banana-2.1", "description": "Gemini Nano Banana 2.1.", "default": false, "default_for": []string{"image"}},
 				{"value": "gemini-3.1-flash-tts-preview", "description": "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.", "default": false},
 				{"value": "gemini-3.5-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
 				{"value": "gemini-3.6-flash", "description": "Our most intelligent model for sustained frontier performance in agentic and coding tasks.", "default": false},
@@ -84,8 +84,8 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "lyria-3-clip-preview", "description": "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.", "default": false},
 				{"value": "lyria-3-pro-preview", "description": "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.", "default": false},
 				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false},
-				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false},
-				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
+				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false, "default_for": []string{"music"}},
+				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "default_for": []string{"video"}},
 				{"value": "gemini-omni-flash-preview", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false},
 			}
 			if output.IsMachineMode(cmd) {
@@ -107,7 +107,7 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3-pro-image", "Gemini 3 Pro Image")
 			fmt.Fprintf(out, "%-42s %s\n", "nano-banana-pro-preview", "Gemini 3 Pro Image Preview")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-image", "Gemini 3.1 Flash Image.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-nano-banana-2.1", "Gemini Nano Banana 2.1.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-nano-banana-2.1 (default: image)", "Gemini Nano Banana 2.1.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.1-flash-tts-preview", "Gemini 3.1 Flash TTS: Powerful, low-latency speech generation. Enjoy natural outputs, steerable prompts, and new expressive audio tags for precise narration control.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.5-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-3.6-flash", "Our most intelligent model for sustained frontier performance in agentic and coding tasks.")
@@ -118,8 +118,8 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-clip-preview", "Our low-latency, music generation model optimized for high-fidelity audio clips and precise rhythmic control.")
 			fmt.Fprintf(out, "%-42s %s\n", "lyria-3-pro-preview", "Our advanced, full-song generative model with deep compositional understanding, optimized for precise structural control and complex transitions across diverse musical styles.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
-			fmt.Fprintf(out, "%-42s %s\n", "lyria-3.5", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
-			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-1.1-flash", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintf(out, "%-42s %s\n", "lyria-3.5 (default: music)", "Our flagship music generation model, optimized for full-length songs with complex structural coherence.")
+			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-1.1-flash (default: video)", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
 			fmt.Fprintf(out, "%-42s %s\n", "gemini-omni-flash-preview", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
 			return nil
 		},

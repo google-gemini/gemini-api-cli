@@ -50,32 +50,28 @@ func InitIntentVideo(parent *cobra.Command) error {
 			"speakeasy_async":                "{\"idPointer\":\"/id\",\"statePointer\":\"/status\",\"states\":{\"budget_exceeded\":\"failure\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"failure\",\"queued\":\"pending\",\"requires_action\":\"handoff\"},\"interval\":\"5s\",\"backoff\":1.5,\"maxInterval\":\"30s\",\"timeout\":\"15m\",\"command\":\"video\",\"resume\":\"gemini-api agent status --id\",\"parameterIn\":\"path\",\"parameterName\":\"interactionsId\",\"params\":[{\"in\":\"query\",\"name\":\"stream\",\"value\":false}]}",
 		},
 	}
-	flagutil.RegisterFlags(cmd, runCmdMeta)
-	flagutil.SetMetaPromptOptional(cmd, runCmdMeta, false)
-	flagutil.ClearBodyRequirements(cmd, runCmdMeta, "Body")
-	cmd.Flags().String("body", "", "Request body as JSON (advanced; replaces intent arguments). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
+	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
+	flagutil.RegisterFlags(cmd, intentMeta)
+	flagutil.SetMetaPromptOptional(cmd, intentMeta, false)
+	cmd.Flags().String("body", "", "Request body as JSON (advanced; merges with intent inputs, rejecting duplicate keys). Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
-	if err := flagutil.AnnotateBodyFields(cmd, runCmdMeta, "Body", "body", "body-param"); err != nil {
-		return fmt.Errorf("annotate body fields for intent video: %w", err)
-	}
-	_ = flagutil.MarkBodyFlag(cmd, "body-param")
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
 	cmd.Flags().StringP("model", "m", "", "Override the video model (e.g. gemini-omni-flash-preview, default: gemini-omni-1.1-flash)")
+	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
 		Order:    0,
-		// A supplied whole body carries this flag's bound key (and the
-		// backing operation flag supplies it directly): no prompt then.
-		BodySources: []string{"body", "body-param"},
+
+		BodySources: []string{"body"},
 	})
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
 		{
 			Name: "prompt", Summary: "Video prompt",
 			Required: true, Variadic: true,
 			BodyKey:     "input",
-			SatisfiedBy: []string{"body", "body-param"},
+			SatisfiedBy: []string{"body"},
 		},
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for intent video: %w", err)
@@ -120,7 +116,7 @@ func runIntentVideoCmd(cmd *cobra.Command, args []string) error {
 	if flagutil.FlagChanged(cmd, "raw-response") && flagutil.FlagChanged(cmd, "out") {
 		return flagutil.WithCLIValidation(fmt.Errorf("--raw-response prints the raw API response and cannot be combined with --out"))
 	}
-	bodySurfaces := []string{"body", "body-param"}
+	bodySurfaces := []string{"body"}
 	for _, surface := range bodySurfaces {
 		if flagutil.FlagChanged(cmd, surface) {
 			if err := flagutil.ResolveBodyFlag(cmd, surface); err != nil {
@@ -129,9 +125,7 @@ func runIntentVideoCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 	suppliedBodyFlag := ""
-	if flagutil.FlagChanged(cmd, "body-param") {
-		suppliedBodyFlag = "body-param"
-	}
+
 	if flagutil.FlagChanged(cmd, "body") {
 		suppliedBodyFlag = "body"
 	}
@@ -159,7 +153,7 @@ func runIntentVideoCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "body-param") && !flagutil.FlagChanged(cmd, "model") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {

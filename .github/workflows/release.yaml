@@ -17,12 +17,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check tag matches CLI version
+      - name: Check release version
         run: |
-          want="${GITHUB_REF_NAME#v}"
-          got=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/version.go)
-          if [ "$want" != "$got" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match internal/cli/version.go ($got): set cli.version in gen.yaml to $want and regenerate before tagging"
+          tag_version="${GITHUB_REF_NAME#v}"
+          cli_version=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/version.go)
+          if [ -z "$cli_version" ] || [ "$tag_version" != "$cli_version" ]; then
+            printf '::error::Release tag %s does not match generated CLI version %s. Set cli.version in .speakeasy/gen.yaml to %s and regenerate before tagging.\n' "$GITHUB_REF_NAME" "$cli_version" "$tag_version"
             exit 1
           fi
 

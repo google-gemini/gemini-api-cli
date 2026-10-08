@@ -507,7 +507,7 @@ func assembleHints(cmd *cobra.Command, err error, c Classification, bodyMap, err
 		hints = append(hints, ruleHints...)
 	} else if declared, ok := declaredTypeHints[c.Type]; ok {
 		hints = append(hints, declared...)
-	} else {
+	} else if !omitsTypeHints(err) {
 		hints = append(hints, builtinTypeHints[c.Type]...)
 	}
 	hints = append(hints, errorCLIHints(err)...)
@@ -572,6 +572,11 @@ func errorCLIHints(err error) []string {
 		return typed.CLIHints()
 	}
 	return nil
+}
+
+func omitsTypeHints(err error) bool {
+	var typed interface{ CLIOmitTypeHints() bool }
+	return errors.As(err, &typed) && typed.CLIOmitTypeHints()
 }
 
 func leadingHints(cmd *cobra.Command, err error, reason string) []string {
@@ -714,19 +719,13 @@ func cliReasonErrorType(reason string) ErrorType {
 
 type cliHintsError struct {
 	error
-	hints []string
+	hints         []string
+	omitTypeHints bool
 }
 
-func (e cliHintsError) CLIHints() []string { return e.hints }
-func (e cliHintsError) Unwrap() error      { return e.error }
-
-type cliLeadingHintsError struct {
-	error
-	hints []string
-}
-
-func (e cliLeadingHintsError) CLILeadingHints() []string { return e.hints }
-func (e cliLeadingHintsError) Unwrap() error             { return e.error }
+func (e cliHintsError) CLIHints() []string     { return e.hints }
+func (e cliHintsError) CLIOmitTypeHints() bool { return e.omitTypeHints }
+func (e cliHintsError) Unwrap() error          { return e.error }
 
 func withCLIHints(err error, hints []string) error {
 	if err == nil || len(hints) == 0 {

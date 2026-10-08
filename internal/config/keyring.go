@@ -107,6 +107,7 @@ func StoreSecret(key, value string, fallback *string) error {
 		*fallback = value
 		return err
 	}
+	*fallback = ""
 	return nil
 }
 

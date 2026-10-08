@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // navFrame stores state when entering a group, allowing restoration on back.
@@ -76,13 +76,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
-	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+	case tea.MouseReleaseMsg:
+		if msg.Button == tea.MouseLeft {
 			return m.handleClick(msg.X, msg.Y)
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.searching {
 			return m.updateSearch(msg)
 		}
@@ -260,7 +260,7 @@ func (m model) goBack() model {
 	return m
 }
 
-func (m model) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	total := m.totalItems()
 
 	switch {
@@ -321,8 +321,8 @@ func (m model) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.searching = false
 		m.filter = ""
@@ -382,8 +382,8 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Normal character input
-	if msg.Type == tea.KeyRunes {
-		m.filter += string(msg.Runes)
+	if msg.Text != "" && !msg.Mod.Contains(tea.ModCtrl) && !msg.Mod.Contains(tea.ModAlt) {
+		m.filter += msg.Text
 		m.applyFilter()
 	}
 
@@ -474,8 +474,15 @@ func (m model) listHeight() int {
 	return h
 }
 
-// View renders the two-panel layout.
-func (m model) View() string {
+func (m model) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
+}
+
+// render draws the two-panel layout.
+func (m model) render() string {
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
