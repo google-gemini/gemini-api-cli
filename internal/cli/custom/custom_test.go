@@ -1610,5 +1610,3 @@ func TestUploadEnvironmentChunksBoundaryAndUnexpectedEOF(t *testing.T) {
 		t.Errorf("uploadEnvironmentChunks premature EOF error = %v, want unexpected EOF", err)
 	}
 }
-
-

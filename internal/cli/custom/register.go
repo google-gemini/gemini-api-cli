@@ -61,10 +61,8 @@ func Register(root *cobra.Command) {
 }
 
 func register(root *cobra.Command) error {
-	// tokens stays as the generated "planned" placeholder: count-tokens needs
-	// the classic GenAI surface that this interactions-only build drops. tts,
-	// analyze, and transcribe are declared custom and backed by real porcelain
-	// over the Interactions API.
+	// tts, analyze, and transcribe are declared custom and backed by real
+	// porcelain over the Interactions API.
 	claims := []struct {
 		name   string
 		attach func(*cobra.Command)
