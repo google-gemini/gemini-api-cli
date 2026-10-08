@@ -36,7 +36,7 @@ func initFilesRegisterCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "register",
 		Short:   "Register Google Cloud Storage objects as files without copying them",
-		Long:    "Registers Google Cloud Storage objects with the Files API. Pass their gs:// URIs and receive one File resource per URI; the objects are registered in place, not copied. If any URI fails to register, the whole request fails.",
+		Long:    "Registers Google Cloud Storage objects with the Files API. Pass their gs:// URIs and receive one File resource per URI; the objects are registered in place, not copied. If any URI fails to register, the whole request fails. Requires an OAuth 2.0 access token via --access-token or \"gemini-api auth login\".",
 		Example: "  gemini-api files register --uris '[\"gs://bucket/object\"]'",
 		Args:    cobra.NoArgs,
 		RunE:    runFilesRegisterCmd,

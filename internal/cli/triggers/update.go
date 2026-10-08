@@ -29,7 +29,7 @@ import (
 )
 
 var updateCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. Resource name of the trigger. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", PatternErrorMessage: "Resource IDs cannot be \".\" or \"..\".", Description: "Required. Resource name of the trigger. [required]"},
 	{FlagName: "display-name", FieldPath: "Body.DisplayName", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The display name of the trigger."},
 	{FlagName: "status", Shorthand: "s", FieldPath: "Body.Status", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"active", "paused", "error"}, Description: "Optional. The status of the trigger. (options: active, paused, error)"},
 }

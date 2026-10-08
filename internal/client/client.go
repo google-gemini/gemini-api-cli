@@ -39,7 +39,7 @@ import (
 // Empty allowedSecurityFields accepts every global security alternative.
 func NewClient(cmd *cobra.Command, allowedSecurityFields ...string) (*sdk.GeminiAPI, error) {
 	var sdkOpts []sdk.SDKOption
-	sdkOpts = append(sdkOpts, sdk.WithSecurity(buildGlobalSecurity(cmd, allowedSecurityFields)))
+	sdkOpts = append(sdkOpts, sdk.WithSecurity(BuildGlobalSecurity(cmd, allowedSecurityFields)))
 	if serverURL, _ := flagutil.GetStringFlag(cmd, "server-url"); serverURL != "" {
 		if err := flagutil.ValidateServerURL(serverURL); err != nil {
 			return nil, err
@@ -120,26 +120,36 @@ func resolveStringFlag(cmd *cobra.Command, name string) string {
 	return config.GetString(name)
 }
 
-// buildGlobalSecurity reads security credentials with priority: flag > env var > keyring > config.
-func buildGlobalSecurity(cmd *cobra.Command, allowedSecurityFields []string) components.Security {
+// BuildGlobalSecurity reads security credentials with priority: flag > env var > keyring > config.
+func BuildGlobalSecurity(cmd *cobra.Command, allowedSecurityFields []string) components.Security {
 	// Resolve request credentials: flag > env var > keyring > config file (keyring skipped for dry-run)
 	var (
 		apiKey      string
 		accessToken string
 	)
 	credentialSources := map[string]string{}
-	apiKey, credentialSources["api-key"] = config.ResolveRequestSecurityCredential(cmd, "api-key")
-	accessToken, credentialSources["access-token"] = config.ResolveRequestSecurityCredential(cmd, "access-token")
 	globalSecurity := components.Security{}
 	// Rank the alternatives by how explicitly the caller supplied them
 	// (flag > env > keyring > config; complete before partial at the same
 	// tier) and send exactly one: an explicit credential picks its scheme
 	// regardless of the declared order.
-	credentialCandidates := []config.CredentialCandidate{
-		{Field: "APIKey", Complete: apiKey != "", Sources: []string{credentialSources["api-key"]}},
-		{Field: "AccessToken", Complete: accessToken != "", Sources: []string{credentialSources["access-token"]}},
+	resolveCandidates := func(resolve func(*cobra.Command, string) (string, string)) []config.CredentialCandidate {
+		apiKey, credentialSources["api-key"] = resolve(cmd, "api-key")
+		accessToken, credentialSources["access-token"] = resolve(cmd, "access-token")
+		return []config.CredentialCandidate{
+			{Field: "APIKey", Complete: apiKey != "", Sources: []string{credentialSources["api-key"]}},
+			{Field: "AccessToken", Complete: accessToken != "", Sources: []string{credentialSources["access-token"]}},
+		}
 	}
-	switch config.PickCredential(credentialCandidates, allowedSecurityFields) {
+	// A complete flag or env credential outranks anything in the keychain,
+	// so only fall back to it (and risk a slow or locked keychain) when no
+	// allowed alternative was supplied explicitly.
+	credentialCandidates := resolveCandidates(config.ResolveExplicitSecurityCredential)
+	picked := config.PickExplicitCredential(credentialCandidates, allowedSecurityFields)
+	if picked == -1 {
+		picked = config.PickCredential(resolveCandidates(config.ResolveRequestSecurityCredential), allowedSecurityFields)
+	}
+	switch picked {
 	case 0:
 		globalSecurity.APIKey = &apiKey
 	case 1:

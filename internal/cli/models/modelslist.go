@@ -28,7 +28,7 @@ import (
 )
 
 var modelsListCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Maximum number of models to return per page (default 50, maximum 1000)"},
+	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, HasDefault: true, DefaultInt: 1000, Description: "Maximum number of models to return per page (default 1000, maximum 1000)"},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Page token from a previous models list call"},
 }
 

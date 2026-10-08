@@ -29,7 +29,7 @@ import (
 )
 
 var deleteCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Credential ID, as given on create [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", PatternErrorMessage: "Resource IDs cannot be \".\" or \"..\".", Description: "Credential ID, as given on create [required]"},
 }
 
 // initDeleteCmd initializes the delete command.

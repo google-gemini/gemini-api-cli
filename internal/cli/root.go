@@ -86,6 +86,14 @@ func NewRootCommand() (*cobra.Command, error) {
 			if err := config.Init("gemini-api", "GEMINI"); err != nil {
 				return err
 			}
+			config.SetKeyringWarningOutput(cmd.ErrOrStderr())
+			if noKeyring, changed := flagutil.GetBoolFlag(cmd, "no-keyring"); changed {
+				if noKeyring {
+					config.DisableKeyring()
+				}
+			} else if config.GetString("no-keyring") == "true" {
+				config.DisableKeyring()
+			}
 			output.InitAgentMode(cmd)
 			flagutil.SetStdinReadDeadline(output.IsAgentMode())
 			flagutil.ResetStdinSkip()
@@ -178,6 +186,8 @@ func NewRootCommand() (*cobra.Command, error) {
 	_ = rootCmd.PersistentFlags().SetAnnotation("api-key", "speakeasy:group", []string{"Authentication"})
 	rootCmd.PersistentFlags().String("access-token", "", "OAuth access token sent as a bearer Authorization header.")
 	_ = rootCmd.PersistentFlags().SetAnnotation("access-token", "speakeasy:group", []string{"Authentication"})
+	rootCmd.PersistentFlags().Bool("no-keyring", false, "Never read or write the OS keychain; store secrets in the config file instead (env: GEMINI_NO_KEYRING)")
+	_ = rootCmd.PersistentFlags().SetAnnotation("no-keyring", "speakeasy:group", []string{"Authentication"})
 	// Global parameter flags
 	rootCmd.PersistentFlags().String("api-version", "v1beta", "Which version of the API to use (env: GEMINI_API_VERSION)")
 	_ = rootCmd.PersistentFlags().SetAnnotation("api-version", "speakeasy:group", []string{"API Parameters"})
