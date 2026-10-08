@@ -15,7 +15,13 @@
 package custom
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,7 +30,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/spf13/cobra"
 )
@@ -817,9 +825,22 @@ func TestNormalizeEnvironmentFilesList(t *testing.T) {
 			wantPath: "var/mail",
 		},
 		{
-			name:    "slash-only path rejected",
-			args:    []string{"--environment", "env_abc123", "--path", "/"},
-			wantErr: `invalid path "/"`,
+			name:     "slash-only path maps to root sentinel",
+			args:     []string{"--environment", "env_abc123", "--path", "/"},
+			wantEnv:  "env_abc123",
+			wantPath: environmentRootSentinel,
+		},
+		{
+			name:     "dot path maps to root sentinel",
+			args:     []string{"--environment", "env_abc123", "--path", "."},
+			wantEnv:  "env_abc123",
+			wantPath: environmentRootSentinel,
+		},
+		{
+			name:     "dot-slash relative path stripped",
+			args:     []string{"--environment", "env_abc123", "--path", "./src"},
+			wantEnv:  "env_abc123",
+			wantPath: "src",
 		},
 		{
 			name:    "invalid environment with slash rejected",
@@ -832,9 +853,10 @@ func TestNormalizeEnvironmentFilesList(t *testing.T) {
 			wantPath: "src",
 		},
 		{
-			name:    "missing path deferred to generated validation",
-			args:    []string{"--environment", "env_abc123"},
-			wantEnv: "env_abc123",
+			name:     "missing path maps to root sentinel",
+			args:     []string{"--environment", "env_abc123"},
+			wantEnv:  "env_abc123",
+			wantPath: environmentRootSentinel,
 		},
 		{
 			name:     "blank environment deferred to generated validation",
@@ -843,9 +865,10 @@ func TestNormalizeEnvironmentFilesList(t *testing.T) {
 			wantPath: "src",
 		},
 		{
-			name:    "blank path deferred to generated validation",
-			args:    []string{"--environment", "env_abc123", "--path", ""},
-			wantEnv: "env_abc123",
+			name:     "blank path maps to root sentinel",
+			args:     []string{"--environment", "env_abc123", "--path", ""},
+			wantEnv:  "env_abc123",
+			wantPath: environmentRootSentinel,
 		},
 	}
 
@@ -892,3 +915,700 @@ func TestNormalizeEnvironmentFilesList(t *testing.T) {
 		})
 	}
 }
+
+func newTestEnvironmentFilesRoot(serverURL string) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
+	root := &cobra.Command{Use: "gemini-api", SilenceErrors: true, SilenceUsage: true}
+	root.PersistentFlags().StringP("output-format", "o", "pretty", "")
+	root.PersistentFlags().String("color", "never", "")
+	root.PersistentFlags().StringP("jq", "q", "", "")
+	root.PersistentFlags().Bool("raw-output", true, "")
+	root.PersistentFlags().String("server-url", serverURL, "")
+	root.PersistentFlags().StringArrayP("header", "H", nil, "")
+	root.PersistentFlags().Bool("include-headers", false, "")
+	root.PersistentFlags().String("timeout", "", "")
+	root.PersistentFlags().Bool("interactive", false, "")
+	root.PersistentFlags().Bool("no-interactive", true, "")
+	root.PersistentFlags().Bool("usage", false, "")
+	root.PersistentFlags().Bool("dry-run", false, "")
+	root.PersistentFlags().BoolP("debug", "d", false, "")
+	root.PersistentFlags().Bool("agent-mode", false, "")
+	root.PersistentFlags().String("api-key", "test-api-key", "")
+	root.PersistentFlags().String("access-token", "", "")
+	root.PersistentFlags().String("api-version", "v1beta", "")
+	root.PersistentFlags().String("api-revision", "", "")
+	root.PersistentFlags().String("user-project", "", "")
+
+	envs := &cobra.Command{Use: "environments"}
+	envFiles := &cobra.Command{Use: "files"}
+	envFiles.AddCommand(newEnvironmentFilesUploadCmd())
+	envFiles.AddCommand(newEnvironmentFilesDownloadCmd())
+	envs.AddCommand(envFiles)
+	root.AddCommand(envs)
+
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	return root, &stdout, &stderr
+}
+
+func TestEnvironmentFilesUploadProtocol(t *testing.T) {
+	dir := t.TempDir()
+	localFile := filepath.Join(dir, "bundle.tar.gz")
+	payload := []byte("synthetic archive bytes for upload test")
+	if err := os.WriteFile(localFile, payload, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var (
+		startMethod   string
+		startPath     string
+		startQuery    string
+		startHeaders  http.Header
+		chunkMethod   string
+		chunkHeaders  http.Header
+		uploadedBytes []byte
+	)
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/upload/v1beta/environments/env_abc123/files/app/bundle.tar.gz":
+			startMethod = r.Method
+			startPath = r.URL.Path
+			startQuery = r.URL.RawQuery
+			startHeaders = r.Header.Clone()
+			w.Header().Set("X-Goog-Upload-Url", srv.URL+"/upload-session?upload_id=session_xyz")
+			w.Header().Set("X-Goog-Upload-Status", "active")
+			w.WriteHeader(http.StatusOK)
+		case "/upload-session":
+			chunkMethod = r.Method
+			chunkHeaders = r.Header.Clone()
+			body, _ := io.ReadAll(r.Body)
+			uploadedBytes = append(uploadedBytes, body...)
+			w.Header().Set("X-Goog-Upload-Status", "final")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"files":[{"name":"environments/env_abc123/files/app/bundle.tar.gz","path":"app/bundle.tar.gz","size_bytes":"39","mime_type":"application/gzip"}]}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected path", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	root, stdout, _ := newTestEnvironmentFilesRoot(srv.URL)
+	root.SetArgs([]string{
+		"environments", "files", "upload",
+		"environments/env_abc123",
+		localFile,
+		"--path", "/app/bundle.tar.gz",
+		"--overwrite",
+		"--extract",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute upload failed: %v", err)
+	}
+
+	if startMethod != http.MethodPut {
+		t.Errorf("start method = %q, want PUT", startMethod)
+	}
+	if startPath != "/upload/v1beta/environments/env_abc123/files/app/bundle.tar.gz" {
+		t.Errorf("start path = %q", startPath)
+	}
+	if startQuery != "extract=true&overwrite=true" {
+		t.Errorf("start query = %q, want extract=true&overwrite=true", startQuery)
+	}
+	if got := startHeaders.Get("X-Goog-Upload-Protocol"); got != "resumable" {
+		t.Errorf("X-Goog-Upload-Protocol = %q, want resumable", got)
+	}
+	if got := startHeaders.Get("X-Goog-Upload-Command"); got != "start" {
+		t.Errorf("X-Goog-Upload-Command = %q, want start", got)
+	}
+	if got := startHeaders.Get("X-Goog-Upload-Header-Content-Length"); got != "39" {
+		t.Errorf("X-Goog-Upload-Header-Content-Length = %q, want 39", got)
+	}
+	if got := startHeaders.Get("X-Goog-Upload-Header-Content-Type"); got != "application/gzip" {
+		t.Errorf("X-Goog-Upload-Header-Content-Type = %q, want application/gzip", got)
+	}
+	if chunkMethod != http.MethodPut {
+		t.Errorf("chunk method = %q, want PUT", chunkMethod)
+	}
+	if got := chunkHeaders.Get("X-Goog-Upload-Command"); got != "upload, finalize" {
+		t.Errorf("chunk X-Goog-Upload-Command = %q, want 'upload, finalize'", got)
+	}
+	if got := chunkHeaders.Get("X-Goog-Upload-Offset"); got != "0" {
+		t.Errorf("chunk X-Goog-Upload-Offset = %q, want 0", got)
+	}
+	if !bytes.Equal(uploadedBytes, payload) {
+		t.Errorf("uploaded bytes = %q, want %q", uploadedBytes, payload)
+	}
+	if got := stdout.String(); got != "app/bundle.tar.gz\n" {
+		t.Errorf("stdout = %q, want %q", got, "app/bundle.tar.gz\n")
+	}
+}
+
+func TestEnvironmentFilesUploadDefaultsAndDryRun(t *testing.T) {
+	dir := t.TempDir()
+	localFile := filepath.Join(dir, "hello.txt")
+	if err := os.WriteFile(localFile, []byte("hello world\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	// --dry-run must preview the start request and never send network bytes.
+	root, stdout, _ := newTestEnvironmentFilesRoot(srv.URL)
+	root.SetArgs([]string{
+		"environments", "files", "upload",
+		"env_abc123",
+		localFile,
+		"--mime-type", "text/custom",
+		"--dry-run",
+		"-o", "json",
+	})
+	output.PreparseRenderingFlags(root, []string{"-o", "json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute dry-run failed: %v", err)
+	}
+	if requests != 0 {
+		t.Errorf("dry-run made %d server requests, want 0", requests)
+	}
+	var preview map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+		t.Fatalf("unmarshal dry-run json %q: %v", stdout.String(), err)
+	}
+	if preview["dry_run"] != true {
+		t.Errorf("dry_run = %v, want true", preview["dry_run"])
+	}
+	reqObj, _ := preview["request"].(map[string]any)
+	if gotURL, _ := reqObj["url"].(string); !strings.HasSuffix(gotURL, "/upload/v1beta/environments/env_abc123/files/hello.txt") {
+		t.Errorf("dry-run request url = %q, want suffix /upload/v1beta/environments/env_abc123/files/hello.txt", gotURL)
+	}
+}
+
+func TestEnvironmentFilesDownload(t *testing.T) {
+	binaryContent := []byte{0x00, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff}
+	var gotQuery string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1beta/environments/env_abc123/files/src/logo.png" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(binaryContent)
+	}))
+	defer srv.Close()
+
+	// 1. Default output path (./<basename>) in working directory.
+	workDir := t.TempDir()
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	root, stdout, _ := newTestEnvironmentFilesRoot(srv.URL)
+	output.PreparseRenderingFlags(root, nil)
+	root.SetArgs([]string{"environments", "files", "download", "env_abc123", "src/logo.png"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute download default failed: %v", err)
+	}
+	if gotQuery != "alt=media" {
+		t.Errorf("query = %q, want alt=media", gotQuery)
+	}
+	if got := stdout.String(); got != "./logo.png\n" {
+		t.Errorf("stdout = %q, want ./logo.png\\n", got)
+	}
+	diskBytes, err := os.ReadFile(filepath.Join(workDir, "logo.png"))
+	if err != nil {
+		t.Fatalf("ReadFile default: %v", err)
+	}
+	if !bytes.Equal(diskBytes, binaryContent) {
+		t.Errorf("downloaded bytes mismatch: got %v, want %v", diskBytes, binaryContent)
+	}
+
+	// 2. --out <existing-directory> writes <dir>/<basename>.
+	outDir := filepath.Join(t.TempDir(), "downloads")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	root2, stdout2, _ := newTestEnvironmentFilesRoot(srv.URL)
+	root2.SetArgs([]string{"environments", "files", "download", "environments/env_abc123", "/src/logo.png", "--out", outDir})
+	if err := root2.Execute(); err != nil {
+		t.Fatalf("Execute download to dir failed: %v", err)
+	}
+	wantDirOut := filepath.Join(outDir, "logo.png")
+	if got := strings.TrimSpace(stdout2.String()); got != wantDirOut {
+		t.Errorf("stdout = %q, want %q", got, wantDirOut)
+	}
+	dirDiskBytes, err := os.ReadFile(wantDirOut)
+	if err != nil || !bytes.Equal(dirDiskBytes, binaryContent) {
+		t.Errorf("ReadFile(%q) = %v, %v", wantDirOut, dirDiskBytes, err)
+	}
+}
+
+func TestEnvironmentFilesValidationAndDirectoryErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1beta/environments/env_abc123/files/src":
+			// Server returning a directory listing JSON or 400 directory error.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"files":[{"name":"environments/env_abc123/files/src/main.py","path":"src/main.py","is_directory":false}]}`))
+		case "/v1beta/environments/env_abc123/files/dir400":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":400,"message":"path \"dir400\" is a directory","status":"FAILED_PRECONDITION"}}`))
+		case "/v1beta/environments/env_abc123/files/missing.txt":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"code":404,"message":"file not found","status":"NOT_FOUND"}}`))
+		default:
+			t.Errorf("unexpected server call for invalid input: %s %s", r.Method, r.URL.String())
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	validationCases := []struct {
+		name    string
+		args    []string
+		wantSub string
+	}{
+		{
+			name:    "upload missing all args",
+			args:    []string{"environments", "files", "upload"},
+			wantSub: "missing environment",
+		},
+		{
+			name:    "upload missing local file",
+			args:    []string{"environments", "files", "upload", "env_abc123"},
+			wantSub: "missing local file path",
+		},
+		{
+			name:    "upload invalid environment id",
+			args:    []string{"environments", "files", "upload", "environments/a/b", "nonexistent.txt"},
+			wantSub: `invalid environment id "environments/a/b"`,
+		},
+		{
+			name:    "download missing all args",
+			args:    []string{"environments", "files", "download"},
+			wantSub: "missing environment",
+		},
+		{
+			name:    "download missing path",
+			args:    []string{"environments", "files", "download", "env_abc123"},
+			wantSub: "missing file path",
+		},
+		{
+			name:    "download trailing slash directory rejected locally",
+			args:    []string{"environments", "files", "download", "env_abc123", "src/"},
+			wantSub: "list --environment env_abc123 --path src --recursive",
+		},
+		{
+			name:    "download server directory listing rejected with list --recursive hint",
+			args:    []string{"environments", "files", "download", "env_abc123", "src"},
+			wantSub: "list --environment env_abc123 --path src --recursive",
+		},
+		{
+			name:    "download server 400 directory error rejected with list --recursive hint",
+			args:    []string{"environments", "files", "download", "env_abc123", "dir400"},
+			wantSub: "list --environment env_abc123 --path dir400 --recursive",
+		},
+	}
+
+	for _, tc := range validationCases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _, _ := newTestEnvironmentFilesRoot(srv.URL)
+			root.SetArgs(tc.args)
+			rawErr := root.Execute()
+			if rawErr == nil {
+				t.Fatalf("expected error for %v, got nil", tc.args)
+			}
+			err := output.CLIError(root, rawErr)
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tc.wantSub)
+			}
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
+			}
+		})
+	}
+
+	// Verify 404 missing file is distinguished from a directory error (returns ExitRuntime / exit 1).
+	t.Run("download missing file 404", func(t *testing.T) {
+		root, _, _ := newTestEnvironmentFilesRoot(srv.URL)
+		root.SetArgs([]string{"environments", "files", "download", "env_abc123", "missing.txt"})
+		rawErr := root.Execute()
+		err := output.CLIError(root, rawErr)
+		if got := clierrors.ExitCode(err); got != clierrors.ExitRuntime {
+			t.Errorf("404 ExitCode = %d, want %d (ExitRuntime)", got, clierrors.ExitRuntime)
+		}
+	})
+}
+
+func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
+	dir := t.TempDir()
+	localImg := filepath.Join(dir, "photo.png")
+	imgBytes := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(localImg, imgBytes, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	wantB64 := base64.StdEncoding.EncodeToString(imgBytes)
+
+	var filesGetCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1beta/files/abc123" {
+			filesGetCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"name":"files/abc123","uri":"` + "https://generativelanguage.googleapis.com/v1beta/files/abc123" + `","mimeType":"image/jpeg","state":"ACTIVE"}`))
+			return
+		}
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	newTestTree := func(gotBody *string, gotArgs *[]string) *cobra.Command {
+		root, _, _ := newTestEnvironmentFilesRoot(srv.URL)
+		makeIntent := func(name string) *cobra.Command {
+			cmd := &cobra.Command{
+				Use:  name + " <prompt>",
+				Args: cobra.ArbitraryArgs,
+				RunE: func(c *cobra.Command, args []string) error {
+					*gotArgs = append([]string(nil), args...)
+					if flagutil.FlagChanged(c, "body") {
+						*gotBody, _ = c.Flags().GetString("body")
+					} else if flagutil.FlagChanged(c, "body-param") {
+						*gotBody, _ = c.Flags().GetString("body-param")
+					}
+					return nil
+				},
+			}
+			cmd.Flags().String("body", "", "")
+			cmd.Flags().StringP("body-param", "b", "", "")
+			cmd.Flags().String("out", "", "")
+			cmd.Flags().Bool("raw-response", false, "")
+			cmd.Flags().Bool("schema", false, "")
+			return cmd
+		}
+		root.AddCommand(makeIntent("generate"), makeIntent("image"), makeIntent("video"))
+
+		agentGroup := &cobra.Command{Use: "agent"}
+		runCmd := &cobra.Command{
+			Use:  "run [input]",
+			Args: cobra.ArbitraryArgs,
+			RunE: func(c *cobra.Command, args []string) error {
+				*gotArgs = append([]string(nil), args...)
+				if flagutil.FlagChanged(c, "body") {
+					*gotBody, _ = c.Flags().GetString("body")
+				}
+				return nil
+			},
+		}
+		runCmd.Flags().String("body", "", "")
+		runCmd.Flags().Bool("schema", false, "")
+		agentGroup.AddCommand(runCmd)
+		root.AddCommand(agentGroup)
+
+		if err := attachInteractionInputs(root); err != nil {
+			t.Fatalf("attachInteractionInputs: %v", err)
+		}
+		return root
+	}
+
+	t.Run("image -i local file with prompt encodes inline base64 and appends text block", func(t *testing.T) {
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"image", "remove the background", "-i", localImg})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if len(gotArgs) != 0 {
+			t.Errorf("gotArgs = %v, want empty (folded into body)", gotArgs)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		if len(inputs) != 2 {
+			t.Fatalf("input len = %d, want 2: %v", len(inputs), parsed["input"])
+		}
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["type"] != "image" || imgPart["mime_type"] != "image/png" || imgPart["data"] != wantB64 {
+			t.Errorf("imgPart = %+v, want image/png with base64 data", imgPart)
+		}
+		txtPart, _ := inputs[1].(map[string]any)
+		if txtPart["type"] != "text" || txtPart["text"] != "remove the background" {
+			t.Errorf("txtPart = %+v, want text prompt", txtPart)
+		}
+	})
+
+	t.Run("video -b with short files/<id> resolves URI and mime_type via FilesGet", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"video", "-b", `{"input":[{"type":"image","uri":"files/abc123"},{"type":"text","text":"animate this"}]}`})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 1 {
+			t.Errorf("filesGetCalls = %d, want 1", filesGetCalls)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
+			t.Errorf("uri = %v, want full v1beta files URI", imgPart["uri"])
+		}
+		if imgPart["mime_type"] != "image/jpeg" {
+			t.Errorf("mime_type = %v, want image/jpeg", imgPart["mime_type"])
+		}
+	})
+
+	t.Run("video -b with full Files API URI missing mime_type populates mime_type via FilesGet", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"video", "-b", `{"input":[{"type":"image","uri":"https://generativelanguage.googleapis.com/v1beta/files/abc123"},{"type":"text","text":"animate this"}]}`})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 1 {
+			t.Errorf("filesGetCalls = %d, want 1", filesGetCalls)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["mime_type"] != "image/jpeg" {
+			t.Errorf("mime_type = %v, want image/jpeg", imgPart["mime_type"])
+		}
+	})
+
+	t.Run("generate -b with short files/<id> under --dry-run expands URI without FilesGet", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"generate", "--dry-run", "-b", `{"input":[{"type":"image","uri":"files/abc123"}]}`})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 0 {
+			t.Errorf("filesGetCalls = %d, want 0 under --dry-run", filesGetCalls)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
+			t.Errorf("uri = %v, want full v1beta files URI", imgPart["uri"])
+		}
+	})
+
+	t.Run("agent run -i files/<id> with prompt resolves remote file and appends text block", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"agent", "run", "describe this", "-i", "files/abc123"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 1 {
+			t.Errorf("filesGetCalls = %d, want 1", filesGetCalls)
+		}
+		if len(gotArgs) != 0 {
+			t.Errorf("gotArgs = %v, want empty (folded into body)", gotArgs)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		if len(inputs) != 2 {
+			t.Fatalf("input len = %d, want 2: %v", len(inputs), parsed["input"])
+		}
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" || imgPart["mime_type"] != "image/jpeg" {
+			t.Errorf("imgPart = %+v, want resolved URI and image/jpeg", imgPart)
+		}
+		txtPart, _ := inputs[1].(map[string]any)
+		if txtPart["type"] != "text" || txtPart["text"] != "describe this" {
+			t.Errorf("txtPart = %+v, want text prompt", txtPart)
+		}
+	})
+
+	t.Run("invalid files/<id> in -b fails with ExitUsage and zero network requests", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"video", "-b", `{"input":[{"type":"image","uri":"files/../bad"}]}`})
+		rawErr := root.Execute()
+		if rawErr == nil {
+			t.Fatal("expected error for invalid files URI")
+		}
+		err := output.CLIError(root, rawErr)
+		if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+			t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
+		}
+		if filesGetCalls != 0 {
+			t.Errorf("filesGetCalls = %d, want 0", filesGetCalls)
+		}
+	})
+
+	t.Run("full Files API URI in -i resolves via FilesGet and rejects invalid file IDs", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"generate", "summarize", "-i", "https://generativelanguage.googleapis.com/v1beta/files/abc123"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 1 {
+			t.Errorf("filesGetCalls = %d, want 1", filesGetCalls)
+		}
+
+		rootBad := newTestTree(&gotBody, &gotArgs)
+		rootBad.SetArgs([]string{"generate", "summarize", "-i", "https://generativelanguage.googleapis.com/v1beta/files/bad:id"})
+		if err := rootBad.Execute(); err == nil {
+			t.Fatal("expected error for invalid full Files API URI")
+		}
+	})
+
+	t.Run("merging -i with array and object body input", func(t *testing.T) {
+		for _, bodyJSON := range []string{
+			`{"input":[{"type":"text","text":"existing array item"}]}`,
+			`{"input":{"type":"text","text":"existing map item"}}`,
+		} {
+			var gotBody string
+			var gotArgs []string
+			root := newTestTree(&gotBody, &gotArgs)
+			root.SetArgs([]string{"generate", "-i", localImg, "-b", bodyJSON})
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute(%s) failed: %v", bodyJSON, err)
+			}
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+				t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+			}
+			inputs, _ := parsed["input"].([]any)
+			if len(inputs) != 2 {
+				t.Errorf("input len for %s = %d, want 2: %v", bodyJSON, len(inputs), parsed["input"])
+			}
+		}
+	})
+
+	t.Run("custom --server-url full Files API URI and dry-run expansion", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"--server-url", srv.URL, "generate", "summarize", "-i", srv.URL + "/v1beta/files/abc123"})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute custom server-url -i failed: %v", err)
+		}
+		if filesGetCalls != 1 {
+			t.Errorf("filesGetCalls = %d, want 1", filesGetCalls)
+		}
+
+		rootDry := newTestTree(&gotBody, &gotArgs)
+		rootDry.SetArgs([]string{"--server-url", "https://custom.example.com", "--dry-run", "generate", "-b", `{"input":[{"type":"image","uri":"files/abc123"}]}`})
+		if err := rootDry.Execute(); err != nil {
+			t.Fatalf("Execute custom server-url --dry-run failed: %v", err)
+		}
+		if !strings.Contains(gotBody, "https://custom.example.com/v1beta/files/abc123") {
+			t.Errorf("dry-run body = %s, want custom server-url expansion", gotBody)
+		}
+	})
+
+	t.Run("conflicting positional prompt, body input, and --input returns usage error", func(t *testing.T) {
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"generate", "extra prompt", "-i", localImg, "-b", `{"input":"body prompt"}`})
+		rawErr := root.Execute()
+		if rawErr == nil {
+			t.Fatal("expected error when combining positional prompt, --input, and body.input")
+		}
+		err := output.CLIError(root, rawErr)
+		if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+			t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
+		}
+	})
+}
+
+func TestResolveEnvUploadAndDownloadArgsCoverage(t *testing.T) {
+	if _, _, extra := resolveEnvUploadArgs([]string{"extra"}, "env1", "file1"); !extra {
+		t.Error("resolveEnvUploadArgs with both flags and positional arg: want extra=true")
+	}
+	if _, _, extra := resolveEnvDownloadArgs([]string{"extra"}, "env1", "path1"); !extra {
+		t.Error("resolveEnvDownloadArgs with both flags and positional arg: want extra=true")
+	}
+	for _, sub := range []string{"upload", "download"} {
+		root, _, _ := newTestEnvironmentFilesRoot("http://127.0.0.1:0")
+		_ = root.PersistentFlags().Set("usage", "true")
+		cmd := findChild(findChild(findChild(root, "environments"), "files"), sub)
+		if err := cmd.Args(cmd, nil); err != nil {
+			t.Errorf("%s Args with --usage returned error: %v", sub, err)
+		}
+	}
+}
+
+func TestUploadEnvironmentChunksBoundaryAndUnexpectedEOF(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk, _ := io.ReadAll(r.Body)
+		received = append(received, chunk...)
+		w.Header().Set("X-Goog-Upload-Status", "final")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	root, _, _ := newTestEnvironmentFilesRoot(srv.URL)
+	root.SetContext(t.Context())
+	tr, err := newRawTransport(root)
+	if err != nil {
+		t.Fatalf("newRawTransport: %v", err)
+	}
+
+	// Reader has more bytes than totalSize; uploadEnvironmentChunks must read exactly totalSize bytes.
+	if _, err := uploadEnvironmentChunks(root, tr, srv.URL+"/upload", strings.NewReader("0123456789EXTRA"), 10, "text/plain"); err != nil {
+		t.Fatalf("uploadEnvironmentChunks exact boundary failed: %v", err)
+	}
+	if string(received) != "0123456789" {
+		t.Errorf("received = %q, want \"0123456789\"", string(received))
+	}
+
+	// Premature EOF (empty reader with totalSize > 0) must return an error instead of looping.
+	if _, err := uploadEnvironmentChunks(root, tr, srv.URL+"/upload", strings.NewReader(""), 10, "text/plain"); err == nil || !strings.Contains(err.Error(), "unexpected EOF") {
+		t.Errorf("uploadEnvironmentChunks premature EOF error = %v, want unexpected EOF", err)
+	}
+}
+
+

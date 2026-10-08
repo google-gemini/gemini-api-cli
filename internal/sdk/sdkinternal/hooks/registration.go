@@ -30,6 +30,7 @@ func initHooks(h *Hooks) {
 	h.registerAfterSuccessHook(contractHook)
 
 	interactionErrors := &interactionErrorHook{}
+	h.registerBeforeRequestHook(interactionErrors)
 	h.registerAfterSuccessHook(interactionErrors)
 	h.registerAfterErrorHook(interactionErrors)
 

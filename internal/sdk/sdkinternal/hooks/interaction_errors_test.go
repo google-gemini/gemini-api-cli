@@ -287,3 +287,44 @@ func TestInteractionErrorHookLifecycleMethods(t *testing.T) {
 		}
 	})
 }
+
+func TestSanitizeInteractionErrorBody(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "fixes malformed Unsupported file URI type punctuation in object response",
+			in:   `{"error":{"code":400,"message":"Unsupported file URI type: files/abc123. File URI must be a File API (e.g. https://generativelanguage.googleapis.com/files/<id>), Youtube (e.g. https://www.youtube.com/watch?v=<id>), or HTTPS (e.g. http://path/to/file).), or a valid gURI (e.g. gs://bucket/object","status":"INVALID_ARGUMENT"}}`,
+			want: `{"error":{"code":400,"message":"Unsupported file URI type: files/abc123. File URI must be a File API (e.g. https://generativelanguage.googleapis.com/files/<id>), Youtube (e.g. https://www.youtube.com/watch?v=<id>), or HTTPS (e.g. http://path/to/file)), or a valid gURI (e.g. gs://bucket/object).","status":"INVALID_ARGUMENT"}}`,
+		},
+		{
+			name: "redacts leaked internal blobstore URI",
+			in:   `{"error":{"code":400,"message":"Failed to load media from blobstore:///genai-api/blobref/global::abcdef0123456789 for video generation","status":"INVALID_ARGUMENT"}}`,
+			want: `{"error":{"code":400,"message":"Failed to load media from [internal-file-uri] for video generation","status":"INVALID_ARGUMENT"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(tt.in)),
+			}
+			gotRes, gotErr := normalizeSingletonInteractionError("CreateInteraction", res, nil)
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			body, err := io.ReadAll(gotRes.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != tt.want {
+				t.Errorf("sanitized body = %q, want %q", string(body), tt.want)
+			}
+		})
+	}
+}
+

@@ -21,9 +21,32 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
+var (
+	malformedFileURIErrorPattern = regexp.MustCompile(`\. ?\), or a valid gURI \(e\.g\. gs://bucket/object\)?\.?`)
+	internalBlobstoreURIPattern  = regexp.MustCompile(`blobstore:///[^\s"'\\]+`)
+)
+
+func sanitizeInteractionErrorBody(body []byte) []byte {
+	body = malformedFileURIErrorPattern.ReplaceAll(body, []byte("), or a valid gURI (e.g. gs://bucket/object)."))
+	body = internalBlobstoreURIPattern.ReplaceAll(body, []byte("[internal-file-uri]"))
+	return body
+}
+
 type interactionErrorHook struct{}
+
+func (h *interactionErrorHook) BeforeRequest(hookCtx BeforeRequestContext, req *http.Request) (*http.Request, error) {
+	if hookCtx.OperationID == "GetEnvironmentFiles" && req != nil && req.URL != nil && strings.HasSuffix(req.URL.Path, "/files/__gemini_cli_env_root__") {
+		req.URL.Path = strings.TrimSuffix(req.URL.Path, "/__gemini_cli_env_root__")
+		if req.URL.RawPath != "" {
+			req.URL.RawPath = strings.TrimSuffix(req.URL.RawPath, "/__gemini_cli_env_root__")
+		}
+	}
+	return req, nil
+}
 
 func (h *interactionErrorHook) AfterSuccess(hookCtx AfterSuccessContext, res *http.Response) (*http.Response, error) {
 	return normalizeSingletonInteractionError(hookCtx.OperationID, res, nil)
@@ -46,7 +69,11 @@ func normalizeSingletonInteractionError(operationID string, res *http.Response, 
 
 	body, readErr := io.ReadAll(res.Body)
 	closeErr := res.Body.Close()
+	if readErr == nil {
+		body = sanitizeInteractionErrorBody(body)
+	}
 	res.Body = io.NopCloser(bytes.NewReader(body))
+	res.ContentLength = int64(len(body))
 	if readErr != nil {
 		if err != nil {
 			return res, err

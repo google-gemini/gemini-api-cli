@@ -113,8 +113,21 @@ func register(root *cobra.Command) error {
 	if envFiles == nil {
 		return fmt.Errorf("expected the generated environments files subgroup to mount porcelain under")
 	}
+	if findChild(envFiles, "upload") == nil {
+		uploadCmd := newEnvironmentFilesUploadCmd()
+		usage.MarkDynamic(uploadCmd)
+		envFiles.AddCommand(uploadCmd)
+	}
+	if findChild(envFiles, "download") == nil {
+		downloadCmd := newEnvironmentFilesDownloadCmd()
+		usage.MarkDynamic(downloadCmd)
+		envFiles.AddCommand(downloadCmd)
+	}
 	if err := normalizeEnvironmentFilesList(findChild(envFiles, "list")); err != nil {
 		return fmt.Errorf("environments files list: %w", err)
+	}
+	if err := attachInteractionInputs(root); err != nil {
+		return err
 	}
 
 	boundStdinReads(root)
@@ -131,38 +144,53 @@ func normalizeEnvironmentID(env string) (string, error) {
 	return trimmed, nil
 }
 
-// normalizeEnvironmentFilePath strips leading slashes from a snapshot file
-// path so "--path /var/mail" resolves to ".../files/var/mail" instead of
-// producing an empty path segment (".../files//var/mail"), and rejects paths
-// that are empty after stripping slashes.
+const environmentRootSentinel = "__gemini_cli_env_root__"
+
+// normalizeEnvironmentFilePath strips leading slashes and "./" prefixes from a
+// snapshot file path so "--path /var/mail" or "--path ./src" resolves to a
+// relative path, and rejects paths that are empty or root-only.
 func normalizeEnvironmentFilePath(p string) (string, error) {
-	trimmed := strings.TrimLeft(strings.TrimSpace(p), "/")
-	if trimmed == "" {
+	trimmed := strings.TrimSpace(p)
+	for strings.HasPrefix(trimmed, "./") || strings.HasPrefix(trimmed, "/") {
+		trimmed = strings.TrimPrefix(trimmed, "./")
+		trimmed = strings.TrimLeft(trimmed, "/")
+	}
+	if trimmed == "" || trimmed == "." {
 		return "", fmt.Errorf("invalid path %q; expected a relative path inside the environment (e.g. \"src\")", strings.TrimSpace(p))
 	}
 	return trimmed, nil
 }
 
+func normalizeEnvironmentListPath(p string) string {
+	trimmed := strings.TrimSpace(p)
+	for strings.HasPrefix(trimmed, "./") || strings.HasPrefix(trimmed, "/") {
+		trimmed = strings.TrimPrefix(trimmed, "./")
+		trimmed = strings.TrimLeft(trimmed, "/")
+	}
+	if trimmed == "" || trimmed == "." {
+		return environmentRootSentinel
+	}
+	return trimmed
+}
+
 // normalizeEnvironmentFilesList normalizes --environment and --path on
 // "environments files list" before building the request URL. Missing or blank
-// values are left to the generated request builder, which reports them as
-// missing required flags or blank path parameters.
+// --environment values are left to the generated request builder, while missing,
+// ".", or "/" --path values map to environmentRootSentinel to list the root.
 func normalizeEnvironmentFilesList(cmd *cobra.Command) error {
 	if cmd == nil {
 		return fmt.Errorf("command is not registered")
 	}
-	normalizers := []struct {
-		flagName  string
-		normalize func(string) (string, error)
-	}{
-		{"environment", normalizeEnvironmentID},
-		{"path", normalizeEnvironmentFilePath},
+	envFlag := cmd.Flags().Lookup("environment")
+	if envFlag == nil {
+		return fmt.Errorf("flag --environment is missing on %q", cmd.Name())
 	}
-	for _, n := range normalizers {
-		if cmd.Flags().Lookup(n.flagName) == nil {
-			return fmt.Errorf("flag --%s is missing on %q", n.flagName, cmd.Name())
-		}
+	pathFlag := cmd.Flags().Lookup("path")
+	if pathFlag == nil {
+		return fmt.Errorf("flag --path is missing on %q", cmd.Name())
 	}
+	pathFlag.Usage = "File or directory path relative to the workspace root (e.g. src); omit or pass . or / to list the root"
+
 	original := cmd.RunE
 	if original == nil {
 		return fmt.Errorf("command %q has no RunE", cmd.Name())
@@ -171,22 +199,30 @@ func normalizeEnvironmentFilesList(cmd *cobra.Command) error {
 		if usageRequested(c) {
 			return original(c, args)
 		}
-		for _, n := range normalizers {
-			raw, err := c.Flags().GetString(n.flagName)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(raw) == "" {
-				continue
-			}
-			norm, err := n.normalize(raw)
+		rawEnv, err := c.Flags().GetString("environment")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(rawEnv) != "" {
+			normEnv, err := normalizeEnvironmentID(rawEnv)
 			if err != nil {
 				return usageError(err.Error())
 			}
-			if norm != raw {
-				if err := c.Flags().Set(n.flagName, norm); err != nil {
+			if normEnv != rawEnv {
+				if err := c.Flags().Set("environment", normEnv); err != nil {
 					return err
 				}
+			}
+		}
+
+		rawPath, err := c.Flags().GetString("path")
+		if err != nil {
+			return err
+		}
+		normPath := normalizeEnvironmentListPath(rawPath)
+		if normPath != rawPath {
+			if err := c.Flags().Set("path", normPath); err != nil {
+				return err
 			}
 		}
 		return original(c, args)

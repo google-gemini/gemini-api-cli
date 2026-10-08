@@ -15,9 +15,12 @@
 package custom
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net/url"
@@ -29,12 +32,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
+	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/interactive"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/genai"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk"
+	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
 )
 
@@ -330,7 +336,7 @@ const (
 // network. An existing path is always local, even when its spelling starts with
 // files/; only an absent, explicit files/<id> value is a Files API reference,
 // and bare Files API ids are deliberately not guessed.
-func classifyMediaInput(arg, ref string, allowYouTube bool) (mediaInputKind, error) {
+func classifyMediaInput(cmd *cobra.Command, arg, ref string, allowYouTube bool) (mediaInputKind, error) {
 	if arg == "" {
 		return 0, usageError(ref + ": input cannot be empty")
 	}
@@ -340,6 +346,12 @@ func classifyMediaInput(arg, ref string, allowYouTube bool) (mediaInputKind, err
 				"Download the media locally or upload it with \"gemini-api files upload <path>\"")
 		}
 		return mediaInputYouTube, nil
+	}
+	if fileRef, ok := extractFullFilesURI(cmd, arg); ok {
+		if _, _, valid := normalizeFileID(fileRef); !valid {
+			return 0, usageError(ref + ": invalid Files API reference; expected files/<id>")
+		}
+		return mediaInputRemoteFile, nil
 	}
 	if strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://") {
 		return 0, usageError(ref+": only YouTube URLs are supported as remote inputs",
@@ -429,12 +441,12 @@ func probeLocalFile(path, mimeType, ref string) error {
 // dependent Files API lookup can run. This preserves all-or-nothing probing:
 // a bad later path cannot occur after an earlier remote request was previewed
 // or sent. Probing each file also catches permissions and mislabelled text.
-func prevalidateMediaInputs(inputs []string, mimeOverride string, policy mediaPolicy) error {
+func prevalidateMediaInputs(cmd *cobra.Command, inputs []string, mimeOverride string, policy mediaPolicy) error {
 	var inlineBytes int64
 	for i, raw := range inputs {
 		arg := strings.TrimSpace(raw)
 		ref := inputRef(i+1, arg)
-		kind, err := classifyMediaInput(arg, ref, policy.allowYouTube)
+		kind, err := classifyMediaInput(cmd, arg, ref, policy.allowYouTube)
 		if err != nil {
 			return err
 		}
@@ -465,7 +477,7 @@ func resolveMediaSources(cmd *cobra.Command, inputs []string, policy mediaPolicy
 	if len(inputs) > 1 && strings.TrimSpace(mimeOverride) != "" {
 		return nil, nil, usageError("--mime-type can only be used with exactly one --input")
 	}
-	if err := prevalidateMediaInputs(inputs, mimeOverride, policy); err != nil {
+	if err := prevalidateMediaInputs(cmd, inputs, mimeOverride, policy); err != nil {
 		return nil, nil, err
 	}
 	s, err := client.NewClient(cmd)
@@ -490,7 +502,7 @@ func resolveMediaSources(cmd *cobra.Command, inputs []string, policy mediaPolicy
 func resolveMediaSource(cmd *cobra.Command, s *sdk.GeminiAPI, arg, mimeOverride string, index int, policy mediaPolicy) (*mediaSource, error) {
 	arg = strings.TrimSpace(arg)
 	ref := inputRef(index, arg)
-	kind, err := classifyMediaInput(arg, ref, policy.allowYouTube)
+	kind, err := classifyMediaInput(cmd, arg, ref, policy.allowYouTube)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +513,11 @@ func resolveMediaSource(cmd *cobra.Command, s *sdk.GeminiAPI, arg, mimeOverride 
 			label:   arg,
 		}, nil
 	case mediaInputRemoteFile:
-		name, id, _ := normalizeFileID(arg)
+		fileArg := arg
+		if fileRef, ok := extractFullFilesURI(cmd, arg); ok {
+			fileArg = fileRef
+		}
+		name, id, _ := normalizeFileID(fileArg)
 		return resolveRemoteFile(cmd, s, name, id, mimeOverride, ref, policy)
 	}
 	_, mimeType, err := checkLocalFile(arg, mimeOverride, ref, policy)
@@ -603,3 +619,449 @@ func canonicalRemoteMIME(mimeType string) string {
 	}
 	return mimeType
 }
+
+var (
+	fullFilesURIPattern = regexp.MustCompile(`^https://generativelanguage\.googleapis\.com/(?:[^/]+/)?(files/[^/?#]+)$`)
+	relFilesURIPattern  = regexp.MustCompile(`^(?:[^/]+/)?(files/[^/?#]+)$`)
+)
+
+func extractFullFilesURI(cmd *cobra.Command, raw string) (string, bool) {
+	if m := fullFilesURIPattern.FindStringSubmatch(raw); len(m) == 2 {
+		return m[1], true
+	}
+	if cmd != nil {
+		if srv, ok := flagutil.GetStringFlag(cmd, "server-url"); ok {
+			base := strings.TrimRight(strings.TrimSpace(srv), "/")
+			if base != "" && strings.HasPrefix(raw, base+"/") {
+				rel := strings.TrimPrefix(raw, base+"/")
+				if m := relFilesURIPattern.FindStringSubmatch(rel); len(m) == 2 {
+					return m[1], true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// attachInteractionInputs wires -i/--input, --mime-type, and automatic
+// files/<id> URI resolution onto generate, image, video, and agent run.
+func attachInteractionInputs(root *cobra.Command) error {
+	intentSpecs := []struct {
+		name       string
+		argName    string
+		promptDesc string
+	}{
+		{"generate", "prompt", "Prompt to send to the model"},
+		{"image", "prompt", "Description of the image to generate"},
+		{"video", "prompt", "Scene description for the video to generate"},
+	}
+	for _, spec := range intentSpecs {
+		cmd := findChild(root, spec.name)
+		if cmd == nil {
+			return fmt.Errorf("expected intent command %q to attach media inputs to, but it is not registered", spec.name)
+		}
+		if err := attachIntentMediaInputs(cmd, spec.argName, spec.promptDesc); err != nil {
+			return fmt.Errorf("%s: %w", spec.name, err)
+		}
+	}
+
+	agentGroup := findChild(root, "agent")
+	if agentGroup == nil {
+		return fmt.Errorf("expected the generated agent group to mount porcelain under")
+	}
+	agentRunCmd := findChild(agentGroup, "run")
+	if err := attachIntentMediaInputs(agentRunCmd, "input", "Prompt or task to send"); err != nil {
+		return fmt.Errorf("agent run: %w", err)
+	}
+	agentRunCmd.Long = strings.Replace(
+		agentRunCmd.Long,
+		"Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).",
+		"Run one interaction with a Gemini model (--model, default) or a managed agent (--agent).\nStreams text as it arrives (--stream=false for one complete interaction); --body takes exact request JSON.",
+		1,
+	)
+	return nil
+}
+
+func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) error {
+	if cmd == nil {
+		return fmt.Errorf("command is not registered")
+	}
+	if cmd.Flags().Lookup("body") == nil {
+		return fmt.Errorf("flag --body is missing on %q", cmd.Name())
+	}
+	original := cmd.RunE
+	if original == nil {
+		return fmt.Errorf("command %q has no RunE", cmd.Name())
+	}
+	if cmd.Flags().Lookup("input") == nil {
+		cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to include as input (repeatable)")
+	}
+	if cmd.Flags().Lookup("mime-type") == nil {
+		cmd.Flags().String("mime-type", "", "Override the detected MIME type (one --input only)")
+	}
+	satisfiedBy := []string{"body", "input"}
+	if cmd.Flags().Lookup("body-param") != nil {
+		satisfiedBy = []string{"body", "body-param", "input"}
+	}
+	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
+		{
+			Name:        argName,
+			Summary:     promptDesc,
+			Required:    true,
+			Variadic:    true,
+			BodyKey:     "input",
+			SatisfiedBy: satisfiedBy,
+		},
+	}})
+	usage.MarkDynamic(cmd)
+
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if usageRequested(c) {
+			return original(c, args)
+		}
+		if schema, _ := c.Flags().GetBool("schema"); schema {
+			return original(c, args)
+		}
+		if c.Flags().Lookup("raw-response") != nil && c.Flags().Lookup("out") != nil {
+			if flagutil.FlagChanged(c, "raw-response") && flagutil.FlagChanged(c, "out") {
+				return original(c, args)
+			}
+		}
+		if c.Flags().Lookup("body-param") != nil && flagutil.FlagChanged(c, "body") && flagutil.FlagChanged(c, "body-param") {
+			return original(c, args)
+		}
+
+		inputs, err := c.Flags().GetStringArray("input")
+		if err != nil {
+			return output.CLIError(c, err)
+		}
+		mimeOverride, _ := flagutil.GetStringFlag(c, "mime-type")
+		if len(inputs) == 0 && strings.TrimSpace(mimeOverride) != "" {
+			return usageError("--mime-type requires --input")
+		}
+
+		for _, surface := range []string{"body", "body-param"} {
+			if c.Flags().Lookup(surface) != nil && flagutil.FlagChanged(c, surface) {
+				if err := flagutil.ResolveBodyFlag(c, surface); err != nil {
+					return output.CLIError(c, err)
+				}
+			}
+		}
+		stdinAttached := false
+		if !flagutil.FlagChanged(c, "body") && (c.Flags().Lookup("body-param") == nil || !flagutil.FlagChanged(c, "body-param")) {
+			attached, err := flagutil.AttachStdinBody(c, "body")
+			if err != nil {
+				return output.CLIError(c, err)
+			}
+			stdinAttached = attached
+		}
+
+		suppliedBodyFlag := ""
+		switch {
+		case flagutil.FlagChanged(c, "body"):
+			suppliedBodyFlag = "body"
+		case c.Flags().Lookup("body-param") != nil && flagutil.FlagChanged(c, "body-param"):
+			suppliedBodyFlag = "body-param"
+		}
+
+		if len(inputs) == 0 && suppliedBodyFlag == "" && !stdinAttached {
+			return original(c, args)
+		}
+
+		var bodyMap map[string]any
+		if suppliedBodyFlag != "" || stdinAttached {
+			var rawBody []byte
+			bodySource := "--" + suppliedBodyFlag
+			if suppliedBodyFlag != "" {
+				s, _ := c.Flags().GetString(suppliedBodyFlag)
+				rawBody = []byte(s)
+			} else {
+				rawBody, _ = io.ReadAll(c.InOrStdin())
+				c.SetIn(bytes.NewReader(rawBody))
+				bodySource = "stdin"
+			}
+			if err := json.Unmarshal(rawBody, &bodyMap); err != nil || bodyMap == nil {
+				return original(c, args)
+			}
+			if c.Name() != "run" {
+				if _, hasAgent := bodyMap["agent"]; hasAgent {
+					return original(c, args)
+				}
+			}
+			if _, hasInput := bodyMap["input"]; hasInput && len(args) > 0 {
+				if len(inputs) == 0 {
+					return original(c, args)
+				}
+				return usageError(fmt.Sprintf("cannot combine positional <%s> with \"input\" in %s", argName, bodySource))
+			}
+		}
+
+		var s *sdk.GeminiAPI
+		var mediaBlocks []any
+		if len(inputs) > 0 {
+			var sources []*mediaSource
+			s, sources, err = resolveMediaSources(c, inputs, analyzePolicy)
+			if err != nil {
+				return err
+			}
+			mediaBlocks = make([]any, 0, len(sources)+1)
+			for _, src := range sources {
+				blk, err := src.block(c)
+				if err != nil {
+					return err
+				}
+				bMap, err := contentToMap(blk)
+				if err != nil {
+					return err
+				}
+				mediaBlocks = append(mediaBlocks, bMap)
+			}
+		}
+
+		if bodyMap != nil {
+			if err := normalizeBodyFileURIs(c, &s, bodyMap); err != nil {
+				return err
+			}
+		}
+
+		if len(mediaBlocks) > 0 {
+			if bodyMap == nil {
+				bodyMap = make(map[string]any)
+				suppliedBodyFlag = "body"
+			}
+			if len(args) > 0 {
+				mediaBlocks = append(mediaBlocks, map[string]any{
+					"type": "text",
+					"text": strings.Join(args, " "),
+				})
+				args = nil
+			}
+			mergedInput, err := mergeMediaBlocksIntoInput(mediaBlocks, bodyMap["input"])
+			if err != nil {
+				return err
+			}
+			bodyMap["input"] = mergedInput
+		}
+
+		if bodyMap != nil {
+			encoded, err := json.Marshal(bodyMap)
+			if err != nil {
+				return output.CLIError(c, err)
+			}
+			if suppliedBodyFlag != "" {
+				if err := c.Flags().Set(suppliedBodyFlag, string(encoded)); err != nil {
+					return output.CLIError(c, err)
+				}
+			} else if stdinAttached {
+				c.SetIn(bytes.NewReader(encoded))
+			}
+		}
+		return original(c, args)
+	}
+	return nil
+}
+
+func contentToMap(blk interactions.Content) (map[string]any, error) {
+	raw, err := json.Marshal(blk)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func mergeMediaBlocksIntoInput(mediaBlocks []any, existing any) (any, error) {
+	if existing == nil {
+		return mediaBlocks, nil
+	}
+	switch v := existing.(type) {
+	case string:
+		out := make([]any, 0, len(mediaBlocks)+1)
+		out = append(out, mediaBlocks...)
+		if v != "" {
+			out = append(out, map[string]any{"type": "text", "text": v})
+		}
+		return out, nil
+	case []any:
+		out := make([]any, 0, len(mediaBlocks)+len(v))
+		out = append(out, mediaBlocks...)
+		out = append(out, v...)
+		return out, nil
+	case map[string]any:
+		out := make([]any, 0, len(mediaBlocks)+1)
+		out = append(out, mediaBlocks...)
+		out = append(out, v)
+		return out, nil
+	default:
+		return nil, usageError("cannot combine --input with non-content input in request body")
+	}
+}
+
+func normalizeBodyFileURIs(cmd *cobra.Command, s **sdk.GeminiAPI, bodyMap map[string]any) error {
+	if input, ok := bodyMap["input"]; ok {
+		if err := normalizeInputValueFileURIs(cmd, s, input); err != nil {
+			return err
+		}
+	}
+	if steps, ok := bodyMap["steps"]; ok {
+		if err := normalizeInputValueFileURIs(cmd, s, steps); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"create_model_interaction", "create_agent_interaction"} {
+		if sub, ok := bodyMap[key].(map[string]any); ok {
+			if err := normalizeBodyFileURIs(cmd, s, sub); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeInputValueFileURIs(cmd *cobra.Command, s **sdk.GeminiAPI, val any) error {
+	switch v := val.(type) {
+	case []any:
+		for _, item := range v {
+			if err := normalizeInputValueFileURIs(cmd, s, item); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		if content, ok := v["content"]; ok {
+			if err := normalizeInputValueFileURIs(cmd, s, content); err != nil {
+				return err
+			}
+		}
+		if _, hasURI := v["uri"]; hasURI {
+			if err := normalizeContentObjectURI(cmd, s, v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func expandedFilesURI(cmd *cobra.Command, name string) string {
+	base := "https://generativelanguage.googleapis.com"
+	if cmd != nil && flagutil.FlagChanged(cmd, "server-url") {
+		if srv, ok := flagutil.GetStringFlag(cmd, "server-url"); ok && strings.TrimSpace(srv) != "" {
+			base = strings.TrimRight(strings.TrimSpace(srv), "/")
+		}
+	}
+	ver := "v1beta"
+	if cmd != nil && flagutil.FlagChanged(cmd, "api-version") {
+		if v, ok := flagutil.GetStringFlag(cmd, "api-version"); ok && strings.TrimSpace(v) != "" {
+			ver = strings.Trim(strings.TrimSpace(v), "/")
+		}
+	} else if v := config.GetString("api-version"); strings.TrimSpace(v) != "" {
+		ver = strings.Trim(strings.TrimSpace(v), "/")
+	} else if cmd != nil {
+		if v, ok := flagutil.GetStringFlag(cmd, "api-version"); ok && strings.TrimSpace(v) != "" {
+			ver = strings.Trim(strings.TrimSpace(v), "/")
+		}
+	}
+	return base + "/" + ver + "/" + name
+}
+
+func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[string]any) error {
+	rawURI, ok := obj["uri"].(string)
+	if !ok || strings.TrimSpace(rawURI) == "" {
+		return nil
+	}
+	trimmed := strings.TrimSpace(rawURI)
+
+	var (
+		name       string
+		id         string
+		valid      bool
+		isShortRef bool
+	)
+	if strings.HasPrefix(trimmed, "files/") || strings.HasPrefix(trimmed, "/files/") {
+		isShortRef = true
+		name, id, valid = normalizeFileID(strings.TrimPrefix(trimmed, "/"))
+		if !valid {
+			return usageError(fmt.Sprintf("invalid Files API reference %q; expected files/<id>", rawURI))
+		}
+	} else if fileRef, matched := extractFullFilesURI(cmd, trimmed); matched {
+		name, id, valid = normalizeFileID(fileRef)
+		if !valid {
+			return usageError(fmt.Sprintf("invalid Files API reference %q; expected files/<id>", rawURI))
+		}
+	} else {
+		return nil
+	}
+
+	ref := fmt.Sprintf("uri %q", rawURI)
+	existingMime, _ := obj["mime_type"].(string)
+	existingMime = strings.TrimSpace(existingMime)
+	existingType, _ := obj["type"].(string)
+	existingType = strings.TrimSpace(existingType)
+
+	if isDryRun(cmd) {
+		if isShortRef {
+			obj["uri"] = expandedFilesURI(cmd, name)
+		}
+		if existingMime != "" {
+			canonMime := canonicalRemoteMIME(existingMime)
+			if err := checkRemoteMIME(canonMime, ref, analyzePolicy); err != nil {
+				return err
+			}
+			obj["mime_type"] = canonMime
+			if existingType == "" {
+				blk := mediaContentBlock(canonMime, expandedFilesURI(cmd, name), false)
+				obj["type"] = string(blk.Type)
+			}
+		}
+		return nil
+	}
+
+	if existingMime == "" {
+		if *s == nil {
+			var err error
+			*s, err = client.NewClient(cmd)
+			if err != nil {
+				return err
+			}
+		}
+		src, err := resolveRemoteFile(cmd, *s, name, id, existingMime, ref, analyzePolicy)
+		if err != nil {
+			return err
+		}
+		resolvedMap, err := contentToMap(src.content)
+		if err != nil {
+			return err
+		}
+		if u, ok := resolvedMap["uri"].(string); ok && u != "" {
+			obj["uri"] = u
+		} else if isShortRef {
+			obj["uri"] = expandedFilesURI(cmd, name)
+		}
+		if mt, ok := resolvedMap["mime_type"].(string); ok && mt != "" {
+			obj["mime_type"] = mt
+		}
+		if existingType == "" {
+			if t, ok := resolvedMap["type"].(string); ok && t != "" {
+				obj["type"] = t
+			}
+		}
+		return nil
+	}
+
+	canonMime := canonicalRemoteMIME(existingMime)
+	if err := checkRemoteMIME(canonMime, ref, analyzePolicy); err != nil {
+		return err
+	}
+	obj["mime_type"] = canonMime
+	if isShortRef {
+		obj["uri"] = expandedFilesURI(cmd, name)
+	}
+	if existingType == "" {
+		blk := mediaContentBlock(canonMime, expandedFilesURI(cmd, name), false)
+		obj["type"] = string(blk.Type)
+	}
+	return nil
+}
+
