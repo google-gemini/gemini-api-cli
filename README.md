@@ -1,805 +1,325 @@
-# gemini-api
+# Gemini API CLI (`gemini-api`)
 
-Command-line interface for the *Gemini* API.
-
-[![Built by Speakeasy](https://img.shields.io/badge/Built_by-SPEAKEASY-374151?style=for-the-badge&labelColor=f3f4f6)](https://www.speakeasy.com/?utm_source=google-gemini/gemini-api-cli&utm_campaign=cli)
+[![Release](https://img.shields.io/github/v/release/google-gemini/gemini-api-cli)](https://github.com/google-gemini/gemini-api-cli/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+**Gemini models and managed agents for the agent you already use.**
 
-<br /><br />
-> [!IMPORTANT]
-> This CLI is not yet ready for production use. Delete this notice before publishing to a package manager.
+Give Codex, Claude Code, Antigravity, OpenClaw, Hermes, or any other agent with shell access the ability to use the Gemini API. Configure an API key, put `gemini-api` on `PATH`, and let your agent choose a model, generate an asset, analyze a file, or launch a managed agent to handle a task.
 
-<!-- Start Summary [summary] -->
-## Summary
+Your agent plans the work. Gemini provides models and managed agents. This stateless CLI connects them through standard shell commands:
 
-Gemini API: Use the Gemini Interactions API and managed-agent platform from the command line.
+```bash
+gemini-api image "A friendly robot mascot for a developer tool" --out ./assets/
+```
 
-Get started:
-  Set GEMINI_API_KEY, or run: gemini-api configure
-  Then run a model or managed agent: gemini-api agent --help
-  Add --dry-run to preview any API call without sending it.
-<!-- End Summary [summary] -->
+A prompt goes in. An image lands in your project. Your agent gets the file path and keeps building. The same binary can return an analysis, a voiceover, a transcript, or the interaction ID of a background managed-agent run.
 
-<!-- Start Table of Contents [toc] -->
-## Table of Contents
-<!-- $toc-max-depth=2 -->
-* [gemini-api](#gemini-api)
-  * [CLI Installation](#cli-installation)
-  * [Shell Completion](#shell-completion)
-  * [CLI Example Usage](#cli-example-usage)
-  * [For AI agents](#for-ai-agents)
-  * [Authentication](#authentication)
-  * [Configuration](#configuration)
-  * [Commands](#commands)
-  * [Request Body Input](#request-body-input)
-  * [Server Selection](#server-selection)
-  * [Output Formats](#output-formats)
-  * [Server-Sent Event Streaming](#server-sent-event-streaming)
-  * [Pagination](#pagination)
-  * [Retries](#retries)
-  * [Error Handling](#error-handling)
-  * [Diagnostics](#diagnostics)
-* [Development](#development)
-  * [Maturity](#maturity)
-  * [Contributions](#contributions)
+[Installation](#installation) · [Quick start](#quick-start) · [Command overview](#command-overview) · [Agent discovery](#agent-discovery-and-machine-interface) · [Workflows](#agent-workflows) · [Gemini API docs](https://ai.google.dev/gemini-api/docs)
 
-<!-- End Table of Contents [toc] -->
+---
 
-<!-- Start CLI Installation [installation] -->
-## CLI Installation
+## Why this CLI
 
-### Quick Install (Linux/macOS)
+A coding agent building an app may need a hero image, a voiceover, a second opinion on a design, or an answer inside a PDF. An assistant may need to turn a recording into captions or delegate multi-step research. Give that agent `gemini-api` and an API key, and it can call those capabilities directly when the task requires them.
+
+- **One binary for models, media, and managed agents:** Access text and reasoning models, multimodal file analysis, image/audio/music/video generation, and managed agents from the command line.
+- **Delegate long-running work:** Start a Gemini managed agent in the background, keep the returned interaction ID, and retrieve the result when needed.
+- **Self-describing interface:** Commands, flags, request schemas (`--schema`), and machine-readable usage (`--usage`) are built into the binary so an agent can inspect what it needs on the fly.
+- **Safe dry-run validation:** `--dry-run` validates inputs and prints the resolved HTTP request with credentials redacted—without making a network call or reading the OS keychain.
+- **Script- and agent-friendly output:** Stream text, write media directly to disk, emit structured JSON (`--output-format json`) or compact TOON (`--output-format toon`), or filter fields inline with `--jq`.
+- **Stateless execution:** Each invocation runs independently. Your agent supplies the context, chooses the model, and controls the next step.
+
+Built for headless use by coding agents and assistant tools, with the same interface available to shell scripts and CI jobs. A single Go binary runs on macOS, Linux, and Windows.
+
+---
+
+## Installation
+
+### macOS and Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh | bash
 ```
 
-### Quick Install (Windows PowerShell)
+### Windows (PowerShell)
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.ps1 | iex
 ```
 
-### Go Install
+### Go install
 
-Alternatively, install directly via Go:
+Install the latest release with Go:
 
 ```bash
 go install github.com/google-gemini/gemini-api-cli/cmd/gemini-api@latest
 ```
 
-### Manual Download
+To build the current development version, use `@main` instead of `@latest`. Current `main` requires **Go 1.26.8** or later (Go's automatic toolchain selection downloads the required version if needed).
 
-Download pre-built binaries for your platform from the [releases page](https://github.com/google-gemini/gemini-api-cli/releases).
-<!-- End CLI Installation [installation] -->
+### Prebuilt binaries
 
-<!-- Start Shell Completion [completion] -->
-## Shell Completion
+Download prebuilt archives for macOS, Linux, and Windows from [GitHub Releases](https://github.com/google-gemini/gemini-api-cli/releases) and place `gemini-api` on your `PATH`.
 
-Shell completions are available for Bash, Zsh, Fish, and PowerShell.
+---
 
-### Bash
+## Quick start
 
-```bash
-# Add to ~/.bashrc:
-source <(gemini-api completion bash)
+### 1. Configure your API key
 
-# Or install permanently:
-gemini-api completion bash > /etc/bash_completion.d/gemini-api
-```
-
-### Zsh
-
-```zsh
-# Add to ~/.zshrc:
-source <(gemini-api completion zsh)
-
-# Or install permanently:
-gemini-api completion zsh > "${fpath[1]}/_gemini-api"
-```
-
-### Fish
-
-```fish
-gemini-api completion fish | source
-
-# Or install permanently:
-gemini-api completion fish > ~/.config/fish/completions/gemini-api.fish
-```
-
-### PowerShell
-
-```powershell
-gemini-api completion powershell | Out-String | Invoke-Expression
-```
-<!-- End Shell Completion [completion] -->
-
-<!-- Start CLI Example Usage [usage] -->
-## CLI Example Usage
-
-### Quick start
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey) and make it available to your shell or your agent's subprocess environment:
 
 ```bash
-# Run a managed agent by ID
-gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026
-
-# Choose a different model
-gemini-api generate "Write a haiku about APIs" --model gemini-pro-latest
-
-# Generate an image (prints the written file path)
-gemini-api image "a lighthouse at sunset"
+export GEMINI_API_KEY="YOUR_API_KEY"
 ```
 
-### Example
+> **Workstation tip:** To persist your key in your OS keychain (macOS Keychain, Linux Secret Service, or Windows Credential Manager) or `~/.config/gemini-api/config.yaml`, run `gemini-api configure --api-key "YOUR_API_KEY"` or open the interactive form with `gemini-api configure --interactive`. Check your active configuration and credential source at any time with `gemini-api whoami`.
+
+Verify your setup locally with `--dry-run` (no network call), then remove `--dry-run` to call the API:
 
 ```bash
-gemini-api agent list --api-key test_api_key --api-version v1beta
-
+gemini-api generate "Hello from my agent" --dry-run
+gemini-api generate "Hello from my agent"
 ```
-<!-- End CLI Example Usage [usage] -->
 
-<!-- Start For AI agents [agents] -->
-## For AI agents
+### 2. Give your agent instructions
 
-This CLI is built to be driven by AI coding agents as well as people: everything an agent needs is discoverable from the binary itself, and every command can be validated without credentials. Work down this ladder:
+Add the following block to your agent's instructions (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or tool configuration):
 
-| Run | You get |
-|-----|---------|
-| `gemini-api --help`, `gemini-api agent list --help` | Commands by category, runnable examples, flags |
-| `gemini-api --usage`, `gemini-api agent list --usage` | The command surface as machine-readable [KDL](https://kdl.dev): commands, aliases, flags, defaults, env vars, config keys |
-| `gemini-api agent run --schema` | The exact JSON Schema of the command's request body (all `$ref`s bundled) — build a valid `--body` from it |
-| `gemini-api agent list --dry-run` | The exact HTTP request (method, URL, headers, body), with no credentials or network call |
-| `gemini-api agent list --output-format json` (or `--jq`) | Machine-readable output |
+```text
+You have access to gemini-api through the shell.
+Use it to call Gemini models, generate or edit media, analyze files, or launch managed agents.
+1. Inspect --help or --usage to choose a command, and --schema when building a --body JSON payload.
+2. Preview API calls with --dry-run (or --dry-run --output-format json).
+3. For discrete JSON output or --jq filtering on streaming/background commands (generate, agent run, agent status), pass --stream=false --output-format json.
+4. Capture returned file paths (from media commands) and interaction IDs (from agent/model runs) to continue multi-step tasks.
+```
 
-### Discover the command surface
+### 3. Put your agent to work
+
+Prompt your host agent as usual:
+
+```text
+Build a landing page for this app. Use Gemini to create a mascot image and a welcome voiceover, and launch a managed research agent to investigate competing products. Incorporate the assets and findings into the page.
+```
+
+Your agent chooses the commands, runs them in its shell, and uses the returned file paths and interaction IDs in its own workflow.
+
+---
+
+## Command overview
+
+Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> --help` for command-specific flags and examples.
+
+| Category | Command | Subcommands / Key Flags | Description & default model |
+|---|---|---|---|
+| **Create** | `gemini-api generate` | `-m`, `-i/--input`, `--stream=false`, `--body` | Text and multimodal generation (`gemini-3.8-flash`) |
+| | `gemini-api image` | `-m`, `-i/--input`, `--out`, `--body` | Generate or edit images (`gemini-nano-banana-2.1`) |
+| | `gemini-api tts` | `-f/--file`, `--stdin`, `--voice`, `--multi-speaker`, `--out` | Text-to-speech audio generation (`gemini-3.8-flash-tts`) |
+| | `gemini-api music` | `-m`, `--out`, `--body` | Music generation (`lyria-3.5`) |
+| | `gemini-api video` | `-m`, `-i/--input`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.1-flash`) |
+| **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `-f/--file`, `--stdin`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-3.8-flash`) |
+| | `gemini-api transcribe` | `-i/--input` *(repeatable)*, `--format` (`md`, `text`, `json`, `srt`), `--out` | Transcribe audio or video to Markdown (`md`), plain text (`text`), JSON (`json`), or SRT captions (`srt`) (`gemini-3.8-flash`) |
+| **Manage** | `gemini-api agent` | `run`, `status`, `cancel`, `delete-interaction`, `create`, `list`, `get`, `delete` | Run interactions with models or managed agents (`run`, `status`, `cancel`) and manage agent definitions |
+| | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
+| | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |
+| | `gemini-api configure` | `--api-key`, `--interactive`, `--output-format` | Configure authentication, global parameters, and persistent preferences |
+| **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`) | Manage sandbox environments and upload, list, or download environment files |
+| | `gemini-api credentials` | `create`, `list`, `get`, `update`, `delete` | Manage stored server-side credentials for managed agents |
+| | `gemini-api webhooks` | `create`, `list`, `get`, `update`, `ping`, `rotate-signing-secret`, `delete` | Manage webhook endpoints and signing secrets for event delivery |
+| | `gemini-api triggers` | `list`, `get`, `update`, `run`, `list-executions`, `delete` | Inspect, run, update, and delete cron triggers for managed agents |
+| **Utility** | `gemini-api whoami` / `auth` / `explore` / `version` | `auth login`, `auth status`, `auth logout` | Inspect active credentials (`whoami`, `auth`), launch the interactive explorer (`explore`), or print the CLI version (`version`) |
+
+---
+
+## Agent discovery and machine interface
+
+Everything an agent needs to use `gemini-api` is discoverable from the binary itself, without external documentation or credentials:
+
+| When an agent needs to… | It runs… |
+|---|---|
+| Discover commands and flags | `gemini-api --help` or `gemini-api --usage` |
+| Inspect a request body schema | `gemini-api agent run --schema` |
+| Validate and preview a call offline | `gemini-api image "A robot mascot" --dry-run` |
+| Parse a complete structured response | `gemini-api generate "Hello" --stream=false --output-format json` |
+| Extract a single field inline | `gemini-api agent list --jq '.agents[].id'` |
+
+- **`--usage`** outputs the complete command tree, flags, defaults, environment variables, and config keys as machine-readable [KDL](https://kdl.dev).
+- **`--schema`** prints the bundled JSON Schema (draft 2020-12) for any command that accepts a request body.
+- **`--dry-run`** validates flags and payloads and previews the HTTP request without credentials or network access (use `--dry-run --output-format json` for machine-parseable JSON request previews).
+- **`--no-interactive`** disables all interactive prompts and TUI forms.
+- **`--agent-mode`** (or `GEMINI_CLI_AGENT_MODE=1`) enables structured JSON error envelopes on `stderr` and defaults `stdout` to compact [TOON](https://github.com/toon-format/spec) output (`--output-format json` explicitly selects JSON).
+- **Exit codes** distinguish success (`0`), runtime/API failures (`1`), invalid usage/validation errors (`2`), and authentication/authorization failures (`3`).
+
+Run `gemini-api --help-global` to see all global authentication, network, output, and diagnostic flags.
+
+---
+
+## Agent workflows
+
+### 1. Generate and edit creative assets
+
+Coding agents like Codex, Claude Code, or Antigravity can generate images, speech, music, and video while building an app:
+
+<!-- readme-examples: skip (needs local file from previous command) -->
+```bash
+# Generate an image and capture the written file path
+MASCOT_PATH=$(gemini-api image "A friendly robot mascot, soft studio lighting" --out ./assets/mascot.jpg)
+
+# Edit an existing image with -i / --input
+gemini-api image "Add a winter scarf and snowy background" -i "$MASCOT_PATH" --out ./assets/mascot-winter.jpg
+
+# Generate single-speaker or multi-speaker voiceovers
+gemini-api tts "Welcome. Let's build something together." --out ./assets/welcome.wav
+gemini-api tts "Alice: Welcome to the demo! Bob: Let's dive right in." \
+  --multi-speaker "Alice=Kore,Bob=Puck" \
+  --out ./assets/dialogue.wav
+
+# Generate background music and video
+gemini-api music "Warm ambient music for a product walkthrough" --out ./assets/
+gemini-api video "A slow camera move through a sunlit workshop" --out ./assets/
+```
+
+Media commands write files locally and print only the written file path to `stdout`. When `--out` points to a directory (or is omitted), the CLI names the file automatically using the file extension that matches the API's returned MIME type (for example, `.jpg` for `image/jpeg`, `.wav` for `audio/wav`, `.mp3` for `audio/mpeg`, and `.mp4` for `video/mp4`).
+
+### 2. Analyze documents and transcribe recordings
+
+Assistants like OpenClaw or Hermes can turn documents, media files, and YouTube URLs into answers and deliverables:
+
+<!-- readme-examples: skip (needs local files) -->
+```bash
+# Analyze a PDF or compare multiple images
+gemini-api analyze --input product-brief.pdf "What should we build first, and why?" > plan.md
+gemini-api analyze --input before.png --input after.png "Summarize the visual design changes"
+
+# Transcribe audio or video (valid formats: md, text, json, srt)
+gemini-api transcribe --input interview.mp4 --format srt --out interview.srt
+```
+
+For larger media files (over ~14 MB raw / 20 MB base64-encoded), upload once with `files upload --wait` and reuse the returned `files/<id>` URI across `analyze`, `transcribe`, `generate`, `image`, `video`, or `agent run`:
+
+<!-- readme-examples: skip (needs local file and uploaded file URI) -->
+```bash
+FILE_URI=$(gemini-api files upload interview.mp4 --wait --output-format json --jq '.name')
+gemini-api analyze --input "$FILE_URI" "List the key action items with timestamps"
+```
+
+### 3. Launch and poll a background managed agent
+
+Delegate multi-step research or coding tasks to a Gemini managed agent such as Deep Research. Pass `--background --stream=false` so the CLI returns the interaction ID immediately instead of holding open an SSE stream:
 
 ```bash
-# Every command, flag, default, env var and config key, as KDL
-gemini-api --usage
-
-# One command's subtree only
-gemini-api agent list --usage
+INTERACTION_ID=$(gemini-api agent run "Research battery recycling approaches and cite sources" \
+  --agent deep-research-preview-04-2026 \
+  --background \
+  --stream=false \
+  --jq '.id')
+echo "Started interaction: $INTERACTION_ID"
 ```
 
-### Read the exact request schema
-
-`--schema` is available on every command that accepts a request body (`--body`, stdin, or a whole-body flag where the command has one), including intent commands. It prints the JSON Schema the request is validated against and exits without calling the API.
+Check progress or retrieve the finished output using the returned `INTERACTION_ID`:
 
 ```bash
-# JSON Schema (draft 2020-12) of the request body, with every $ref bundled under $defs
-gemini-api agent run --schema
+gemini-api agent status "$INTERACTION_ID" --stream=false --output-format json
 ```
 
-### Probe before you spend
+You can also stream live progress events (`gemini-api agent status "$INTERACTION_ID" --stream`) or cancel an active run (`gemini-api agent cancel "$INTERACTION_ID"`).
 
-Start quota-spending commands with `--dry-run`. It validates inputs, resolves the request, redacts secrets and binary payloads, makes no network call, and exits 0. It never reads the OS keychain; credentials supplied by flag, environment, or config file are included only as `[REDACTED]`.
+### 4. Choose the right model
+
+Use `--model` (`-m`) on generation and analysis commands to pick a model for reasoning, fast text, multimodal understanding, or media generation:
 
 ```bash
-# Human preview: the [DRY-RUN] block is on stderr and stdout is empty
-gemini-api agent list --dry-run
-gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026 --dry-run
+# View the curated offline model catalog grouped by capability
+gemini-api models
 
-# Machine preview: compact JSON on stdout and silent stderr
-gemini-api agent list --dry-run --output-format json
+# Query all live models available to your API key (--all auto-paginates across pages)
+gemini-api models list --all
+gemini-api models get gemini-3.8-flash
+
+# Run a prompt with a specific model
+gemini-api generate "Review this approach: cache immutable responses by content hash" --model gemini-3.8-flash
 ```
 
-The machine form writes one object per would-be request, one per line (NDJSON for multi-request commands), with exactly this shape:
+---
 
-```json
-{"dry_run":true,"request":{"method":"POST","url":"https://…","headers":{"Accept":["application/json"],…},"body":<JSON value | string | null>}}
-```
+## Go deeper: custom request bodies (`--schema` to `--body`)
 
-`body` is a parsed JSON value when the body is JSON, a string for text, `"<bytes:N>"` for binary data, and `null` when absent. An explicit caller `--jq` also selects this JSON preview protocol, but the filter is not applied to preview objects. Command-declared jq presets do not select or filter the preview.
+Short flags cover common tasks; `--body` gives your agent full access to the underlying Interactions API request schema while keeping the CLI's file output and error handling.
 
-Local mutation commands make no request under `--dry-run`: instead of a preview they emit one `{"dry_run":true,"local":true,"command":"…","message":"…"}` object. `select(.request)` keeps only would-be requests; `select(.local)` keeps the local no-ops.
-
-### Machine-readable output
+First, inspect the schema for `image`:
 
 ```bash
-# JSON on stdout
-gemini-api agent list --output-format json
-
-# Filter or reshape with a jq expression (always emits JSON, overrides --output-format)
-gemini-api agent list --jq '.'
-
-# Print jq string results as plain text instead of JSON strings (like jq -r)
-gemini-api agent list --jq '.' --raw-output
+gemini-api image --schema > image-schema.json
 ```
 
-`--output-format toon` emits [TOON](https://github.com/toon-format/spec), a compact line-oriented format that uses fewer tokens than JSON; it is the default in agent mode.
-
-### Interactive mode
-This CLI is non-interactive by default. Pass `--interactive` to prompt for missing inputs or open guided `configure` / `auth login` forms. Required-input prompts require an interactive terminal; off-TTY forms read line input from stdin.
+Next, create `hero-image.json` to select `gemini-nano-banana-2.1`, request a `16:9` image at `2K` size (`image_size`: `"512"`, `"1K"`, `"2K"`, or `"4K"`), and disable server-side interaction storage (`"store": false`):
 
 ```bash
-# Prompt for missing command inputs
-gemini-api agent run --interactive
-
-# Open the guided configuration form
-gemini-api configure --interactive
-
-# Explicitly launch the terminal command explorer
-gemini-api explore
+cat > hero-image.json <<'JSON'
+{
+  "model": "gemini-nano-banana-2.1",
+  "input": "A friendly robot mascot in a sunlit workshop, composed on the right with uncluttered space on the left for a landing page headline. No text or watermark.",
+  "response_format": {
+    "type": "image",
+    "aspect_ratio": "16:9",
+    "image_size": "2K"
+  },
+  "store": false,
+  "stream": false
+}
+JSON
 ```
 
-### Agent mode and structured errors
-Agent mode turns on only when explicitly requested with `--agent-mode`; environment variables do not identify the caller.
-In agent mode interactive prompts never launch, output defaults to TOON, and every failure — API errors and CLI usage errors alike — is one JSON envelope on stderr:
-`--output-format json` and `--jq` use the same error envelope without requiring agent mode.
+Preview the exact HTTP payload with `--dry-run`, then execute the request:
+
+<!-- readme-examples: skip (needs local hero-image.json file) -->
+```bash
+gemini-api image --body @hero-image.json --out ./assets/hero.jpg --dry-run --output-format json
+gemini-api image --body @hero-image.json --out ./assets/hero.jpg --output-format json
+```
+
+With `--output-format json`, the CLI writes the image to disk and returns structured artifact metadata on `stdout`:
 
 ```json
 {
-  "error": "...",
-  "error_type": "validation_error",
-  "error_reason": "CLI_VALIDATION",
-  "exit_code": 2,
-  "message": "human-readable message",
-  "hints": ["what to try next"]
+  "kind": "image",
+  "mime_type": "image/jpeg",
+  "path": "/path/to/project/assets/hero.jpg",
+  "size_bytes": 2914159,
+  "status": "completed"
 }
 ```
 
-`error_type` is one of `authentication_error`, `authorization_error`, `not_found`, `validation_error`, `rate_limit_error`, `server_error`, `api_error`, `connection_error`, `protocol_error`, `service_disabled`, `billing_disabled`, `runtime_error`, `unsupported_error`, `async_failed`, `async_timeout`, `async_unknown_state`. Classification reads the structured reason code at `$.details[*].reason`, then `$.status` in the error body (resolved against the nested `error` object when the body has one) before HTTP status, so a declared credential reason sent with HTTP 400 is not mistaken for request validation. `error_reason` carries the reason code found there, verbatim from a declared carrier when no declared rule matches it; it is absent for status-only API errors. Status-less local failures may use `CLI_VALIDATION`, `CLI_CONNECTION`, `CLI_PROTOCOL`, `CLI_RUNTIME`, `CLI_UNAVAILABLE`, `CLI_AUTHENTICATION`, or the async polling reasons `CLI_ASYNC_FAILED`, `CLI_ASYNC_TIMEOUT`, and `CLI_ASYNC_UNKNOWN_STATE`. `hints` preserves server guidance first, adds the most specific local taxonomy guidance, then typed CLI and command-specific guidance, removing exact duplicates. `exit_code` is always the code for the final `error_type` shown in the envelope: 1 runtime, 2 usage, or 3 authentication/authorization.
+`--out` controls the local file destination; `response_format` controls what the model generates (pass `--raw-response` instead of `--out` if you want the full raw API response envelope). The same `--schema` to `--body` workflow applies to `gemini-api agent run` and other commands when configuring `system_instruction`, `tools`, structured JSON `response_format.schema`, or stateful multi-turn continuations via `previous_interaction_id`:
 
-### Lists, streams, and files
-
-List commands accept `--all` to fetch every page and stream results as they arrive (one JSON value per line with `--output-format json`; `--max-pages N` bounds the walk).
-
-Structured output and agent mode never write pagination hints to stderr; if a later page fails or the server repeats a cursor, the command exits non-zero after the pages already written.
-
+<!-- readme-examples: skip (uses shell variable from previous turn) -->
 ```bash
-gemini-api agent list --all --output-format json
+# Turn 1: Run a non-streaming interaction and capture its ID
+TURN1_ID=$(gemini-api generate "Propose 3 database indexing strategies for a time-series log table." \
+  --stream=false --jq '.id')
+
+# Turn 2: Continue the conversation using previous_interaction_id
+gemini-api agent run "Compare strategy #2 and #3 for write-heavy workloads." \
+  --body "{\"previous_interaction_id\": \"$TURN1_ID\"}" \
+  --stream=false
 ```
 
-Streaming commands write each event as it arrives (one JSON object per line with `--output-format json`; a declared streamed projection prints just the selected text, e.g. `/data/delta/text`):
+The CLI stores no local conversation state—server-side interactions and uploaded files manage their own retention on the API, and your workflow keeps only the IDs it wants to reuse.
 
-```bash
-gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026 --stream --output-format json
-```
+---
 
-Commands that produce media write the file and print only its path on stdout (`--out <path-or-dir>` chooses the location, default `./gemini-image-{timestamp}-{rand}.{ext}`; `--raw-response` prints the API response instead):
+## Status, feedback, and contributions
 
-```bash
-gemini-api image "a lighthouse at sunset" --out ./output/
-```
+> [!NOTE]
+> `gemini-api` is in **beta** and evolving alongside the [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview). Breaking changes may occur between releases; we recommend pinning to a specific [release version](https://github.com/google-gemini/gemini-api-cli/releases) in CI and automated workflows.
 
-Long-running commands poll to a terminal response; human progress goes to stderr and machine-mode success keeps stderr silent. Add `--async` to `gemini-api video "a timelapse of a city at night" --async` to return its handle immediately, or tune foreground polling with `--poll-interval <duration>` and `--poll-timeout <duration>`. Resume an escaped or timed-out operation with `gemini-api agent status --id <id>`.
-<!-- End For AI agents [agents] -->
+- **Feedback & bug reports:** Try `gemini-api` in your agent workflow and let us know where it helps or where it gets in the way by opening an issue in [GitHub Issues](https://github.com/google-gemini/gemini-api-cli/issues).
+- **Contributions:** We are **not** accepting open source contributions (pull requests) at this time.
+- **Releases:** Browse changelog notes and prebuilt binaries on [GitHub Releases](https://github.com/google-gemini/gemini-api-cli/releases).
 
-<!-- Start Authentication [security] -->
-## Authentication
-
-Authentication credentials can be configured in four ways (in order of priority):
-
-### 1. Command-line flags
-
-Pass credentials directly as flags to any command:
-
-```bash
-gemini-api --api-key "$GEMINI_API_KEY" --access-token "$GEMINI_ACCESS_TOKEN" agent list
-```
-
-### 2. Environment variables
-
-Set credentials via environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `GEMINI_API_KEY` | Gemini API key sent as x-goog-api-key. |
-| `GEMINI_ACCESS_TOKEN` | OAuth access token sent as a bearer Authorization header. |
-
-### 3. OS Keychain (recommended for workstations)
-
-Credentials are stored securely in your operating system's keychain when you run:
-
-```bash
-gemini-api configure
-```
-
-Secret credentials (tokens, API keys, passwords) are automatically stored in:
-- **macOS**: Keychain
-- **Linux**: GNOME Keyring / KWallet (via D-Bus Secret Service)
-- **Windows**: Windows Credential Locker
-
-If no keychain is available (e.g., in CI environments), credentials fall back to the config file.
-
-### 4. Configuration file
-
-Run the interactive `configure` command to store non-secret settings:
-
-```bash
-gemini-api configure
-```
-
-Configuration is stored in `~/.config/gemini-api/config.yaml`.
-<!-- End Authentication [security] -->
-
-<!-- Start Configuration [global-parameters] -->
-## Configuration
-
-`gemini-api configure` stores your settings in `~/.config/gemini-api/config.yaml`. You can run it interactively to set credentials and persistent preferences, or edit the config file directly.
-
-For authentication credentials specifically, see [Authentication](#authentication).
-
-### Global Parameters
-
-Certain parameters are configured globally and applied to all commands that use them. These parameters can be set via CLI flags, environment variables, or the config file. Individual commands can override global values with their own flags when needed.
-
-Priority: CLI flags > environment variables > config file
-
-| Source | Example |
-|--------|---------|
-| CLI flag | `gemini-api --api-version v1beta agent list` |
-| Environment variable | `GEMINI_API_VERSION=v1beta gemini-api agent list` |
-| Config file | `gemini-api configure` |
-
-#### Available Global Parameters
-
-| Flag             | Type   | Description                                                                                                                        | Environment         |
-| ---------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `--api-version`  | string | Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).                     | GEMINI_API_VERSION  |
-| `--api-revision` | string | Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision. | GEMINI_API_REVISION |
-| `--user-project` | string | Quota project header to send with Google GenAI API requests.                                                                       | GEMINI_USER_PROJECT |
-
-### Example
-
-```bash
-# Set a global parameter via flag
-gemini-api --api-version v1beta agent list
-
-# Or set via environment variable
-GEMINI_API_VERSION=v1beta gemini-api agent list
-
-# Or configure globally (persisted to config file)
-gemini-api configure
-```
-<!-- End Configuration [global-parameters] -->
-
-<!-- Start Commands [operations] -->
-## Commands
-
-Commands are grouped the way `gemini-api --help` shows them. Every command accepts `--help`; body-bearing commands also accept `--schema` (exact request JSON Schema) and `--dry-run` (preview the request without sending it) — see [For AI agents](#for-ai-agents).
-
-### Create
-
-* [`generate`](docs/gemini-api_generate.md) - Text & multimodal generation (gemini-3.8-flash)
-
-  ```bash
-  # Choose a different model
-  gemini-api generate "Write a haiku about APIs" --model gemini-pro-latest
-  # Generate with the default model (streams the reply)
-  gemini-api generate "Explain concurrency in one sentence"
-  ```
-
-* [`image`](docs/gemini-api_image.md) - Generate or edit images (gemini-nano-banana-2.1)
-
-  ```bash
-  # Generate an image (prints the written file path)
-  gemini-api image "a lighthouse at sunset"
-  # Write to a chosen path
-  gemini-api image "product shot, white bg" --out shots/hero.png
-  ```
-
-* [`music`](docs/gemini-api_music.md) - Music generation (lyria-3.5)
-
-  ```bash
-  # Generate a clip
-  gemini-api music "upbeat synthwave with a driving bassline"
-  ```
-
-* [`tts`](docs/gemini-api_tts.md) - Text to speech (gemini-3.8-flash-tts)
-* [`video`](docs/gemini-api_video.md) - Generate & edit video conversationally (gemini-omni-1.1-flash)
-
-  ```bash
-  # Return the interaction ID immediately; poll it yourself
-  gemini-api video "a timelapse of a city at night" --async
-  # Generate a video (polls until done, prints the written file path)
-  gemini-api video "a timelapse of a city at night"
-  ```
-
-### Understand
-
-* [`analyze`](docs/gemini-api_analyze.md) - Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-3.8-flash)
-* [`transcribe`](docs/gemini-api_transcribe.md) - Audio/video → text (timestamps, captions) (gemini-3.8-flash)
-
-### Manage
-
-* [`agent`](docs/gemini-api_agent.md) - Run interactions with Gemini models or managed agents, and manage agent definitions
-  * [`run`](docs/gemini-api_agent_run.md) - Run an interaction with a Gemini model or a managed agent
-
-    ```bash
-    # Run a managed agent by ID
-    gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026
-    # Start a background run, then poll with "agent status"
-    gemini-api agent run "Write a detailed research report on solar batteries" --background
-    # Run a model interaction (streams the reply)
-    gemini-api agent run "Explain the difference between concurrency and parallelism" --model gemini-3.8-flash
-    ```
-
-  * [`list`](docs/gemini-api_agent_list.md) - List managed agent definitions
-  * [`create`](docs/gemini-api_agent_create.md) - Create a managed agent definition
-  * [`delete`](docs/gemini-api_agent_delete.md) - Delete a managed agent definition by ID
-  * [`get`](docs/gemini-api_agent_get.md) - Get a managed agent definition by ID
-  * [`delete-interaction`](docs/gemini-api_agent_delete-interaction.md) - Delete an interaction by interaction ID
-  * [`status`](docs/gemini-api_agent_status.md) - Get status and output of an interaction by interaction ID
-  * [`cancel`](docs/gemini-api_agent_cancel.md) - Cancel an in-progress interaction by interaction ID
-* [`configure`](docs/gemini-api_configure.md) - Configure authentication, global parameters, and preferences
-* [`files`](docs/gemini-api_files.md) - Upload, list, inspect, register, and delete files (48-hour retention)
-  * [`list`](docs/gemini-api_files_list.md) - List uploaded and registered files
-  * [`delete`](docs/gemini-api_files_delete.md) - Delete a file
-  * [`get`](docs/gemini-api_files_get.md) - Get a file's metadata and processing state
-  * [`register`](docs/gemini-api_files_register.md) - Register Google Cloud Storage objects as files without copying them
-  * [`generated-files-list`](docs/gemini-api_files_generated-files-list.md) - List files generated on the project's behalf
-* [`models`](docs/gemini-api_models.md) - Show the curated offline model catalog; list/get query the live API
-  * [`list`](docs/gemini-api_models_list.md) - List the models the API serves (live; bare "models" is the offline catalog)
-  * [`get`](docs/gemini-api_models_get.md) - Get a model's live metadata (version, token limits, supported methods)
-
-### Advanced
-
-* [`credentials`](docs/gemini-api_credentials.md) - Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests
-  * [`list`](docs/gemini-api_credentials_list.md) - List credentials
-  * [`create`](docs/gemini-api_credentials_create.md) - Create a credential
-  * [`delete`](docs/gemini-api_credentials_delete.md) - Delete a credential by ID
-  * [`get`](docs/gemini-api_credentials_get.md) - Get a credential by ID
-  * [`update`](docs/gemini-api_credentials_update.md) - Update a credential by ID
-* [`environments`](docs/gemini-api_environments.md) - Manage sandbox environments and inspect environment files
-  * [`list`](docs/gemini-api_environments_list.md) - List sandbox environments
-  * [`create`](docs/gemini-api_environments_create.md) - Create a sandbox environment
-  * [`delete`](docs/gemini-api_environments_delete.md) - Delete a sandbox environment by ID
-  * [`get`](docs/gemini-api_environments_get.md) - Get a sandbox environment by ID
-  * [`files`](docs/gemini-api_environments_files.md) - List and inspect files in an environment's snapshot
-    * [`list`](docs/gemini-api_environments_files_list.md) - List or inspect files in an environment snapshot
-* [`triggers`](docs/gemini-api_triggers.md) - Schedule and manage cron triggers that run managed agents
-  * [`list`](docs/gemini-api_triggers_list.md) - List triggers for a project
-  * [`delete`](docs/gemini-api_triggers_delete.md) - Delete a trigger by ID
-  * [`get`](docs/gemini-api_triggers_get.md) - Get a trigger by ID
-  * [`update`](docs/gemini-api_triggers_update.md) - Update a trigger by ID
-  * [`list-executions`](docs/gemini-api_triggers_list-executions.md) - List executions for a trigger
-  * [`run`](docs/gemini-api_triggers_run.md) - Run a trigger immediately
-* [`webhooks`](docs/gemini-api_webhooks.md) - Manage webhook endpoints and signing secrets for event delivery
-  * [`list`](docs/gemini-api_webhooks_list.md) - List webhook endpoints
-  * [`create`](docs/gemini-api_webhooks_create.md) - Create a webhook endpoint
-  * [`delete`](docs/gemini-api_webhooks_delete.md) - Delete a webhook by ID
-  * [`get`](docs/gemini-api_webhooks_get.md) - Get a webhook by ID
-  * [`update`](docs/gemini-api_webhooks_update.md) - Update a webhook by ID
-  * [`ping`](docs/gemini-api_webhooks_ping.md) - Send a ping event to a webhook
-  * [`rotate-signing-secret`](docs/gemini-api_webhooks_rotate-signing-secret.md) - Rotate the signing secret for a webhook
-<!-- End Commands [operations] -->
-
-<!-- Start Request Body Input [stdinpiping] -->
-## Request Body Input
-
-Commands that accept a request body take it three ways, with a clear priority chain. The examples use `gemini-api agent create`; every body-bearing command works the same way and prints its exact request schema with `--schema`.
-
-### `--body` flag
-
-Provide the entire request body as a JSON string:
-
-```bash
-gemini-api agent create --body '{"base_agent":"antigravity-preview-05-2026","id":"research-assistant"}'
-```
-
-### Stdin piping (lowest priority)
-
-Pipe JSON into any command that accepts a request body:
-
-```bash
-echo '{"base_agent":"antigravity-preview-05-2026","id":"research-assistant"}' | gemini-api agent create
-```
-
-This is useful for chaining commands, reading from files, or scripting:
-
-```bash
-# Read body from a file
-gemini-api agent create < request.json
-
-# Pipe from another command
-curl -s https://example.com/request.json | gemini-api agent create
-```
-
-### Priority
-
-When multiple input methods are used, the priority is:
-
-| Priority | Source | Description |
-|----------|--------|-------------|
-| 1 (highest) | Individual flags | A field flag always wins |
-| 2 | `--body` flag | Whole-body JSON via flag |
-| 3 (lowest) | Stdin | Piped JSON input |
-<!-- End Request Body Input [stdinpiping] -->
-
-<!-- Start Server Selection [server] -->
-## Server Selection
-
-### Override Server URL
-
-Use `--server-url` to override the server URL entirely:
-
-```bash
-gemini-api --server-url https://custom-api.example.com agent list
-```
-
-**Precedence**: `--server-url` > default
-<!-- End Server Selection [server] -->
-
-<!-- Start Output Formats [output-formats] -->
-## Output Formats
-
-Every command supports a `--output-format` flag that controls how the response is rendered to stdout.
-
-### Available formats
-
-| Format | Flag | Description |
-|--------|------|-------------|
-| Pretty | `--output-format pretty` (default) | Aligned key-value pairs with color, nested indentation. Human-readable at a glance. |
-| JSON | `--output-format json` | JSON output. Passthrough when the response is already JSON (preserves original field order and numeric precision). Falls back to typed marshaling otherwise. |
-| YAML | `--output-format yaml` | YAML output via standard marshaling. |
-| Table | `--output-format table` | Tabular output for array responses. |
-| TOON | `--output-format toon` | [Token-Oriented Object Notation](https://github.com/toon-format/spec) — a compact, line-oriented format that typically uses 30–60% fewer tokens than JSON. Well-suited for piping responses into LLM prompts. |
-
-```bash
-# Default pretty output
-gemini-api agent list
-
-# Machine-readable JSON
-gemini-api agent list --output-format json
-
-# TOON for LLM-friendly compact output
-gemini-api agent list --output-format toon
-
-# Pipe JSON to jq without using --output-format
-gemini-api agent list --output-format json | jq '.'
-```
-
-### jq filtering
-
-Use `--jq` to filter or transform the response inline using a [jq](https://jqlang.org) expression. This always outputs JSON and overrides `--output-format`:
-
-```bash
-# Extract a single field
-gemini-api agent list --jq '.'
-
-# Reshape with any jq program; --raw-output prints string results as plain text (like jq -r)
-gemini-api agent list --jq '.' --raw-output
-```
-
-### Color control
-
-Use `--color` to control terminal colors:
-
-| Value | Behavior |
-|-------|----------|
-| `auto` (default) | Color when stdout is a TTY, plain text otherwise |
-| `always` | Always colorize |
-| `never` | Never colorize |
-
-The `NO_COLOR` and `FORCE_COLOR` environment variables are also respected.
-
-### Streaming and pagination
-
-When using `--all` (pagination) or streaming operations, output is written incrementally as items arrive:
-
-| Format | Streaming behavior |
-|--------|-------------------|
-| `json` | One compact JSON object per line ([NDJSON](https://github.com/ndjson/ndjson-spec)) |
-| `yaml` | YAML documents separated by `---` |
-| `toon` | One TOON-encoded object per block, separated by blank lines |
-| `pretty` (default) | Pretty-printed items separated by blank lines |
-<!-- End Output Formats [output-formats] -->
-
-<!-- Start Server-Sent Event Streaming [eventstreaming] -->
-## Server-Sent Event Streaming
-
-Some operations return server-sent events (SSE). These are streamed to the terminal in real-time, with each event output as a separate JSON object (one per line).
-
-```bash
-# Stream events in JSON format
-gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026 --stream --output-format json
-
-# Filter streaming events with jq
-gemini-api agent run "Analyze market trends for Q3" --agent deep-research-preview-04-2026 --stream --output-format json --jq '.'
-```
-
-Events are output as they arrive. Use `Ctrl+C` to stop streaming.
-
-For operation commands with a declared streamed projection, the selected string is written raw as it arrives. When the command exposes a stream toggle flag, its default decides the response shape — the command's help says whether to pass `--stream=false` for one complete JSON response (streaming on by default) or `--stream` to request a streamed response (off by default). Use `-o json` to keep each full streamed event.
-<!-- End Server-Sent Event Streaming [eventstreaming] -->
-
-<!-- Start Pagination [pagination] -->
-## Pagination
-
-Some operations in this CLI support automatic pagination. These operations accept `--all` to automatically fetch all pages and stream results incrementally.
-
-### Basic usage
-
-```bash
-# Fetch a single page (default behavior)
-gemini-api agent list
-
-# Automatically fetch all pages
-gemini-api agent list --all
-```
-
-### Limiting pages
-
-Use `--max-pages` with `--all` to cap the number of pages fetched. A negative value is invalid; `0` means unlimited. Passing `--max-pages` without `--all` is an error.
-
-```bash
-# Fetch at most 5 pages
-gemini-api agent list --all --max-pages 5
-```
-
-### Output formats
-
-When using `--all`, output is streamed as each page is fetched. Operations whose pagination declaration names an `outputs.results` array emit one item at a time. Other operations emit one complete page object at a time, preserving the single-page response shape and any continuation cursor.
-
-| Format | Behavior |
-|--------|----------|
-| `--output-format json` | One JSON object per line ([NDJSON](https://github.com/ndjson/ndjson-spec)) |
-| `--output-format yaml` | YAML documents separated by `---` |
-| `--output-format toon` | One TOON-encoded block per item, separated by blank lines |
-| Default (pretty) | Pretty-printed items separated by blank lines |
-
-```bash
-# Stream all results as NDJSON
-gemini-api agent list --all --output-format json
-
-# Pipe to jq for further processing
-gemini-api agent list --all --output-format json | jq '.'
-
-# Use the built-in --jq flag
-gemini-api agent list --all --jq '.'
-```
-
-### How it works
-
-Under the hood, `--all` calls the operation once, then follows the underlying `Next()` pagination closure to fetch subsequent pages. Results are written to stdout as they arrive rather than buffered in memory, so this works well even with large result sets.
-
-Without `--all`, paginated operations behave like any other command — pass cursor, page, offset, or limit flags manually and get a single page of results. In pretty or table output, a cursor response that proves another page exists prints a hint on stderr. JSON, YAML, TOON, `--jq`, and agent mode keep stderr silent on success. Offset/limit responses do not guess from a full result page. Cursor operations that declare both a results array and a mutable limit also suppress the hint because the client cannot safely reproduce the SDK's runtime limit check.
-
-Pagination can fail after earlier pages have already been written. A later-page API failure or a repeated/cyclic continuation cursor stops with a non-zero exit status; callers should treat stdout as partial whenever the command exits non-zero. `--all` tracks cursor values and stops before issuing another request when the server repeats one; the same applies to next URLs when the target generator supports them.
-<!-- End Pagination [pagination] -->
-
-<!-- Start Retries [retries] -->
-## Retries
-
-Some operations in this CLI support automatic retries with exponential backoff.
-
-### Configure retries
-
-Retry flags are supported but intentionally omitted from `--help`. For persistent agent configuration, use `~/.config/gemini-api/config.yaml`:
-
-```yaml
-timeout: 30s
-no_retries: false
-retry_connection_errors: true
-retry_max_elapsed_time: 1m
-# retry_config replaces the whole policy (overrides retry_max_elapsed_time):
-# retry_config: '{"strategy":"backoff","backoff":{"initialInterval":500,"maxInterval":60000,"exponent":1.5,"maxElapsedTime":300000}}'
-```
-
-The equivalent hidden flags are `--no-retries`, `--retry-config`, `--retry-connection-errors`, and `--retry-max-elapsed-time`.
-
-### Retry-After
-
-`Retry-After` (integer seconds or an RFC1123 date) and `retry-after-ms` override the next computed interval. With the `backoff` strategy, a server-directed wait that exceeds the remaining `maxElapsedTime` budget is not slept; the last response is returned. With `attempt-count-backoff`, `maxRetries` bounds attempts, while `timeout` bounds wall-clock time; `maxElapsedTime` does not apply.
-
-### Timeout
-
-`timeout` and `--timeout` bound the whole operation, including retry sleeps:
-
-```bash
-gemini-api agent list --timeout 30s
-```
-
-**Precedence**: `--no-retries` > `--retry-config` > individual flags > config file > API specification defaults.
-<!-- End Retries [retries] -->
-
-<!-- Start Error Handling [errors] -->
-## Error Handling
-
-The CLI uses standard exit codes to indicate success or failure:
-
-| Exit Code | Meaning |
-|-----------|---------|
-| `0` | Success |
-| `1` | Runtime/API failure |
-| `2` | Usage or input failure |
-| `3` | Authentication or authorization failure |
-
-On success, the response data is printed to **stdout** as JSON. On failure, error details are printed to **stderr**.
-
-```bash
-# Capture output and handle errors
-gemini-api agent list --output-format json > output.json 2> error.log
-if [ $? -ne 0 ]; then
-  echo "Error occurred, see error.log"
-fi
-```
-In pretty mode, each error is printed once as `Error (<type>): <message>`, followed by its reason/HTTP status, actionable `Fix:` bullets, and only non-duplicative residual details.
-
-In agent mode, or with explicit `--output-format json`, `--output-format toon`, or `--jq` machine output, stderr is one classified JSON envelope with `exit_code`, `error_type`, optional `error_reason`, `message`, `hints`, and optional `status_code` — see [For AI agents](#for-ai-agents).
-
-`error_reason` is the structured reason code read from the error body at `$.details[*].reason`, then `$.status` (resolved against the nested `error` object when the body has one).
-<!-- End Error Handling [errors] -->
-
-<!-- Start Diagnostics [diagnostics] -->
-## Diagnostics
-
-The CLI includes two diagnostic flags available on all commands:
-
-### Dry Run
-
-Preview what would be sent without making any network calls:
-
-```bash
-gemini-api agent list --dry-run
-```
-
-In human output modes, stdout is empty and the `[DRY-RUN]` block goes to stderr. It includes:
-- HTTP method and URL
-- Request headers (sensitive values redacted)
-- Request body preview (sensitive fields redacted)
-
-With `--output-format json`, or with a caller-explicit `--jq`, stderr is silent and stdout is NDJSON: one compact preview object per would-be request. The jq filter is not applied, and command-declared jq presets do not select the JSON protocol.
-
-```json
-{"dry_run":true,"request":{"method":"POST","url":"https://…","headers":{"Accept":["application/json"],…},"body":<JSON value | string | null>}}
-```
-
-JSON bodies remain structured; text bodies are strings; binary bodies are `"<bytes:N>"`; absent bodies are `null`. Headers retain all values as arrays, with credentials replaced by `[REDACTED]`. Dry-run never reads the OS keychain, but credentials supplied by flag, environment, or config file still appear redacted. The command exits successfully without contacting the API.
-
-Local mutation commands emit one `{"dry_run":true,"local":true,"command":"…","message":"…"}` object in place of a preview; filter with `select(.request)` or `select(.local)`.
-
-### Debug
-
-Log request and response diagnostics while running normally:
-
-```bash
-gemini-api agent list --debug
-```
-
-Debug output goes to stderr and includes:
-- Request method, URL, headers, and body preview
-- Response status, headers, and body preview
-- Transport errors (if any)
-
-The command still executes normally and produces its regular output on stdout.
-
-### Flag Precedence
-
-If both `--dry-run` and `--debug` are set, `--dry-run` takes precedence and no network calls are made.
-
-### Security
-
-Sensitive information is automatically redacted in diagnostic output:
-- **Headers**: `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, and other security headers show `[REDACTED]`
-- **Body**: JSON fields named `password`, `secret`, `token`, `api_key`, `client_secret`, etc. show `[REDACTED]`
-- **Binary data**: binary media and canonical base64 strings are replaced with `<bytes:N>`
-- **URL query**: credential-like query parameters are replaced with `[REDACTED]`
-
-Diagnostic output should still be treated as potentially sensitive operational data.
-<!-- End Diagnostics [diagnostics] -->
-
-<!-- Placeholder for Future Speakeasy SDK Sections -->
-
-# Development
-
-## Maturity
-
-This CLI is in beta, and there may be breaking changes between versions without a major version update. Therefore, we recommend pinning usage
-to a specific package version. This way, you can install the same version each time without breaking changes unless you are intentionally
-looking for the latest version.
-
-## Contributions
-
-This CLI is generated programmatically. Edits to generated files are overwritten on regeneration. To customize it:
-
-- **Configuration and behavior:** Use [OpenAPI overlays](https://www.speakeasy.com/docs/prep-openapi/overlays/create-overlays) in the Speakeasy workflow with `x-speakeasy-*` extensions (for example, `x-speakeasy-cli-commands`) to define commands, flags, help text, examples, authentication, and grouping.
-- **Persistent code changes:** Store unified diffs as [patch files](https://www.speakeasy.com/docs/sdks/customize/code/patch-files/patch-files) at `.speakeasy/patches/<path-of-generated-file>.patch`; they are re-applied on every generation.
-- **Hand-written commands:** Add them under `internal/cli/custom/`; the scaffold is generated once and never overwritten.
-
-### CLI Created by [Speakeasy](https://www.speakeasy.com/?utm_source=google-gemini/gemini-api-cli&utm_campaign=cli)
+---
 
 ## Licensing & Disclaimer
 
