@@ -110,6 +110,11 @@ func TestDryRunEverywhereKeylessHumanAndJSON(t *testing.T) {
 		{name: "whoami", args: []string{"whoami"}, localOutput: true, wantJSONContains: "config_file"},
 		{name: "version", args: []string{"version"}, localOutput: true, wantJSONContains: `"version"`},
 		{name: "files get", args: []string{"files", "get", "files/abc"}, requests: 1},
+		{name: "credentials list", args: []string{"credentials", "list"}, requests: 1},
+		{name: "credentials get", args: []string{"credentials", "get", "gh-token"}, requests: 1},
+		{name: "credentials create", args: []string{"credentials", "create", "--body-param.bearer-token.id", "gh-token", "--body-param.bearer-token.token", "t"}, requests: 1},
+		{name: "credentials update", args: []string{"credentials", "update", "gh-token", "--body-param.bearer-token.token", "t"}, requests: 1},
+		{name: "credentials delete", args: []string{"credentials", "delete", "gh-token"}, requests: 1},
 	}
 
 	for _, tt := range cases {
