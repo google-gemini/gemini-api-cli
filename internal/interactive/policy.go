@@ -41,6 +41,7 @@ type Decision struct {
 	hasInjectedPrompter      bool
 	explicitNoInteractive    bool
 	explicitInteractiveFalse bool
+	suppressed               bool
 }
 
 var promptFromContext = func(*cobra.Command) bool { return false }
@@ -63,6 +64,10 @@ func Resolve(cmd *cobra.Command) Decision {
 	}
 	if noInteractive || output.IsAgentMode() {
 		d.requested = false
+		d.suppressed = true
+	}
+	if d.explicitInteractiveFalse {
+		d.suppressed = true
 	}
 	return d
 }
@@ -83,6 +88,16 @@ func (d Decision) FormMode() FormMode {
 		return FormTUI
 	}
 	return FormAccessible
+}
+
+func (d Decision) SetupFormMode(flagValuesProvided bool) FormMode {
+	if mode := d.FormMode(); mode != FormOff {
+		return mode
+	}
+	if !flagValuesProvided && !d.suppressed && d.terminalPair {
+		return FormTUI
+	}
+	return FormOff
 }
 
 func (d Decision) AutoExplore() bool {

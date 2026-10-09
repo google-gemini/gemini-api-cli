@@ -33,8 +33,8 @@ func InitIntentImage(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "image [prompt]",
 		Short:   "Generate or edit images (gemini-nano-banana-2.1)",
-		Long:    "Generate an image from a text prompt via the Interactions API\n(image response modality) and write it to a file; stdout\ncarries the file path. Use --out to choose the file (or a\ndirectory), --raw-response to see the API response instead.\n\nArguments:\n  <prompt>  Image prompt",
-		Example: "  gemini-api image \"a lighthouse at sunset\"\n  gemini-api image \"product shot, white bg\" --out shots/hero.png",
+		Long:    "Generate an image from a text prompt via the Interactions API (image\nresponse modality) and write it to a file; stdout carries the file path.\nUse --out to choose the file (or directory), or --raw-response for the API\nresponse. To edit an image conversationally, pass the interaction ID of\nthe prior turn (--jq .response_id) as --previous-interaction-id.\n--aspect-ratio, --image-size and --output-mime-type shape the output image.\n\nArguments:\n  <prompt>  Image prompt",
+		Example: "  gemini-api image \"make the sky stormy\" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg\n  gemini-api image \"a lighthouse at sunset\"\n  gemini-api image \"product shot, white bg\" --aspect-ratio 16:9 --image-size 2K --out shots/hero.jpg",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentImageCmd,
 		Annotations: map[string]string{
@@ -54,12 +54,48 @@ func InitIntentImage(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	cmd.Flags().StringP("aspect-ratio", "", "", "Aspect ratio of the output image (e.g. 1:1, 2:3, 3:2, 3:4, ...)")
+	flagutil.MarkRequestInput(cmd, "aspect-ratio")
+	_ = flagutil.AnnotatePromptFlag(cmd, "aspect-ratio", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    0,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().StringP("image-size", "", "", "Size of the output image (e.g. 512, 1K, 2K, 4K)")
+	flagutil.MarkRequestInput(cmd, "image-size")
+	_ = flagutil.AnnotatePromptFlag(cmd, "image-size", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    1,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().StringP("model", "m", "", "Override the image model (e.g. gemini-3.1-flash-image, gemini-3.1-flash-lite-image, gemini-3-pro-image, nano-banana-pro-preview, default: gemini-nano-banana-2.1)")
 	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    0,
+		Order:    2,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().StringP("output-mime-type", "", "", "MIME type of the output image (e.g. image/jpeg)")
+	flagutil.MarkRequestInput(cmd, "output-mime-type")
+	_ = flagutil.AnnotatePromptFlag(cmd, "output-mime-type", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    3,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction, editing the image it produced")
+	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
+	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    4,
 
 		BodySources: []string{"body"},
 	})
@@ -94,7 +130,10 @@ var intentImagePreset = flagutil.PresetMerge{
 	Variant: "ModelInteraction",
 	Preset:  "{\"model\":\"gemini-nano-banana-2.1\",\"response_format\":{\"type\":\"image\"},\"stream\":false}",
 	Foreign: []string{"agent"},
-	Escape:  "gemini-api agent run",
+	Nested: map[string]flagutil.PresetMergePoint{
+		"/response_format": {Key: "type", Values: []string{"\"image\""}},
+	},
+	Escape: "gemini-api agent run",
 }
 
 func runIntentImageCmd(cmd *cobra.Command, args []string) error {
@@ -137,14 +176,38 @@ func runIntentImageCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "aspect-ratio") {
+			v, _ := flagutil.GetStringFlag(cmd, "aspect-ratio")
+			if err := intentImagePreset.MergeNestedInput(cmd, suppliedBodyFlag, []string{"response_format", "aspect_ratio"}, "--aspect-ratio", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
+		if flagutil.FlagChanged(cmd, "image-size") {
+			v, _ := flagutil.GetStringFlag(cmd, "image-size")
+			if err := intentImagePreset.MergeNestedInput(cmd, suppliedBodyFlag, []string{"response_format", "image_size"}, "--image-size", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "model", "--model", v); err != nil {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "output-mime-type") {
+			v, _ := flagutil.GetStringFlag(cmd, "output-mime-type")
+			if err := intentImagePreset.MergeNestedInput(cmd, suppliedBodyFlag, []string{"response_format", "mime_type"}, "--output-mime-type", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "previous_interaction_id", "--previous-interaction-id", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "aspect-ratio") && !flagutil.FlagChanged(cmd, "image-size") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "output-mime-type") && !flagutil.FlagChanged(cmd, "previous-interaction-id") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -158,9 +221,25 @@ func runIntentImageCmd(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			body["input"] = strings.Join(args, " ")
 		}
+		if flagutil.FlagChanged(cmd, "aspect-ratio") {
+			v, _ := flagutil.GetStringFlag(cmd, "aspect-ratio")
+			flagutil.SetBodyPath(body, []string{"response_format", "aspect_ratio"}, v)
+		}
+		if flagutil.FlagChanged(cmd, "image-size") {
+			v, _ := flagutil.GetStringFlag(cmd, "image-size")
+			flagutil.SetBodyPath(body, []string{"response_format", "image_size"}, v)
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			body["model"] = v
+		}
+		if flagutil.FlagChanged(cmd, "output-mime-type") {
+			v, _ := flagutil.GetStringFlag(cmd, "output-mime-type")
+			flagutil.SetBodyPath(body, []string{"response_format", "mime_type"}, v)
+		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			body["previous_interaction_id"] = v
 		}
 		encoded, err := json.Marshal(body)
 		if err != nil {
@@ -180,6 +259,11 @@ func runIntentImageCmd(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if err := cmd.Flags().Set(surface, merged); err != nil {
+				return err
+			}
+		}
+		if suppliedBodyFlag == "" {
+			if err := flagutil.MergePresetStdinBody(cmd, intentImagePreset); err != nil {
 				return err
 			}
 		}

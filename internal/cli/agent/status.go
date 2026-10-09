@@ -30,9 +30,9 @@ import (
 
 var statusCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "include-input", FieldPath: "IncludeInput", Kind: flagutil.FlagKindBool, Optional: true, Description: "If true, includes the input in the response."},
-	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Required. The name of the interaction to retrieve. [required]"},
+	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", PatternErrorMessage: "Resource IDs cannot be \".\" or \"..\".", Description: "Required. The name of the interaction to retrieve. [required]"},
 	{FlagName: "last-event-id", Shorthand: "l", FieldPath: "LastEventID", Kind: flagutil.FlagKindString, Optional: true, Description: "If set, resumes the interaction stream from the chunk after the event\nmarked by the event id. Can only be used if 'stream' is true."},
-	{FlagName: "stream", Shorthand: "s", FieldPath: "Stream", Kind: flagutil.FlagKindBool, Optional: true, HasDefault: true, DefaultBool: true, Description: "Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to true; use --stream=false for the status object."},
+	{FlagName: "stream", Shorthand: "s", FieldPath: "Stream", Kind: flagutil.FlagKindBool, Optional: true, HasDefault: true, Description: "Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to false; use --stream to stream events."},
 }
 
 // initStatusCmd initializes the status command.
@@ -45,8 +45,10 @@ func initStatusCmd(parent *cobra.Command) error {
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runStatusCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":     "getInteractionById",
-			"speakeasy_stream_select": "/data/delta/text",
+			"speakeasy_operation":              "getInteractionById",
+			"speakeasy_stream_select":          "/data/delta/text",
+			"speakeasy_stream_metadata_select": "/data/interaction/id",
+			"speakeasy_stream_metadata_label":  "Interaction ID",
 		},
 	}
 	flagutil.RegisterFlags(cmd, statusCmdMeta)
@@ -90,6 +92,9 @@ func runStatusCmd(cmd *cobra.Command, args []string) error {
 	if client.IsDryRun(cmd) {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
+	if output.WantsRawJSON(cmd) {
+		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
+	}
 	// Streaming response — iterate events and output incrementally.
 	// Skip streaming iteration in dry-run mode (synthetic response has no stream).
 	if !client.IsDryRun(cmd) {
@@ -98,9 +103,6 @@ func runStatusCmd(cmd *cobra.Command, args []string) error {
 			return output.Error(cmd, err)
 		}
 		return output.StreamResult(cmd, res, "InteractionSSEStreamEvent")
-	}
-	if output.WantsRawJSON(cmd) {
-		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
 	res, err := s.Agent.Status(cmd.Context(), *req, sdkOpts...)
 	if err != nil {

@@ -29,7 +29,7 @@ import (
 )
 
 var modelsGetCmdMeta = []flagutil.FlagMeta{
-	{FlagName: "model", Shorthand: "m", FieldPath: "Model", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", Description: "Model id, e.g. gemini-flash-latest [required]"},
+	{FlagName: "model", Shorthand: "m", FieldPath: "Model", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", PatternErrorMessage: "Resource IDs cannot be \".\" or \"..\".", Description: "Model id, e.g. gemini-flash-latest [required]"},
 }
 
 // initModelsGetCmd initializes the models-get command.

@@ -50,6 +50,20 @@ func FlagChanged(cmd *cobra.Command, name string) bool {
 	return false
 }
 
+func IsAsyncResume(cmd *cobra.Command) bool {
+	return cmd != nil && cmd.Annotations["speakeasy_async"] != "" && FlagChanged(cmd, "resume")
+}
+
+// AnyFlagChanged reports whether any of the named flags was explicitly set.
+func AnyFlagChanged(cmd *cobra.Command, names ...string) bool {
+	for _, name := range names {
+		if FlagChanged(cmd, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetStringFlag returns the value of a string flag and whether it was changed.
 // This correctly handles both local flags and inherited persistent flags.
 func GetStringFlag(cmd *cobra.Command, name string) (string, bool) {
@@ -751,8 +765,71 @@ func AttachStdinBody(cmd *cobra.Command, bodyFlag string) (bool, error) {
 	return true, nil
 }
 
+// MergePresetStdinBody merges an intent's preset into the body AttachStdinBody
+// re-attached from stdin, as MergePresetBody does for a body flag.
+func MergePresetStdinBody(cmd *cobra.Command, m PresetMerge) error {
+	in := cmd.InOrStdin()
+	if in == os.Stdin {
+		return nil
+	}
+	data, err := io.ReadAll(in)
+	if err != nil {
+		return fmt.Errorf("failed to read stdin: %w", err)
+	}
+	merged, err := MergePresetBody(string(data), m)
+	if err != nil {
+		return err
+	}
+	cmd.SetIn(strings.NewReader(merged))
+	return nil
+}
+
+func DefaultBodyInput(cmd *cobra.Command, bodyFlags []string, key, flagName string, value any) error {
+	for _, name := range bodyFlags {
+		if name != "" && FlagChanged(cmd, name) {
+			if err := ResolveBodyFlag(cmd, name); err != nil {
+				return err
+			}
+			s, _ := GetStringFlag(cmd, name)
+			if bodyDecidesKey([]byte(s), key) {
+				return nil
+			}
+			return MergeInputIntoBody(cmd, name, key, "--"+flagName, value)
+		}
+	}
+	data, err := ReadStdinBody(cmd, "")
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(data)) > 0 {
+		cmd.SetIn(bytes.NewReader(data))
+		if bodyDecidesKey(data, key) {
+			return nil
+		}
+		return MergeInputIntoBody(cmd, "", key, "--"+flagName, value)
+	}
+	return cmd.Flags().Set(flagName, fmt.Sprint(value))
+}
+
+func bodyDecidesKey(raw []byte, key string) bool {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return true
+	}
+	_, present := obj[key]
+	return present
+}
+
 // bodyFlagName is "" when the body was attached from stdin by AttachStdinBody.
 func MergeInputIntoBody(cmd *cobra.Command, bodyFlagName, key, input string, value any) error {
+	return MergeInputIntoBodyPath(cmd, bodyFlagName, []string{key}, input, value, nil)
+}
+
+// BodyPathCheck vets a caller object on the path before an input is written
+// beneath it; field is the object's dotted path.
+type BodyPathCheck func(pointer, field, source string, existing json.RawMessage) error
+
+func MergeInputIntoBodyPath(cmd *cobra.Command, bodyFlagName string, path []string, input string, value any, check BodyPathCheck) error {
 	source, raw := "stdin", []byte(nil)
 	if bodyFlagName != "" {
 		s, _ := GetStringFlag(cmd, bodyFlagName)
@@ -775,14 +852,13 @@ func MergeInputIntoBody(cmd *cobra.Command, bodyFlagName, key, input string, val
 		}
 		return fmt.Errorf("cannot combine %s with %s: the body must be a JSON object", input, source)
 	}
-	if _, present := obj[key]; present {
-		return fmt.Errorf("key %q is set both by %s and by %s; pass exactly one", key, input, source)
-	}
 	encodedValue, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	obj[key] = encodedValue
+	if err := mergeBodyPath(obj, path, "", "", input, source, encodedValue, check); err != nil {
+		return err
+	}
 	merged, err := json.Marshal(obj)
 	if err != nil {
 		return err
@@ -792,4 +868,53 @@ func MergeInputIntoBody(cmd *cobra.Command, bodyFlagName, key, input string, val
 	}
 	cmd.SetIn(bytes.NewReader(merged))
 	return nil
+}
+
+func mergeBodyPath(obj map[string]json.RawMessage, path []string, pointer, field, input, source string, value json.RawMessage, check BodyPathCheck) error {
+	key := path[0]
+	pointer += "/" + presetPointerToken(key)
+	if field != "" {
+		field += "."
+	}
+	field += key
+	existing, present := obj[key]
+	if len(path) == 1 {
+		if present {
+			return fmt.Errorf("key %q is set both by %s and by %s; pass exactly one", field, input, source)
+		}
+		obj[key] = value
+		return nil
+	}
+	child := map[string]json.RawMessage{}
+	if present {
+		if err := json.Unmarshal(existing, &child); err != nil || child == nil {
+			return fmt.Errorf("cannot combine %s with %s: %s must be a JSON object", input, source, field)
+		}
+		if check != nil {
+			if err := check(pointer, field, source, existing); err != nil {
+				return err
+			}
+		}
+	}
+	if err := mergeBodyPath(child, path[1:], pointer, field, input, source, value, check); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(child)
+	if err != nil {
+		return err
+	}
+	obj[key] = encoded
+	return nil
+}
+
+func SetBodyPath(body map[string]any, path []string, value any) {
+	for _, key := range path[:len(path)-1] {
+		child, ok := body[key].(map[string]any)
+		if !ok {
+			child = map[string]any{}
+			body[key] = child
+		}
+		body = child
+	}
+	body[path[len(path)-1]] = value
 }

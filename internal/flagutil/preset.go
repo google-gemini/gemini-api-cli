@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
@@ -132,8 +134,14 @@ type PresetMerge struct {
 	Foreign              []string // selector keys declared only by other union members
 	DiscriminatorKey     string
 	DiscriminatorValue   string
-	DiscriminatorAliases []string // every discriminator value (JSON text) selecting the pinned variant
+	DiscriminatorAliases []string                    // every discriminator value (JSON text) selecting the pinned variant
+	Nested               map[string]PresetMergePoint // JSON pointer -> where a preset object fills the user's object
 	Escape               string
+}
+
+type PresetMergePoint struct {
+	Key    string   // discriminator the user's object must leave absent or set to one of Values ("" = none)
+	Values []string // JSON text of every value selecting the preset's union member
 }
 
 type PresetConflictError struct {
@@ -205,8 +213,13 @@ func MergePresetObject(user map[string]json.RawMessage, m PresetMerge) error {
 			return fmt.Errorf("invalid preset for %q: %w", m.Command, err)
 		}
 		for key, value := range preset {
-			if _, present := user[key]; !present {
+			existing, present := user[key]
+			if !present {
 				user[key] = value
+				continue
+			}
+			if merged, ok := m.fillPresetObject(existing, value, "/"+presetPointerToken(key)); ok {
+				user[key] = merged
 			}
 		}
 	}
@@ -218,6 +231,78 @@ func MergePresetObject(user map[string]json.RawMessage, m PresetMerge) error {
 	}
 
 	return nil
+}
+
+// fillPresetObject adds the preset's keys missing from the user's object at
+// pointer, at every depth; user keys always win. ok is false unless both are
+// objects, pointer is a merge point, and the user's object stays on the
+// preset's union member.
+func (m PresetMerge) fillPresetObject(user, preset json.RawMessage, pointer string) (json.RawMessage, bool) {
+	if point, ok := m.Nested[pointer]; !ok || !point.admits(user) {
+		return nil, false
+	}
+	var userObj, presetObj map[string]json.RawMessage
+	if json.Unmarshal(user, &userObj) != nil || userObj == nil {
+		return nil, false
+	}
+	if json.Unmarshal(preset, &presetObj) != nil || presetObj == nil {
+		return nil, false
+	}
+	for key, value := range presetObj {
+		existing, present := userObj[key]
+		if !present {
+			userObj[key] = value
+			continue
+		}
+		if merged, ok := m.fillPresetObject(existing, value, pointer+"/"+presetPointerToken(key)); ok {
+			userObj[key] = merged
+		}
+	}
+	merged, err := json.Marshal(userObj)
+	if err != nil {
+		return nil, false
+	}
+	return merged, true
+}
+
+// MergeNestedInput refuses a caller object that selects another member of a
+// union the preset pins: the flag's field belongs to the preset's member.
+func (m PresetMerge) MergeNestedInput(cmd *cobra.Command, bodyFlagName string, path []string, input string, value any) error {
+	return MergeInputIntoBodyPath(cmd, bodyFlagName, path, input, value, func(pointer, field, source string, existing json.RawMessage) error {
+		point, ok := m.Nested[pointer]
+		if !ok || point.admits(existing) {
+			return nil
+		}
+		var obj map[string]json.RawMessage
+		_ = json.Unmarshal(existing, &obj)
+		return fmt.Errorf("%s applies when %s.%s is %s, but %s sets %s", input, field, point.Key, point.Values[0], source, bytes.TrimSpace(obj[point.Key]))
+	})
+}
+
+func presetPointerToken(key string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1")
+}
+
+// admits reports whether the user's object stays on the preset's member:
+// its discriminator is absent or names one of the preset's values.
+func (d PresetMergePoint) admits(user json.RawMessage) bool {
+	if d.Key == "" {
+		return true
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(user, &obj) != nil {
+		return true
+	}
+	raw, present := obj[d.Key]
+	if !present {
+		return true
+	}
+	for _, value := range d.Values {
+		if jsonEqual(raw, json.RawMessage(value)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m PresetMerge) selectsPinnedVariant(raw json.RawMessage) bool {
@@ -233,12 +318,60 @@ func (m PresetMerge) selectsPinnedVariant(raw json.RawMessage) bool {
 }
 
 func jsonEqual(a, b json.RawMessage) bool {
-	var av, bv any
-	if err := json.Unmarshal(a, &av); err != nil {
-		return false
+	av, aok := decodeExactJSON(a)
+	bv, bok := decodeExactJSON(b)
+	return aok && bok && exactJSONEqual(av, bv)
+}
+
+func decodeExactJSON(raw json.RawMessage) (any, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, false
 	}
-	if err := json.Unmarshal(b, &bv); err != nil {
-		return false
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false
 	}
-	return reflect.DeepEqual(av, bv)
+	return v, true
+}
+
+// exactJSONEqual compares numbers by exact value: float64 decoding would make
+// distinct large integers equal.
+func exactJSONEqual(a, b any) bool {
+	switch av := a.(type) {
+	case json.Number:
+		bv, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		ar, aok := new(big.Rat).SetString(av.String())
+		br, bok := new(big.Rat).SetString(bv.String())
+		return aok && bok && ar.Cmp(br) == 0
+	case map[string]any:
+		bv, ok := b.(map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for key, value := range av {
+			other, ok := bv[key]
+			if !ok || !exactJSONEqual(value, other) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		bv, ok := b.([]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !exactJSONEqual(av[i], bv[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(a, b)
+	}
 }

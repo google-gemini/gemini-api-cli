@@ -127,8 +127,8 @@ gemini-api agent run "Analyze market trends for Q3" --agent deep-research-previe
 # Choose a different model
 gemini-api generate "Write a haiku about APIs" --model gemini-pro-latest
 
-# Generate an image (prints the written file path)
-gemini-api image "a lighthouse at sunset"
+# Edit the image from an earlier interaction
+gemini-api image "make the sky stormy" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg
 ```
 
 ### Example
@@ -260,10 +260,10 @@ gemini-api agent run "Analyze market trends for Q3" --agent deep-research-previe
 Commands that produce media write the file and print only its path on stdout (`--out <path-or-dir>` chooses the location, default `./gemini-image-{timestamp}-{rand}.{ext}`; `--raw-response` prints the API response instead):
 
 ```bash
-gemini-api image "a lighthouse at sunset" --out ./output/
+gemini-api image "make the sky stormy" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg --out ./output/
 ```
 
-Long-running commands poll to a terminal response; human progress goes to stderr and machine-mode success keeps stderr silent. Add `--async` to `gemini-api video "a timelapse of a city at night" --async` to return its handle immediately, or tune foreground polling with `--poll-interval <duration>` and `--poll-timeout <duration>`. Resume an escaped or timed-out operation with `gemini-api agent status --id <id>`.
+Long-running commands poll to a terminal response; human progress goes to stderr and machine-mode success keeps stderr silent. Add `--async` to `gemini-api video "a timelapse of a city at night" --async` to return its handle immediately, or tune foreground polling with `--poll-interval <duration>` and `--poll-timeout <duration>`. Resume an escaped or timed-out operation with `gemini-api video --resume <id>`.
 <!-- End For AI agents [agents] -->
 
 <!-- Start Authentication [security] -->
@@ -302,6 +302,8 @@ Secret credentials (tokens, API keys, passwords) are automatically stored in:
 - **Windows**: Windows Credential Locker
 
 If no keychain is available (e.g., in CI environments), credentials fall back to the config file.
+
+Where the keychain cannot be unlocked (e.g., headless Linux or SSH sessions with a locked GNOME Keyring), skip it entirely with `--no-keyring`, `GEMINI_NO_KEYRING=true`, or `no_keyring: true` in the config file. The keychain is then never read or written, and secrets are stored in the config file instead; flags and environment variables still take precedence.
 
 ### 4. Configuration file
 
@@ -374,10 +376,12 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 * [`image`](docs/gemini-api_image.md) - Generate or edit images (gemini-nano-banana-2.1)
 
   ```bash
+  # Edit the image from an earlier interaction
+  gemini-api image "make the sky stormy" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg
   # Generate an image (prints the written file path)
   gemini-api image "a lighthouse at sunset"
-  # Write to a chosen path
-  gemini-api image "product shot, white bg" --out shots/hero.png
+  # Choose the aspect ratio, size and output path
+  gemini-api image "product shot, white bg" --aspect-ratio 16:9 --image-size 2K --out shots/hero.jpg
   ```
 
 * [`music`](docs/gemini-api_music.md) - Music generation (lyria-3.5)
@@ -391,7 +395,7 @@ Commands are grouped the way `gemini-api --help` shows them. Every command accep
 * [`video`](docs/gemini-api_video.md) - Generate & edit video conversationally (gemini-omni-1.1-flash)
 
   ```bash
-  # Return the interaction ID immediately; poll it yourself
+  # Return the interaction ID immediately (resume with --resume <id>)
   gemini-api video "a timelapse of a city at night" --async
   # Generate a video (polls until done, prints the written file path)
   gemini-api video "a timelapse of a city at night"
@@ -602,7 +606,7 @@ gemini-api agent run "Analyze market trends for Q3" --agent deep-research-previe
 
 Events are output as they arrive. Use `Ctrl+C` to stop streaming.
 
-For operation commands with a declared streamed projection, the selected string is written raw as it arrives. When the command exposes a stream toggle flag, its default decides the response shape — the command's help says whether to pass `--stream=false` for one complete JSON response (streaming on by default) or `--stream` to request a streamed response (off by default). Use `-o json` to keep each full streamed event.
+For operation commands with a declared streamed projection, the selected string is written raw as it arrives. When the command exposes a stream toggle flag, its default decides the response shape — the command's help says whether to pass `--stream=false` for one complete JSON response (streaming on by default) or `--stream` to request a streamed response (off by default). Use `-o json` to keep each full streamed event. On a command that streams by default, `--jq` without an explicit output format or stream setting requests one complete JSON response and filters that.
 <!-- End Server-Sent Event Streaming [eventstreaming] -->
 
 <!-- Start Pagination [pagination] -->
