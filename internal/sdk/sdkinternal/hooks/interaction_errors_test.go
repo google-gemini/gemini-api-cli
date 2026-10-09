@@ -327,4 +327,3 @@ func TestSanitizeInteractionErrorBody(t *testing.T) {
 		})
 	}
 }
-

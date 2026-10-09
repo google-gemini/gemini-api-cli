@@ -1064,4 +1064,3 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 	}
 	return nil
 }
-
