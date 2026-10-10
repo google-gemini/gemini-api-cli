@@ -47,7 +47,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/video",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"video\",\"defaultPath\":\"gemini-video-{timestamp}-{rand}.{ext}\"}",
-			"speakeasy_async":                "{\"idPointer\":\"/id\",\"statePointer\":\"/status\",\"states\":{\"budget_exceeded\":\"failure\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"failure\",\"queued\":\"pending\",\"requires_action\":\"handoff\"},\"interval\":\"5s\",\"backoff\":1.5,\"maxInterval\":\"30s\",\"timeout\":\"15m\",\"command\":\"video\",\"resume\":\"gemini-api agent status --id\",\"parameterIn\":\"path\",\"parameterName\":\"interactionsId\",\"params\":[{\"in\":\"query\",\"name\":\"stream\",\"value\":false}]}",
+			"speakeasy_async":                "{\"idPointer\":\"/id\",\"statePointer\":\"/status\",\"states\":{\"budget_exceeded\":\"failure\",\"cancelled\":\"failure\",\"completed\":\"success\",\"continuation_required\":\"handoff\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"failure\",\"queued\":\"pending\",\"requires_action\":\"handoff\"},\"interval\":\"5s\",\"backoff\":1.5,\"maxInterval\":\"30s\",\"timeout\":\"15m\",\"command\":\"video\",\"resume\":\"gemini-api agent status --id\",\"parameterIn\":\"path\",\"parameterName\":\"interactionsId\",\"params\":[{\"in\":\"query\",\"name\":\"stream\",\"value\":false}]}",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
