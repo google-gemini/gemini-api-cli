@@ -29,12 +29,14 @@ type FunctionResultSubcontentType string
 const (
 	FunctionResultSubcontentTypeImage   FunctionResultSubcontentType = "image"
 	FunctionResultSubcontentTypeText    FunctionResultSubcontentType = "text"
+	FunctionResultSubcontentTypeVideo   FunctionResultSubcontentType = "video"
 	FunctionResultSubcontentTypeUnknown FunctionResultSubcontentType = "UNKNOWN"
 )
 
 type FunctionResultSubcontent struct {
 	ImageContent *ImageContent   `queryParam:"inline" union:"member"`
 	TextContent  *TextContent    `queryParam:"inline" union:"member"`
+	VideoContent *VideoContent   `queryParam:"inline" union:"member"`
 	UnknownRaw   json.RawMessage `json:"-" union:"unknown"`
 
 	Type FunctionResultSubcontentType
@@ -55,6 +57,15 @@ func CreateFunctionResultSubcontentText(text TextContent) FunctionResultSubconte
 	return FunctionResultSubcontent{
 		TextContent: &text,
 		Type:        typ,
+	}
+}
+
+func CreateFunctionResultSubcontentVideo(video VideoContent) FunctionResultSubcontent {
+	typ := FunctionResultSubcontentTypeVideo
+
+	return FunctionResultSubcontent{
+		VideoContent: &video,
+		Type:         typ,
 	}
 }
 
@@ -121,6 +132,15 @@ func (u *FunctionResultSubcontent) UnmarshalJSON(data []byte) (err error) {
 		u.TextContent = textContent
 		u.Type = FunctionResultSubcontentTypeText
 		return nil
+	case "video":
+		videoContent := new(VideoContent)
+		if err := utils.UnmarshalJSON(data, &videoContent, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == video) type VideoContent within FunctionResultSubcontent: %w", string(data), err)
+		}
+
+		u.VideoContent = videoContent
+		u.Type = FunctionResultSubcontentTypeVideo
+		return nil
 	default:
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = FunctionResultSubcontentTypeUnknown
@@ -136,6 +156,10 @@ func (u FunctionResultSubcontent) MarshalJSON() ([]byte, error) {
 
 	if u.TextContent != nil {
 		return utils.MarshalJSON(u.TextContent, "", true)
+	}
+
+	if u.VideoContent != nil {
+		return utils.MarshalJSON(u.VideoContent, "", true)
 	}
 
 	if u.UnknownRaw != nil {
