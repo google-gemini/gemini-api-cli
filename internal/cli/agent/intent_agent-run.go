@@ -209,11 +209,6 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			UnroutedVariants: []string{},
 		},
 		{
-			BodyKey:          "continuation_token",
-			RouteIDs:         []string{"agent", "model"},
-			UnroutedVariants: []string{},
-		},
-		{
 			BodyKey:          "created",
 			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
