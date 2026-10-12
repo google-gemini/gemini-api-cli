@@ -27,26 +27,25 @@ import (
 type EnvType string
 
 const (
-	EnvTypeMapOfEnvVar EnvType = "mapOfEnvVar"
-	EnvTypeStr         EnvType = "str"
-	EnvTypeUnknown     EnvType = "Unknown"
+	EnvTypeEnvVar  EnvType = "EnvVar"
+	EnvTypeStr     EnvType = "str"
+	EnvTypeUnknown EnvType = "Unknown"
 )
 
-// Env - Environment variables to set in the sandbox environment.
 type Env struct {
-	MapOfEnvVar map[string]EnvVar `queryParam:"inline" union:"member"`
-	Str         *string           `queryParam:"inline" union:"member"`
-	UnknownRaw  json.RawMessage   `json:"-" union:"unknown"`
+	EnvVar     *EnvVar         `queryParam:"inline" union:"member"`
+	Str        *string         `queryParam:"inline" union:"member"`
+	UnknownRaw json.RawMessage `json:"-" union:"unknown"`
 
 	Type EnvType
 }
 
-func CreateEnvMapOfEnvVar(mapOfEnvVar map[string]EnvVar) Env {
-	typ := EnvTypeMapOfEnvVar
+func CreateEnvEnvVar(envVar EnvVar) Env {
+	typ := EnvTypeEnvVar
 
 	return Env{
-		MapOfEnvVar: mapOfEnvVar,
-		Type:        typ,
+		EnvVar: &envVar,
+		Type:   typ,
 	}
 }
 
@@ -80,11 +79,11 @@ func (u *Env) UnmarshalJSON(data []byte) error {
 	var candidates []utils.UnionCandidate
 
 	// Collect all valid candidates
-	var mapOfEnvVar map[string]EnvVar = map[string]EnvVar{}
-	if err := utils.UnmarshalJSON(data, &mapOfEnvVar, "", true, nil); err == nil {
+	var envVar EnvVar = EnvVar{}
+	if err := utils.UnmarshalJSON(data, &envVar, "", true, nil); err == nil {
 		candidates = append(candidates, utils.UnionCandidate{
-			Type:  EnvTypeMapOfEnvVar,
-			Value: mapOfEnvVar,
+			Type:  EnvTypeEnvVar,
+			Value: &envVar,
 		})
 	}
 
@@ -113,8 +112,8 @@ func (u *Env) UnmarshalJSON(data []byte) error {
 	// Set the union type and value based on the best candidate
 	u.Type = best.Type.(EnvType)
 	switch best.Type {
-	case EnvTypeMapOfEnvVar:
-		u.MapOfEnvVar = best.Value.(map[string]EnvVar)
+	case EnvTypeEnvVar:
+		u.EnvVar = best.Value.(*EnvVar)
 		return nil
 	case EnvTypeStr:
 		u.Str = best.Value.(*string)
@@ -127,8 +126,8 @@ func (u *Env) UnmarshalJSON(data []byte) error {
 }
 
 func (u Env) MarshalJSON() ([]byte, error) {
-	if u.MapOfEnvVar != nil {
-		return utils.MarshalJSON(u.MapOfEnvVar, "", true)
+	if u.EnvVar != nil {
+		return utils.MarshalJSON(u.EnvVar, "", true)
 	}
 
 	if u.Str != nil {
@@ -284,7 +283,7 @@ func (u Network) MarshalJSON() ([]byte, error) {
 // Environment - Configuration for a custom environment.
 type Environment struct {
 	// Environment variables to set in the sandbox environment.
-	Env *Env `json:"env,omitzero"`
+	Env map[string]Env `json:"env,omitzero"`
 	// Optional. The environment ID for the interaction. If specified, the request will
 	// update the existing environment instead of creating a new one.
 	EnvironmentID *string `json:"environment_id,omitzero"`
@@ -306,7 +305,7 @@ func (e *Environment) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e *Environment) GetEnv() *Env {
+func (e *Environment) GetEnv() map[string]Env {
 	if e == nil {
 		return nil
 	}
