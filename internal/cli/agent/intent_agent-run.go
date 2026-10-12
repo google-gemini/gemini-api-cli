@@ -36,12 +36,14 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentAgentRunCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":            "CreateInteraction",
-			flagutil.AnnotationWholeBodyFlag: "body",
-			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-3.8-flash · stream true",
-			"speakeasy_help_escalate":        "exact request JSON via --body @request.json (schema with --schema)",
-			"speakeasy_stream_select":        "/data/delta/text",
+			"speakeasy_operation":              "CreateInteraction",
+			flagutil.AnnotationWholeBodyFlag:   "body",
+			"speakeasy_strict_body_keys":       "true",
+			"speakeasy_help_defaults":          "model gemini-3.8-flash · stream true",
+			"speakeasy_help_escalate":          "exact request JSON via --body @request.json (schema with --schema)",
+			"speakeasy_stream_select":          "/data/delta/text",
+			"speakeasy_stream_metadata_select": "/data/interaction/id",
+			"speakeasy_stream_metadata_label":  "Interaction ID",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
@@ -82,12 +84,21 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	})
 	_ = cmd.Flags().SetAnnotation("model", "speakeasy:group", []string{"Model variant"})
 	_ = cmd.Flags().SetAnnotation("model", "speakeasy:group-order", []string{"1"})
+	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction by passing its interaction ID")
+	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
+	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    3,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().BoolP("stream", "", false, "Stream the reply as it is generated; use --stream=false for one complete interaction (default: true)")
 	flagutil.MarkRequestInput(cmd, "stream")
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
-		Order:    3,
+		Order:    4,
 
 		BodySources: []string{"body"},
 	})
@@ -161,6 +172,12 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			Name: "model", BodyKey: "model",
 			Kind: flagutil.FlagKindString, Positional: false,
 			RouteIDs:         []string{"model"},
+			RequiredRouteIDs: []string{},
+		},
+		{
+			Name: "previous-interaction-id", BodyKey: "previous_interaction_id",
+			Kind: flagutil.FlagKindString, Positional: false,
+			RouteIDs:         []string{"agent", "model"},
 			RequiredRouteIDs: []string{},
 		},
 		{
@@ -311,7 +328,7 @@ func runIntentAgentRunCmd(cmd *cobra.Command, args []string) error {
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "CreateInteraction")
 	}
-	if len(args) == 0 && !flagutil.FlagChanged(cmd, "agent") && !flagutil.FlagChanged(cmd, "background") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "stream") {
+	if len(args) == 0 && !flagutil.FlagChanged(cmd, "agent") && !flagutil.FlagChanged(cmd, "background") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
 		bodySupplied, err := flagutil.PrimeDispatchBody(cmd, "body")
 		if err != nil {
 			return err

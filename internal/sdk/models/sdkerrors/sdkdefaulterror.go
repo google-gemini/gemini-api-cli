@@ -19,6 +19,8 @@ package sdkerrors
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/redact"
 )
 
 type SDKDefaultError struct {
@@ -42,7 +44,11 @@ func NewSDKDefaultError(message string, statusCode int, body string, httpRes *ht
 func (e *SDKDefaultError) Error() string {
 	body := ""
 	if len(e.Body) > 0 {
-		body = fmt.Sprintf("\n%s", e.Body)
+		redacted := e.Body
+		if e.RawResponse != nil && e.RawResponse.Request != nil {
+			redacted = string(redact.ResponseBody(e.RawResponse.Request.Context(), e.RawResponse.Header.Get("Content-Type"), []byte(e.Body)))
+		}
+		body = fmt.Sprintf("\n%s", redacted)
 	}
 
 	return fmt.Sprintf("%s: Status %d%s", e.Message, e.StatusCode, body)

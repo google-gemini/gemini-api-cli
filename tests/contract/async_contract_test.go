@@ -1,3 +1,17 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package contract_test
 
 import (
@@ -167,8 +181,9 @@ func TestVideoAsyncReturnsHandle(t *testing.T) {
 	if strings.TrimSpace(result.stdout) != "int-vid" {
 		t.Errorf("--async stdout = %q, want the bare interaction id", result.stdout)
 	}
-	if strings.TrimSpace(result.stderr) != "" {
-		t.Errorf("--async must not print progress, stderr:\n%s", result.stderr)
+	wantHint := "To resume polling: gemini-api video --resume int-vid"
+	if strings.TrimSpace(result.stderr) != wantHint {
+		t.Errorf("--async stderr = %q, want %q", strings.TrimSpace(result.stderr), wantHint)
 	}
 	if seen := server.seen(); countPrefix(seen, "GET ") != 0 || countPrefix(seen, "POST ") != 1 {
 		t.Errorf("--async must create once and never poll, requests: %v", seen)

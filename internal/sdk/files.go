@@ -727,7 +727,7 @@ func (s *Files) FilesGet(ctx context.Context, request operations.FilesGetRequest
 }
 
 // FilesRegister - Register Google Cloud Storage objects as files without copying them
-// Registers Google Cloud Storage objects with the Files API. Pass their gs:// URIs and receive one File resource per URI; the objects are registered in place, not copied. If any URI fails to register, the whole request fails.
+// Registers Google Cloud Storage objects with the Files API. Pass their gs:// URIs and receive one File resource per URI; the objects are registered in place, not copied. If any URI fails to register, the whole request fails. Requires an OAuth 2.0 access token via --access-token or "gemini-api auth login".
 func (s *Files) FilesRegister(ctx context.Context, request operations.FilesRegisterRequest, opts ...operations.Option) (*operations.FilesRegisterResponse, error) {
 	globals := operations.FilesRegisterGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

@@ -30,6 +30,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const asyncAnnotation = "speakeasy_async"
@@ -178,9 +179,62 @@ func AsyncResult(cmd *cobra.Command, createResponse interface{}, newPoll AsyncPo
 			return renderAsyncSnapshot(cmd, create, false)
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), id)
+		fmt.Fprintln(cmd.ErrOrStderr(), "To resume polling: "+resume)
 		return nil
 	}
 
+	return pollAsyncResult(cmd, cfg, timings, id, started, newPoll)
+}
+
+func ValidateAsyncResume(cmd *cobra.Command, args []string) error {
+	id, _ := flagutil.GetStringFlag(cmd, "resume")
+	if strings.TrimSpace(id) == "" {
+		return flagutil.WithCLIValidation(errors.New("--resume requires a non-empty operation handle"))
+	}
+	if len(args) > 0 {
+		return flagutil.WithCLIValidation(errors.New("--resume cannot be combined with create arguments"))
+	}
+	if escape, _ := flagutil.GetBoolFlag(cmd, "async"); escape {
+		return flagutil.WithCLIValidation(errors.New("--resume cannot be combined with --async"))
+	}
+	bodyFlag := cmd.Annotations[flagutil.AnnotationWholeBodyFlag]
+	var conflict string
+	cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		if conflict == "" && f.Changed && (f.Name == bodyFlag || len(f.Annotations[flagutil.AnnotationRequestInput]) > 0) {
+			conflict = f.Name
+		}
+	})
+	if conflict != "" {
+		return flagutil.WithCLIValidation(fmt.Errorf("--resume cannot be combined with create request flag --%s", conflict))
+	}
+	return ValidateAsyncFlags(cmd)
+}
+
+func ResumeAsync(cmd *cobra.Command, id string, newPoll AsyncPollFactory) error {
+	cfg, err := activeAsync(cmd)
+	if err != nil {
+		return WithCLIReason(err, ReasonCLIProtocol)
+	}
+	timings, err := effectiveAsyncTimings(cmd, cfg)
+	if err != nil {
+		return err
+	}
+	if dryRun, _ := flagutil.GetBoolFlag(cmd, "dry-run"); dryRun {
+		poll, err := newPoll(cmd, id, cfg.Params)
+		if err != nil {
+			return Error(cmd, err)
+		}
+		_, err = poll(cmd.Context())
+		if err != nil {
+			return Error(cmd, err)
+		}
+		return nil
+	}
+	return pollAsyncResult(cmd, cfg, timings, id, time.Now(), newPoll)
+}
+
+func pollAsyncResult(cmd *cobra.Command, cfg *asyncConfig, timings asyncTimings, id string, started time.Time, newPoll AsyncPollFactory) error {
+	resume := asyncResume(cfg.Resume, id)
 	poll, err := newPoll(cmd, id, cfg.Params)
 	if err != nil {
 		return Error(cmd, err)

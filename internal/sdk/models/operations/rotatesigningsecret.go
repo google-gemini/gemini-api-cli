@@ -62,7 +62,7 @@ type RotateSigningSecretRequest struct {
 	// Required. The ID of the webhook for which to generate a signing secret.
 	ID string `pathParam:"style=simple,explode=false,name=id"`
 	// Required. The request body.
-	Body *webhooks.RotateSigningSecretRequest `request:"mediaType=application/json"`
+	Body webhooks.RotateSigningSecretRequest `request:"mediaType=application/json"`
 }
 
 func (r RotateSigningSecretRequest) MarshalJSON() ([]byte, error) {
@@ -97,9 +97,9 @@ func (r *RotateSigningSecretRequest) GetID() string {
 	return r.ID
 }
 
-func (r *RotateSigningSecretRequest) GetBody() *webhooks.RotateSigningSecretRequest {
+func (r *RotateSigningSecretRequest) GetBody() webhooks.RotateSigningSecretRequest {
 	if r == nil {
-		return nil
+		return webhooks.RotateSigningSecretRequest{}
 	}
 	return r.Body
 }

@@ -41,8 +41,10 @@ func initRunCmd(parent *cobra.Command) error {
 		Args:    cobra.NoArgs,
 		RunE:    runRunCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":     "CreateInteraction",
-			"speakeasy_stream_select": "/data/delta/text",
+			"speakeasy_operation":              "CreateInteraction",
+			"speakeasy_stream_select":          "/data/delta/text",
+			"speakeasy_stream_metadata_select": "/data/interaction/id",
+			"speakeasy_stream_metadata_label":  "Interaction ID",
 		},
 	}
 	flagutil.RegisterFlags(cmd, runCmdMeta)
@@ -79,6 +81,14 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "CreateInteraction")
 	}
+	if output.JQSelectsCompleteResponse(cmd, "stream") {
+		if err := flagutil.DefaultBodyInput(cmd, []string{
+			"body",
+			"body-param",
+		}, "stream", "stream", false); err != nil {
+			return err
+		}
+	}
 	if err := flagutil.MergeOperationDeclaredInputs(cmd, []string{
 		"body",
 		"body-param",
@@ -113,6 +123,9 @@ func executeRunCmd(cmd *cobra.Command, args []string, asyncIntent bool) (*operat
 	if client.IsDryRun(cmd) || asyncIntent {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
+	if asyncIntent || output.WantsRawJSON(cmd) {
+		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
+	}
 	if !client.IsDryRun(cmd) && !asyncIntent {
 		res, err := s.Agent.Run(cmd.Context(), *req, sdkOpts...)
 		if err != nil {
@@ -122,9 +135,6 @@ func executeRunCmd(cmd *cobra.Command, args []string, asyncIntent bool) (*operat
 			return nil, err
 		}
 		return nil, nil
-	}
-	if asyncIntent || output.WantsRawJSON(cmd) {
-		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
 	res, err := s.Agent.Run(cmd.Context(), *req, sdkOpts...)
 	if err != nil {

@@ -67,8 +67,8 @@ type GetInteractionByIDRequest struct {
 	// If set, resumes the interaction stream from the chunk after the event
 	// marked by the event id. Can only be used if `stream` is true.
 	LastEventID *string `queryParam:"style=form,explode=true,name=last_event_id"`
-	// Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to true; use --stream=false for the status object.
-	Stream *bool `default:"true" queryParam:"style=form,explode=true,name=stream"`
+	// Stream the interaction's events (replayed from the start for a finished interaction) instead of returning the status object. Defaults to false; use --stream to stream events.
+	Stream *bool `default:"false" queryParam:"style=form,explode=true,name=stream"`
 }
 
 func (g GetInteractionByIDRequest) MarshalJSON() ([]byte, error) {

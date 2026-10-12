@@ -94,7 +94,10 @@ var intentMusicPreset = flagutil.PresetMerge{
 	Variant: "ModelInteraction",
 	Preset:  "{\"model\":\"lyria-3.5\",\"response_format\":{\"type\":\"audio\"},\"stream\":false}",
 	Foreign: []string{"agent"},
-	Escape:  "gemini-api agent run",
+	Nested: map[string]flagutil.PresetMergePoint{
+		"/response_format": {Key: "type", Values: []string{"\"audio\""}},
+	},
+	Escape: "gemini-api agent run",
 }
 
 func runIntentMusicCmd(cmd *cobra.Command, args []string) error {
@@ -180,6 +183,11 @@ func runIntentMusicCmd(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if err := cmd.Flags().Set(surface, merged); err != nil {
+				return err
+			}
+		}
+		if suppliedBodyFlag == "" {
+			if err := flagutil.MergePresetStdinBody(cmd, intentMusicPreset); err != nil {
 				return err
 			}
 		}

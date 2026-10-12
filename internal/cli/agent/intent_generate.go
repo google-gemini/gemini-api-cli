@@ -38,13 +38,15 @@ func InitIntentGenerate(parent *cobra.Command) error {
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentGenerateCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":            "CreateInteraction",
-			flagutil.AnnotationWholeBodyFlag: "body",
-			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
-			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/text-generation",
-			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
-			"speakeasy_stream_select":        "/data/delta/text",
+			"speakeasy_operation":              "CreateInteraction",
+			flagutil.AnnotationWholeBodyFlag:   "body",
+			"speakeasy_strict_body_keys":       "true",
+			"speakeasy_help_defaults":          "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
+			"speakeasy_help_learn":             "https://ai.google.dev/gemini-api/docs/text-generation",
+			"speakeasy_help_escalate":          "full request control via gemini-api agent run",
+			"speakeasy_stream_select":          "/data/delta/text",
+			"speakeasy_stream_metadata_select": "/data/interaction/id",
+			"speakeasy_stream_metadata_label":  "Interaction ID",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
@@ -63,12 +65,21 @@ func InitIntentGenerate(parent *cobra.Command) error {
 
 		BodySources: []string{"body"},
 	})
+	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction by passing its interaction ID")
+	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
+	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    1,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().BoolP("stream", "", false, "Stream the reply as it is generated; use --stream=false for a single complete result (default: true)")
 	flagutil.MarkRequestInput(cmd, "stream")
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
-		Order:    1,
+		Order:    2,
 
 		BodySources: []string{"body"},
 	})
@@ -127,6 +138,11 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		}
 		bodySupplied = attached
 	}
+	if bodySupplied && output.JQSelectsCompleteResponse(cmd, "stream") {
+		if err := flagutil.DefaultBodyInput(cmd, []string{suppliedBodyFlag}, "stream", "stream", false); err != nil {
+			return err
+		}
+	}
 	if hint := flagutil.SpacedBoolValueHint(cmd, args); hint != "" && !client.IsJSONDryRun(cmd) && !output.IsMachineMode(cmd) {
 		fmt.Fprintln(cmd.ErrOrStderr(), hint)
 	}
@@ -142,6 +158,12 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "previous_interaction_id", "--previous-interaction-id", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 		if flagutil.FlagChanged(cmd, "stream") {
 			v, _ := cmd.Flags().GetBool("stream")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "stream", "--stream", v); err != nil {
@@ -149,7 +171,7 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "stream") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -167,9 +189,16 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			body["model"] = v
 		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			body["previous_interaction_id"] = v
+		}
 		if flagutil.FlagChanged(cmd, "stream") {
 			v, _ := cmd.Flags().GetBool("stream")
 			body["stream"] = v
+		}
+		if output.JQSelectsCompleteResponse(cmd, "stream") {
+			body["stream"] = false
 		}
 		encoded, err := json.Marshal(body)
 		if err != nil {
@@ -189,6 +218,11 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if err := cmd.Flags().Set(surface, merged); err != nil {
+				return err
+			}
+		}
+		if suppliedBodyFlag == "" {
+			if err := flagutil.MergePresetStdinBody(cmd, intentGeneratePreset); err != nil {
 				return err
 			}
 		}

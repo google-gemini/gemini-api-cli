@@ -18,10 +18,19 @@ package config
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
+
+// keyringTimeout bounds every OS keychain call. A locked keychain can block
+// indefinitely on an unlock prompt nobody answers (e.g. headless Linux over D-Bus).
+const keyringTimeout = 2 * time.Second
 
 // KeyringBackend abstracts keyring operations for testability.
 type KeyringBackend interface {
@@ -46,8 +55,49 @@ func (d defaultKeyring) Delete(service, key string) error {
 var (
 	backend          KeyringBackend = defaultKeyring{}
 	keyringAvailable *bool
+	keyringDisabled  atomic.Bool
 	keyringMu        sync.Mutex
+	keyringWarnings  io.Writer = os.Stderr
 )
+
+var errKeyringTimeout = fmt.Errorf("%w: no response within %s", ErrKeyringUnavailable, keyringTimeout)
+
+// SetKeyringWarningOutput sets where keychain warnings are written.
+func SetKeyringWarningOutput(w io.Writer) {
+	keyringWarnings = w
+}
+
+// KeyringDisabled reports whether the OS keychain was turned off for this
+// process, by --no-keyring or after a call timed out.
+func KeyringDisabled() bool {
+	return keyringDisabled.Load()
+}
+
+// DisableKeyring makes the OS keychain unavailable for the rest of the
+// process (--no-keyring): credentials are read from and stored in the config
+// file only.
+func DisableKeyring() {
+	keyringDisabled.Store(true)
+}
+
+// withKeyringTimeout runs call, giving up after keyringTimeout. After a
+// timeout the keychain is treated as unavailable for the rest of the process.
+func withKeyringTimeout(call func() error) error {
+	if keyringDisabled.Load() {
+		return ErrKeyringUnavailable
+	}
+	done := make(chan error, 1)
+	go func() { done <- call() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(keyringTimeout):
+		if keyringDisabled.CompareAndSwap(false, true) {
+			fmt.Fprintf(keyringWarnings, "Warning: OS keychain did not respond within %s; not using it for this command. Pass --no-keyring or set %s_NO_KEYRING=true to skip it.\n", keyringTimeout, envPrefix)
+		}
+		return errKeyringTimeout
+	}
+}
 
 // SetKeyringBackend replaces the keyring backend (for testing).
 func SetKeyringBackend(b KeyringBackend) {
@@ -55,12 +105,17 @@ func SetKeyringBackend(b KeyringBackend) {
 	defer keyringMu.Unlock()
 	backend = b
 	keyringAvailable = nil // reset cache when backend changes
+	keyringDisabled.Store(false)
 }
 
 // isKeyringAvailable tests whether the OS keyring is accessible.
 // Result is cached after first call. Uses a read-only probe (Get) to avoid
 // side effects — a "not found" error means the backend is present.
 func isKeyringAvailable() bool {
+	if keyringDisabled.Load() {
+		return false
+	}
+
 	keyringMu.Lock()
 	defer keyringMu.Unlock()
 
@@ -70,7 +125,10 @@ func isKeyringAvailable() bool {
 
 	// Probe with a Get on a key that won't exist.
 	// ErrNotFound means the backend is working; any other error means unavailable.
-	_, err := backend.Get(cliName+"-probe", "availability-check")
+	err := withKeyringTimeout(func() error {
+		_, err := backend.Get(cliName+"-probe", "availability-check")
+		return err
+	})
 	result := err == keyring.ErrNotFound || err == nil
 	keyringAvailable = &result
 	return result
@@ -82,7 +140,11 @@ func GetKeyringValue(key string) string {
 	if !isKeyringAvailable() {
 		return ""
 	}
-	val, err := backend.Get(cliName, key)
+	var val string
+	err := withKeyringTimeout(func() (err error) {
+		val, err = backend.Get(cliName, key)
+		return err
+	})
 	if err != nil {
 		return ""
 	}
@@ -114,12 +176,12 @@ func StoreSecret(key, value string, fallback *string) error {
 // SetKeyringValue stores a credential in the OS keychain.
 // Returns an error if the keyring is unavailable.
 func SetKeyringValue(key, value string) error {
-	return backend.Set(cliName, key, value)
+	return withKeyringTimeout(func() error { return backend.Set(cliName, key, value) })
 }
 
 // DeleteKeyringValue removes a credential from the OS keychain.
 func DeleteKeyringValue(key string) error {
-	return backend.Delete(cliName, key)
+	return withKeyringTimeout(func() error { return backend.Delete(cliName, key) })
 }
 
 // KeyringAvailable returns whether the OS keychain is accessible.
@@ -134,5 +196,6 @@ func ResetKeyring() {
 	keyringMu.Lock()
 	defer keyringMu.Unlock()
 	keyringAvailable = nil
+	keyringDisabled.Store(false)
 	backend = defaultKeyring{}
 }

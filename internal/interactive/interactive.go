@@ -30,12 +30,11 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/forms"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
-	"charm.land/huh/v2"
-	"golang.org/x/term"
 	"github.com/spf13/pflag"
 )
 
@@ -205,7 +204,7 @@ func interceptCommand(cmd *cobra.Command) {
 		}
 
 		bodyTookControl := false
-		if !usage.UsageRequested(runCmd) && !documentationRequested(runCmd) && Resolve(runCmd).PromptRequiredInputs() {
+		if !usage.UsageRequested(runCmd) && !documentationRequested(runCmd) && !flagutil.IsAsyncResume(runCmd) && Resolve(runCmd).PromptRequiredInputs() {
 			supplied, err := wholeBodySupplied(runCmd)
 			if err != nil {
 				return err
@@ -218,7 +217,7 @@ func interceptCommand(cmd *cobra.Command) {
 			if missing {
 				prompter := injectedPrompter(runCmd)
 				if prompter == nil {
-					prompter = huhPrompter{}
+					prompter = formPrompter{}
 				}
 				answers, err := prompter.Prompt(runCmd, fields)
 				if err != nil {
@@ -624,57 +623,6 @@ func applyAnswers(cmd *cobra.Command, args []string, fields []PromptField, answe
 	return effective, nil
 }
 
-// formWidth returns the terminal width for sizing huh forms, with a sensible default.
-func formWidth() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || width <= 0 {
-		width = 80
-	}
-	return width
-}
-
-// formTheme builds the interactive prompt theme.
-func formTheme() huh.Theme {
-	return huh.ThemeFunc(formStyles)
-}
-
-func formStyles(isDark bool) *huh.Styles {
-	t := *huh.ThemeBase(isDark)
-
-	accent := lipgloss.Color("#38BDF8")
-	dimmed := lipgloss.Color("#64748B")
-	subtle := lipgloss.Color("#475569")
-	errColor := lipgloss.Color("#F87171")
-	greenColor := lipgloss.Color("#4ADE80")
-
-	t.Focused.Base = t.Focused.Base.BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).BorderForeground(accent).PaddingLeft(1)
-	t.Focused.Title = t.Focused.Title.Foreground(accent).Bold(true)
-	t.Focused.Description = t.Focused.Description.Foreground(dimmed).Italic(true)
-	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(errColor)
-	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(errColor)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(accent).SetString("> ")
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(accent).Bold(true)
-	t.Focused.SelectedPrefix = lipgloss.NewStyle().Foreground(greenColor).SetString("✓ ").Bold(true)
-	t.Focused.UnselectedPrefix = lipgloss.NewStyle().SetString("  ")
-	t.Focused.FocusedButton = t.Focused.FocusedButton.Background(accent).Foreground(lipgloss.Color("#FFFFFF"))
-	t.Focused.BlurredButton = t.Focused.BlurredButton.Background(subtle)
-	t.Focused.Next = t.Focused.FocusedButton
-	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(accent)
-	t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(subtle).Italic(true)
-	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(accent)
-
-	t.Blurred.Base = t.Blurred.Base.BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).BorderForeground(subtle).PaddingLeft(1)
-	t.Blurred.Title = t.Blurred.Title.Foreground(dimmed)
-	t.Blurred.Description = t.Blurred.Description.Foreground(subtle).Italic(true)
-	t.Blurred.TextInput.Text = t.Blurred.TextInput.Text.Foreground(dimmed)
-	t.Blurred.TextInput.Placeholder = t.Blurred.TextInput.Placeholder.Foreground(subtle).Italic(true)
-	t.Blurred.SelectedOption = t.Blurred.SelectedOption.Foreground(dimmed)
-	t.Blurred.SelectSelector = t.Blurred.SelectSelector.Foreground(dimmed)
-	t.Blurred.SelectedPrefix = lipgloss.NewStyle().Foreground(dimmed).SetString("✓ ")
-	t.Blurred.UnselectedPrefix = lipgloss.NewStyle().SetString("  ")
-	return &t
-}
-
 func printCommandHeader(cmd *cobra.Command, totalRequired, totalOptional int) {
 	accent := lipgloss.Color("#38BDF8")
 	dimmed := lipgloss.Color("#64748B")
@@ -683,11 +631,11 @@ func printCommandHeader(cmd *cobra.Command, totalRequired, totalOptional int) {
 	infoStyle := lipgloss.NewStyle().Foreground(dimmed)
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, titleStyle.Render(cmd.CommandPath()))
+	lipgloss.Fprintln(os.Stderr, titleStyle.Render(cmd.CommandPath()))
 	if cmd.Long != "" {
-		fmt.Fprintln(os.Stderr, descStyle.Render(strings.SplitN(cmd.Long, "\n", 2)[0]))
+		lipgloss.Fprintln(os.Stderr, descStyle.Render(strings.SplitN(cmd.Long, "\n", 2)[0]))
 	} else if cmd.Short != "" {
-		fmt.Fprintln(os.Stderr, descStyle.Render(cmd.Short))
+		lipgloss.Fprintln(os.Stderr, descStyle.Render(cmd.Short))
 	}
 	var parts []string
 	if totalRequired > 0 {
@@ -697,14 +645,14 @@ func printCommandHeader(cmd *cobra.Command, totalRequired, totalOptional int) {
 		parts = append(parts, fmt.Sprintf("%d optional", totalOptional))
 	}
 	if len(parts) > 0 {
-		fmt.Fprintln(os.Stderr, infoStyle.Render(strings.Join(parts, ", ")+" field(s)"))
+		lipgloss.Fprintln(os.Stderr, infoStyle.Render(strings.Join(parts, ", ")+" field(s)"))
 	}
 	fmt.Fprintln(os.Stderr)
 }
 
-type huhPrompter struct{}
+type formPrompter struct{}
 
-func (huhPrompter) Prompt(cmd *cobra.Command, fields []PromptField) ([]PromptAnswer, error) {
+func (formPrompter) Prompt(cmd *cobra.Command, fields []PromptField) ([]PromptAnswer, error) {
 	answers := make([]PromptAnswer, len(fields))
 	required := make([]int, 0, len(fields))
 	optionalArgs := make([]int, 0, len(fields))
@@ -722,9 +670,10 @@ func (huhPrompter) Prompt(cmd *cobra.Command, fields []PromptField) ([]PromptAns
 		}
 	}
 	printCommandHeader(cmd, len(required), len(optionalArgs)+len(direct)+len(optionalFlags))
-	theme, width := formTheme(), formWidth()
+	// Every prompt reads from one reader so piped answers carry over.
+	in := forms.NewReader(cmd.InOrStdin())
 	for _, index := range required {
-		answer, err := runPromptField(fields[index], theme, width)
+		answer, err := runPromptField(cmd, in, fields[index])
 		if err != nil {
 			return nil, err
 		}
@@ -733,14 +682,14 @@ func (huhPrompter) Prompt(cmd *cobra.Command, fields []PromptField) ([]PromptAns
 	for _, index := range optionalArgs {
 		field := fields[index]
 		field.Summary = optionalArgDescription(field.Summary)
-		answer, err := runPromptField(field, theme, width)
+		answer, err := runPromptField(cmd, in, field)
 		if err != nil {
 			return nil, err
 		}
 		answers[index] = answer
 	}
 	for _, index := range direct {
-		answer, err := runPromptField(fields[index], theme, width)
+		answer, err := runPromptField(cmd, in, fields[index])
 		if err != nil {
 			return nil, err
 		}
@@ -754,16 +703,15 @@ func (huhPrompter) Prompt(cmd *cobra.Command, fields []PromptField) ([]PromptAns
 	for _, index := range optionalFlags {
 		names = append(names, fields[index].Name)
 	}
-	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().
+	form := forms.New(forms.NewPage("", forms.NewConfirm(&fillOptional).
 		Title(fmt.Sprintf("Fill in %d optional field(s)?", len(optionalFlags))).
-		Description(strings.Join(names, ", ")).Value(&fillOptional))).
-		WithWidth(width).WithTheme(theme).WithShowHelp(false)
+		Description(strings.Join(names, ", ")))).IO(in, cmd.ErrOrStderr())
 	if err := form.Run(); err != nil {
 		return nil, err
 	}
 	if fillOptional {
 		for _, index := range optionalFlags {
-			answer, err := runPromptField(fields[index], theme, width)
+			answer, err := runPromptField(cmd, in, fields[index])
 			if err != nil {
 				return nil, err
 			}
@@ -780,119 +728,65 @@ func optionalArgDescription(summary string) string {
 	return summary + " · optional, leave empty to skip"
 }
 
-func runPromptField(field PromptField, theme huh.Theme, width int) (PromptAnswer, error) {
+func runPromptField(cmd *cobra.Command, in *forms.Reader, field PromptField) (PromptAnswer, error) {
 	if field.Repeatable && field.target == promptTargetFlag {
-		return runRepeatableFlagPrompt(field, theme, width)
+		return runRepeatableFlagPrompt(cmd, in, field)
 	}
 
-	var answer PromptAnswer
-	var formField huh.Field
+	ask := func(f *forms.Field) error {
+		return forms.New(forms.NewPage("", f.Title(field.Name).Description(field.Summary))).IO(in, cmd.ErrOrStderr()).Run()
+	}
+
 	switch field.Kind {
 	case "bool":
 		if field.Required {
 			value := false
-			formField = huh.NewConfirm().Title(field.Name).Description(field.Summary).Value(&value)
-			answer.Set = true
-			answer.Values = []string{strconv.FormatBool(value)}
-			form := huh.NewForm(huh.NewGroup(formField)).WithWidth(width).WithTheme(theme).WithShowHelp(false)
-			if err := form.Run(); err != nil {
+			if err := ask(forms.NewConfirm(&value)); err != nil {
 				return PromptAnswer{}, err
 			}
-			answer.Values[0] = strconv.FormatBool(value)
-			return answer, nil
+			return PromptAnswer{Set: true, Values: []string{strconv.FormatBool(value)}}, nil
 		}
 		value := ""
-		formField = huh.NewSelect[string]().Title(field.Name).Description(field.Summary).Options(
-			huh.NewOption("Yes", "true"), huh.NewOption("No", "false"), huh.NewOption("Skip (use default)", ""),
-		).Value(&value)
-		form := huh.NewForm(huh.NewGroup(formField)).WithWidth(width).WithTheme(theme).WithShowHelp(false)
-		if err := form.Run(); err != nil {
+		if err := ask(forms.NewSelect(&value,
+			forms.NewOption("Yes", "true"), forms.NewOption("No", "false"), forms.NewOption("Skip (use default)", ""),
+		)); err != nil {
 			return PromptAnswer{}, err
 		}
 		return PromptAnswer{Set: value != "", Values: []string{value}}, nil
 
 	case "enum":
 		value := ""
-		options := make([]huh.Option[string], 0, len(field.Options)+1)
+		options := make([]forms.Option, 0, len(field.Options)+1)
 		if !field.Required {
-			options = append(options, huh.NewOption[string]("Skip (use default)", ""))
+			options = append(options, forms.NewOption("Skip (use default)", ""))
 		}
 		for _, option := range field.Options {
-			options = append(options, huh.NewOption(option, option))
+			options = append(options, forms.NewOption(option, option))
 		}
-		formField = huh.NewSelect[string]().Title(field.Name).Description(field.Summary).Options(options...).Value(&value)
-		form := huh.NewForm(huh.NewGroup(formField)).WithWidth(width).WithTheme(theme).WithShowHelp(false)
-		if err := form.Run(); err != nil {
+		if err := ask(forms.NewSelect(&value, options...)); err != nil {
 			return PromptAnswer{}, err
 		}
 		return PromptAnswer{Set: value != "", Values: []string{value}}, nil
 	}
 
 	value := ""
-	description := field.Summary
-	var validate func(string) error
-	if field.Required {
-		validate = func(value string) error {
-			if strings.TrimSpace(value) == "" {
+	var formField *forms.Field
+	if field.Kind == "json" {
+		formField = forms.NewText(&value)
+		field.Summary += " (JSON)"
+	} else {
+		formField = forms.NewInput(&value)
+	}
+	formField.Validate(func(value string) error {
+		if strings.TrimSpace(value) == "" {
+			if field.Required {
 				return fmt.Errorf("required")
 			}
 			return nil
 		}
-	}
-	switch field.Kind {
-	case "json":
-		formField = huh.NewText().Title(field.Name).Description(description + " (JSON)").Value(&value)
-		if validate != nil {
-			formField = formField.(*huh.Text).Validate(validate)
-		}
-	case "int64":
-		formField = huh.NewInput().Title(field.Name).Description(description).Value(&value).Validate(func(value string) error {
-			if strings.TrimSpace(value) == "" {
-				if validate != nil {
-					return validate(value)
-				}
-				return nil
-			}
-			if _, err := strconv.ParseInt(value, 10, 64); err != nil {
-				return fmt.Errorf("must be an integer")
-			}
-			return nil
-		})
-	case "float64":
-		formField = huh.NewInput().Title(field.Name).Description(description).Value(&value).Validate(func(value string) error {
-			if strings.TrimSpace(value) == "" {
-				if validate != nil {
-					return validate(value)
-				}
-				return nil
-			}
-			if _, err := strconv.ParseFloat(value, 64); err != nil {
-				return fmt.Errorf("must be a number")
-			}
-			return nil
-		})
-	case "duration":
-		formField = huh.NewInput().Title(field.Name).Description(description).Value(&value).Validate(func(value string) error {
-			if strings.TrimSpace(value) == "" {
-				if validate != nil {
-					return validate(value)
-				}
-				return nil
-			}
-			if _, err := time.ParseDuration(value); err != nil {
-				return fmt.Errorf("must be a duration")
-			}
-			return nil
-		})
-	default:
-		input := huh.NewInput().Title(field.Name).Description(description).Value(&value)
-		if validate != nil {
-			input = input.Validate(validate)
-		}
-		formField = input
-	}
-	form := huh.NewForm(huh.NewGroup(formField)).WithWidth(width).WithTheme(theme).WithShowHelp(false)
-	if err := form.Run(); err != nil {
+		return checkPromptValue(field.Kind, value)
+	})
+	if err := ask(formField); err != nil {
 		return PromptAnswer{}, err
 	}
 	if strings.TrimSpace(value) == "" {
@@ -901,7 +795,26 @@ func runPromptField(field PromptField, theme huh.Theme, width int) (PromptAnswer
 	return PromptAnswer{Set: true, Values: []string{value}}, nil
 }
 
-func runRepeatableFlagPrompt(field PromptField, theme huh.Theme, width int) (PromptAnswer, error) {
+// checkPromptValue rejects a non-empty answer that does not parse as kind.
+func checkPromptValue(kind, value string) error {
+	switch kind {
+	case "int64":
+		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+			return fmt.Errorf("must be an integer")
+		}
+	case "float64":
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			return fmt.Errorf("must be a number")
+		}
+	case "duration":
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("must be a duration")
+		}
+	}
+	return nil
+}
+
+func runRepeatableFlagPrompt(cmd *cobra.Command, in *forms.Reader, field PromptField) (PromptAnswer, error) {
 	values := make([]string, 0, 1)
 	for {
 		value := ""
@@ -911,7 +824,7 @@ func runRepeatableFlagPrompt(field PromptField, theme huh.Theme, width int) (Pro
 			title = "Add another " + displayName(strings.TrimSuffix(field.Name, " (required)"), "", false) + "?"
 			description = "Leave empty to finish."
 		}
-		input := huh.NewInput().Title(title).Description(description).Value(&value)
+		input := forms.NewInput(&value).Title(title).Description(description)
 		if field.Required && len(values) == 0 {
 			input = input.Validate(func(value string) error {
 				if strings.TrimSpace(value) == "" {
@@ -920,8 +833,7 @@ func runRepeatableFlagPrompt(field PromptField, theme huh.Theme, width int) (Pro
 				return nil
 			})
 		}
-		form := huh.NewForm(huh.NewGroup(input)).WithWidth(width).WithTheme(theme).WithShowHelp(false)
-		if err := form.Run(); err != nil {
+		if err := forms.New(forms.NewPage("", input)).IO(in, cmd.ErrOrStderr()).Run(); err != nil {
 			return PromptAnswer{}, err
 		}
 		if strings.TrimSpace(value) == "" {

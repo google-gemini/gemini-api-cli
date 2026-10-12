@@ -1,3 +1,17 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package contract_test
 
 import (
@@ -21,13 +35,32 @@ import (
 
 var cliBinary string
 
-func TestMain(m *testing.M) {
+func repoRoot() (string, error) {
+	if wd, err := os.Getwd(); err == nil {
+		candidate := filepath.Clean(filepath.Join(wd, "..", ".."))
+		if _, err := os.Stat(filepath.Join(candidate, "internal", "cli")); err == nil {
+			return filepath.Abs(candidate)
+		}
+	}
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "resolve contract test path")
+		return "", fmt.Errorf("resolve contract test path")
+	}
+	return filepath.Abs(filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..")))
+}
+
+func TestMain(m *testing.M) {
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	prebuilt := filepath.Join(root, "cmd", "gemini-api", "gemini-api")
+	if info, err := os.Stat(prebuilt); err == nil && !info.IsDir() {
+		cliBinary = prebuilt
+		os.Exit(m.Run())
+	}
+
 	tempDir, err := os.MkdirTemp("", "gemini-api-contract-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

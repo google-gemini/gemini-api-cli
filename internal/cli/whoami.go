@@ -61,11 +61,11 @@ func runWhoamiCmd(cmd *cobra.Command, args []string) error {
 		}
 		credentials := map[string]any{}
 		{
-			value, source := config.ResolveSecurityCredential(cmd, "api-key")
+			value, source := config.ResolveRequestSecurityCredential(cmd, "api-key")
 			credentials["api-key"] = map[string]any{"source": source, "value": maskSecret(value)}
 		}
 		{
-			value, source := config.ResolveSecurityCredential(cmd, "access-token")
+			value, source := config.ResolveRequestSecurityCredential(cmd, "access-token")
 			credentials["access-token"] = map[string]any{"source": source, "value": maskSecret(value)}
 		}
 		info["credentials"] = credentials
@@ -97,13 +97,13 @@ func runWhoamiCmd(cmd *cobra.Command, args []string) error {
 
 	// Gemini API key sent as x-goog-api-key.
 	{
-		value, source := config.ResolveSecurityCredential(cmd, "api-key")
+		value, source := config.ResolveRequestSecurityCredential(cmd, "api-key")
 		fmt.Fprintf(out, "  --%-25s [%-7s] %s\n", "api-key", source, maskSecret(value))
 	}
 
 	// OAuth access token sent as a bearer Authorization header.
 	{
-		value, source := config.ResolveSecurityCredential(cmd, "access-token")
+		value, source := config.ResolveRequestSecurityCredential(cmd, "access-token")
 		fmt.Fprintf(out, "  --%-25s [%-7s] %s\n", "access-token", source, maskSecret(value))
 	}
 

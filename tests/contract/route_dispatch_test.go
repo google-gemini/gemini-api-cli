@@ -1,3 +1,17 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package contract_test
 
 import (
@@ -9,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -82,11 +95,10 @@ func TestAPIRevisionOmittedByDefault(t *testing.T) {
 // root flag must default to empty, so a regeneration cannot silently
 // reintroduce a pin.
 func TestAPIRevisionHasNoBakedDefault(t *testing.T) {
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve test path")
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 
 	overlayPath := filepath.Join(root, "overlays", "reference-cli", "behavior.yaml")
 	overlay, err := os.ReadFile(overlayPath)

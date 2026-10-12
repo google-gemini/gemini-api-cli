@@ -10,7 +10,7 @@ permissions:
     contents: read
 
 env:
-    SPEAKEASY_VERSION: v2.945.4
+    SPEAKEASY_VERSION: v2.948.0
 
 jobs:
     non-live-validation:

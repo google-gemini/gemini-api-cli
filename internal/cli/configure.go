@@ -20,17 +20,16 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"os"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/forms"
 	"github.com/google-gemini/gemini-api-cli/internal/interactive"
+	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
-	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
-	"charm.land/huh/v2"
-	"golang.org/x/term"
 )
 
 // initConfigureCmd initializes the configure command.
@@ -49,6 +48,7 @@ Priority: CLI flags > environment variables > OS keychain > config file`,
 		Args: cobra.NoArgs,
 		RunE: runConfigureCmd,
 	}
+	cmd.Flags().String("default-output-format", "", "Store the default output format without opening the form. Options: "+strings.Join(output.Formats, ", ")+". Pass an empty value to clear it.")
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -68,9 +68,23 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 
 	keychainStored := false
 
-	formMode := interactive.Resolve(cmd).FormMode()
+	formMode := interactive.Resolve(cmd).SetupFormMode(flagutil.AnyFlagChanged(cmd, "api-key", "access-token", "api-version", "api-revision", "user-project", "default-output-format"))
+	if cmd.Flags().Changed("default-output-format") {
+		formMode = interactive.FormOff
+	}
 	if formMode == interactive.FormOff {
 		changed := false
+		if f := cmd.Flags().Lookup("default-output-format"); f != nil && f.Changed {
+			switch v := f.Value.String(); v {
+			case "":
+				cfg.OutputFormat = ""
+			case "pretty", "json", "yaml", "table", "toon":
+				cfg.OutputFormat = v
+			default:
+				return flagutil.WithCLIValidation(fmt.Errorf("invalid --default-output-format %q; options: pretty, json, yaml, table, toon", v))
+			}
+			changed = true
+		}
 		if f := cmd.Flags().Lookup("api-key"); f != nil && f.Changed {
 			v, _ := cmd.Flags().GetString("api-key")
 			if config.StoreSecret("api-key", v, &cfg.Security.ApiKey) == nil {
@@ -109,68 +123,57 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 		var cfgGlobalUserProject string
 		accessible := formMode == interactive.FormAccessible
 
-		var groups []*huh.Group
-		securityFields := []huh.Field{
-			huh.NewInput().
+		var pages []*forms.Page
+		securityFields := []*forms.Field{
+			forms.NewInput(&authApiKey).
 				Title("Gemini API key sent as x-goog-api-key.").
 				Description("--api-key").
-				EchoMode(huh.EchoModePassword).
-				Placeholder(maskSecret(config.GetStoredSecret("api-key", cfg.Security.ApiKey))).
-				Value(&authApiKey),
-			huh.NewInput().
+				Password().
+				Placeholder(maskSecret(config.GetStoredSecret("api-key", cfg.Security.ApiKey))),
+			forms.NewInput(&authAccessToken).
 				Title("OAuth access token sent as a bearer Authorization header.").
 				Description("--access-token").
-				EchoMode(huh.EchoModePassword).
-				Placeholder(maskSecret(config.GetStoredSecret("access-token", cfg.Security.AccessToken))).
-				Value(&authAccessToken),
+				Password().
+				Placeholder(maskSecret(config.GetStoredSecret("access-token", cfg.Security.AccessToken))),
 		}
-		groups = append(groups, huh.NewGroup(securityFields...).Title("Authentication"))
-		globalFields := []huh.Field{
-			huh.NewInput().
+		pages = append(pages, forms.NewPage("Authentication", securityFields...))
+		globalFields := []*forms.Field{
+			forms.NewInput(&cfgGlobalApiVersion).
 				Title("Which version of the API to use").
 				Description("--api-version").
-				Placeholder(cmp.Or(cfg.Globals.ApiVersion, "v1beta")).
-				Value(&cfgGlobalApiVersion),
-			huh.NewInput().
+				Placeholder(cmp.Or(cfg.Globals.ApiVersion, "v1beta")),
+			forms.NewInput(&cfgGlobalApiRevision).
 				Title("Interactions API revision to request").
 				Description("--api-revision").
-				Placeholder(cfg.Globals.ApiRevision).
-				Value(&cfgGlobalApiRevision),
-			huh.NewInput().
+				Placeholder(cfg.Globals.ApiRevision),
+			forms.NewInput(&cfgGlobalUserProject).
 				Title("Quota project header to send with Google GenAI API requests").
 				Description("--user-project").
-				Placeholder(cfg.Globals.UserProject).
-				Value(&cfgGlobalUserProject),
+				Placeholder(cfg.Globals.UserProject),
 		}
-		groups = append(groups, huh.NewGroup(globalFields...).Title("Global Parameters"))
+		pages = append(pages, forms.NewPage("Global Parameters", globalFields...))
 
-		// Preference fields use huh.Select which loops forever on EOF in
-		// accessible mode (non-TTY). Only show them when truly interactive.
+		// Preferences are only offered in the interactive form; line prompts
+		// cover credentials and global parameters.
 		var cfgOutputFormat string
 		if !accessible {
-			preferenceFields := []huh.Field{
-				huh.NewSelect[string]().
+			preferenceFields := []*forms.Field{
+				forms.NewSelect(&cfgOutputFormat,
+					forms.NewOption("Keep current", ""),
+					forms.NewOption("Clear (use built-in default: pretty)", "__CLEAR__"),
+					forms.NewOption("pretty", "pretty"),
+					forms.NewOption("json", "json"),
+					forms.NewOption("yaml", "yaml"),
+					forms.NewOption("table", "table"),
+					forms.NewOption("toon", "toon"),
+				).
 					Title("Default output format").
-					Description("Choose the default response rendering format for this CLI").
-					Options(
-						huh.NewOption("Keep current", ""),
-						huh.NewOption("Clear (use built-in default: pretty)", "__CLEAR__"),
-						huh.NewOption("pretty", "pretty"),
-						huh.NewOption("json", "json"),
-						huh.NewOption("yaml", "yaml"),
-						huh.NewOption("table", "table"),
-						huh.NewOption("toon", "toon"),
-					).
-					Value(&cfgOutputFormat),
+					Description("Choose the default response rendering format for this CLI"),
 			}
-			groups = append(groups, huh.NewGroup(preferenceFields...).Title("Preferences"))
+			pages = append(pages, forms.NewPage("Preferences", preferenceFields...))
 		}
 
-		form := huh.NewForm(groups...).
-			WithAccessible(accessible).
-			WithTheme(configureFormTheme()).
-			WithWidth(configureFormWidth()).
-			WithShowHelp(false)
+		form := forms.New(pages...).Accessible(accessible).IO(cmd.InOrStdin(), cmd.OutOrStdout())
 
 		if err := form.Run(); err != nil {
 			return fmt.Errorf("configure: %w", err)
@@ -240,65 +243,4 @@ func dryRunLocalNoop(cmd *cobra.Command, message string) bool {
 		fmt.Fprintln(cmd.ErrOrStderr(), "[DRY-RUN] "+message)
 	}
 	return true
-}
-
-// configureFormTheme builds the form theme for the configure command.
-func configureFormTheme() huh.Theme {
-	return huh.ThemeFunc(configureFormStyles)
-}
-
-func configureFormStyles(isDark bool) *huh.Styles {
-	t := *huh.ThemeBase(isDark)
-
-	accent := lipgloss.Color("#38BDF8")
-	dimmed := lipgloss.Color("#64748B")
-	subtle := lipgloss.Color("#475569")
-	errColor := lipgloss.Color("#F87171")
-	greenColor := lipgloss.Color("#4ADE80")
-
-	t.Focused.Base = t.Focused.Base.
-		BorderLeft(true).
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(accent).
-		PaddingLeft(1)
-	t.Focused.Title = t.Focused.Title.Foreground(accent).Bold(true)
-	t.Focused.Description = t.Focused.Description.Foreground(dimmed).Italic(true)
-	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(errColor)
-	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(errColor)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(accent).SetString("> ")
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(accent).Bold(true)
-	t.Focused.SelectedPrefix = lipgloss.NewStyle().Foreground(greenColor).SetString("✓ ").Bold(true)
-	t.Focused.UnselectedPrefix = lipgloss.NewStyle().SetString("  ")
-	t.Focused.FocusedButton = t.Focused.FocusedButton.Background(accent).Foreground(lipgloss.Color("#FFFFFF"))
-	t.Focused.BlurredButton = t.Focused.BlurredButton.Background(subtle)
-	t.Focused.Next = t.Focused.FocusedButton
-
-	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(accent)
-	t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(subtle).Italic(true)
-	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(accent)
-
-	t.Blurred.Base = t.Blurred.Base.
-		BorderLeft(true).
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(subtle).
-		PaddingLeft(1)
-	t.Blurred.Title = t.Blurred.Title.Foreground(dimmed)
-	t.Blurred.Description = t.Blurred.Description.Foreground(subtle).Italic(true)
-	t.Blurred.TextInput.Text = t.Blurred.TextInput.Text.Foreground(dimmed)
-	t.Blurred.TextInput.Placeholder = t.Blurred.TextInput.Placeholder.Foreground(subtle).Italic(true)
-	t.Blurred.SelectedOption = t.Blurred.SelectedOption.Foreground(dimmed)
-	t.Blurred.SelectSelector = t.Blurred.SelectSelector.Foreground(dimmed)
-	t.Blurred.SelectedPrefix = lipgloss.NewStyle().Foreground(dimmed).SetString("✓ ")
-	t.Blurred.UnselectedPrefix = lipgloss.NewStyle().SetString("  ")
-
-	return &t
-}
-
-// configureFormWidth returns the terminal width for sizing huh forms.
-func configureFormWidth() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || width <= 0 {
-		width = 80
-	}
-	return width
 }

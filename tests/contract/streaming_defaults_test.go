@@ -1,3 +1,17 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package contract_test
 
 import (
@@ -14,11 +28,11 @@ import (
 	"testing"
 )
 
-// Streaming is the default on every stream-capable operation, not only on
-// the generate intent: "agent run" sends stream:true unless the body (or
-// --stream=false) says otherwise, "agent status" asks for the event stream
-// unless --stream=false, and both project text deltas raw exactly like
-// "generate". The interactive (prompted) path must behave like argv.
+// "agent run" streams by default (sending stream:true unless the body or
+// --stream=false says otherwise), whereas "agent status" returns the status
+// object by default unless --stream opts into the event stream; when streaming,
+// both project text deltas raw exactly like "generate". The interactive
+// (prompted) path must behave like argv.
 
 const agentRunBody = `{"model":"gemini-3.6-flash","input":"hi"}`
 
@@ -165,15 +179,15 @@ func TestAgentRunStreamFalseReturnsCompleteResult(t *testing.T) {
 	}
 }
 
-func TestAgentStatusDryRunStreamsByDefault(t *testing.T) {
+func TestAgentStatusDryRunDefaultIsNonStreaming(t *testing.T) {
 	tests := []struct {
 		name       string
 		extra      []string
 		wantQuery  string
 		wantAccept string
 	}{
-		{name: "default streams", wantQuery: "stream=true", wantAccept: "    Accept: text/event-stream\n"},
-		{name: "--stream=false returns the status object", extra: []string{"--stream=false"}, wantQuery: "stream=false", wantAccept: "    Accept: application/json;q=1, text/event-stream;q=0\n"},
+		{name: "default returns the status object", wantQuery: "stream=false", wantAccept: "    Accept: application/json;q=1, text/event-stream;q=0\n"},
+		{name: "--stream opts into event stream", extra: []string{"--stream"}, wantQuery: "stream=true", wantAccept: "    Accept: text/event-stream\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -196,25 +210,25 @@ func TestAgentStatusDryRunStreamsByDefault(t *testing.T) {
 	}
 }
 
-func TestAgentStatusDefaultStreamProjection(t *testing.T) {
+func TestAgentStatusStreamOptInProjection(t *testing.T) {
 	server := newTextDeltaServer(t)
 	defer server.Close()
 
 	args := []string{
 		"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive",
 		"--no-retries", "--color", "never", "--api-key", "test",
-		"agent", "status", "--id", "int-1",
+		"agent", "status", "--id", "int-1", "--stream",
 	}
 	result := runCLI(t, t.TempDir(), nil, args...)
 	if result.err != nil {
-		t.Fatalf("agent status failed: %v\nstderr: %s", result.err, result.stderr)
+		t.Fatalf("agent status --stream failed: %v\nstderr: %s", result.err, result.stderr)
 	}
 	if result.stdout != "Hello world\n" {
 		t.Errorf("stdout = %q, want the raw projected text", result.stdout)
 	}
-	result = runCLI(t, t.TempDir(), nil, append(baseArgs(server.URL), "agent", "status", "--id", "int-1")...)
+	result = runCLI(t, t.TempDir(), nil, append(baseArgs(server.URL), "agent", "status", "--id", "int-1", "--stream")...)
 	if result.err != nil {
-		t.Fatalf("agent status -o json failed: %v\nstderr: %s", result.err, result.stderr)
+		t.Fatalf("agent status --stream -o json failed: %v\nstderr: %s", result.err, result.stderr)
 	}
 	if got := deltaTexts(t, result.stdout); !reflect.DeepEqual(got, []string{"Hello ", "world"}) {
 		t.Errorf("NDJSON texts = %#v, want the two unprojected delta events", got)
