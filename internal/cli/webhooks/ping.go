@@ -38,7 +38,7 @@ func initPingCmd(parent *cobra.Command) error {
 		Use:     "ping [id]",
 		Short:   "Send a ping event to a webhook",
 		Long:    "Sends a ping event to a Webhook.",
-		Example: "  gemini-api webhooks ping --id WEBHOOK_ID",
+		Example: "  gemini-api webhooks ping --id WEBHOOK_ID --body '{}'",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runPingCmd,
 		Annotations: map[string]string{
@@ -50,7 +50,7 @@ func initPingCmd(parent *cobra.Command) error {
 		return fmt.Errorf("invalid metadata for ping: %w", err)
 	}
 	cmd.Flags().String("body", "", "Request body as JSON. Can also be provided via stdin; @path reads a file, @- reads stdin to EOF. Use --schema to print the exact JSON Schema.")
-	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Required: false, Kind: "json", BodyFlag: true})
+	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Required: true, Kind: "json", BodyFlag: true})
 	cmd.Annotations[flagutil.AnnotationWholeBodyFlag] = "body"
 	if err := flagutil.AnnotateBodyFields(cmd, pingCmdMeta, "Body", "body"); err != nil {
 		return fmt.Errorf("annotate body fields for ping: %w", err)
