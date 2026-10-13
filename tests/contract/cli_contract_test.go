@@ -249,6 +249,130 @@ func TestImageArtifactOutput(t *testing.T) {
 	}
 }
 
+// TestImageConversationalEditingAndOutputFormat pins the multi-turn and output
+// shaping contract for "image":
+//   - Turn 1 passes --aspect-ratio, --image-size, and --output-mime-type (which
+//     merge into $.response_format alongside the preset's type="image"), writes
+//     the image file to disk, and prints the interaction ID via --jq .response_id.
+//   - Turn 2 passes that ID as --previous-interaction-id ($.previous_interaction_id)
+//     to edit the image conversationally.
+//   - Combining a nested response_format flag with a --body that selects a
+//     different response_format.type fails with exit code 2.
+func TestImageConversationalEditingAndOutputFormat(t *testing.T) {
+	const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYAAAAAMAAVCiT19+AAAAAElFTkSuQmCC"
+	requests := make(chan []byte, 4)
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		requests <- b
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":"int-turn-%d","object":"interaction","status":"completed","model":"gemini-nano-banana-2.1",`+
+			`"steps":[{"type":"model_output","content":[{"type":"image","data":"%s","mime_type":"image/png"}]}]}`, turn, pngB64)
+	}))
+	defer server.Close()
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseArgs := []string{"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test"}
+
+	// Turn 1: shape output format and capture response_id via --jq while still writing the image.
+	turn1Out := filepath.Join(dir, "hero.png")
+	turn1Args := append(append([]string{}, baseArgs...),
+		"image", "product shot, white bg",
+		"--aspect-ratio", "16:9",
+		"--image-size", "2K",
+		"--output-mime-type", "image/jpeg",
+		"--out", turn1Out,
+		"--jq", ".response_id",
+	)
+	res1 := runCLIInDir(t, t.TempDir(), dir, nil, turn1Args...)
+	if res1.err != nil {
+		t.Fatalf("turn 1 image failed: %v\nstderr: %s", res1.err, res1.stderr)
+	}
+	responseID := strings.TrimSpace(res1.stdout)
+	if responseID != "int-turn-1" {
+		t.Fatalf("turn 1 --jq .response_id = %q, want %q", responseID, "int-turn-1")
+	}
+	if data, err := os.ReadFile(turn1Out); err != nil || len(data) != 69 {
+		t.Errorf("turn 1 written file %q: err=%v len=%d, want 69-byte PNG", turn1Out, err, len(data))
+	}
+
+	var sent1 struct {
+		Model          string `json:"model"`
+		Input          string `json:"input"`
+		Stream         *bool  `json:"stream"`
+		ResponseFormat struct {
+			Type        string `json:"type"`
+			AspectRatio string `json:"aspect_ratio"`
+			ImageSize   string `json:"image_size"`
+			MimeType    string `json:"mime_type"`
+		} `json:"response_format"`
+	}
+	if err := json.Unmarshal(<-requests, &sent1); err != nil {
+		t.Fatalf("turn 1 request body is not JSON: %v", err)
+	}
+	if sent1.Model != "gemini-nano-banana-2.1" || sent1.Input != "product shot, white bg" || sent1.Stream == nil || *sent1.Stream {
+		t.Errorf("turn 1 top-level fields = %+v", sent1)
+	}
+	if sent1.ResponseFormat.Type != "image" ||
+		sent1.ResponseFormat.AspectRatio != "16:9" ||
+		sent1.ResponseFormat.ImageSize != "2K" ||
+		sent1.ResponseFormat.MimeType != "image/jpeg" {
+		t.Errorf("turn 1 response_format = %+v, want type=image aspect_ratio=16:9 image_size=2K mime_type=image/jpeg", sent1.ResponseFormat)
+	}
+
+	// Turn 2: conversational edit using --previous-interaction-id from Turn 1.
+	turn2Out := filepath.Join(dir, "edited.png")
+	turn2Args := append(append([]string{}, baseArgs...),
+		"image", "make the sky stormy",
+		"--previous-interaction-id", responseID,
+		"--out", turn2Out,
+	)
+	res2 := runCLIInDir(t, t.TempDir(), dir, nil, turn2Args...)
+	if res2.err != nil {
+		t.Fatalf("turn 2 image edit failed: %v\nstderr: %s", res2.err, res2.stderr)
+	}
+	if strings.TrimSpace(res2.stdout) != turn2Out {
+		t.Errorf("turn 2 stdout = %q, want %q", strings.TrimSpace(res2.stdout), turn2Out)
+	}
+	if data, err := os.ReadFile(turn2Out); err != nil || len(data) != 69 {
+		t.Errorf("turn 2 written file %q: err=%v len=%d, want 69-byte PNG", turn2Out, err, len(data))
+	}
+
+	var sent2 struct {
+		Model                 string `json:"model"`
+		Input                 string `json:"input"`
+		PreviousInteractionID string `json:"previous_interaction_id"`
+		ResponseFormat        struct {
+			Type string `json:"type"`
+		} `json:"response_format"`
+	}
+	if err := json.Unmarshal(<-requests, &sent2); err != nil {
+		t.Fatalf("turn 2 request body is not JSON: %v", err)
+	}
+	if sent2.Input != "make the sky stormy" || sent2.PreviousInteractionID != "int-turn-1" || sent2.ResponseFormat.Type != "image" {
+		t.Errorf("turn 2 request = %+v, want input=%q previous_interaction_id=%q response_format.type=image",
+			sent2, "make the sky stormy", "int-turn-1")
+	}
+
+	// Nested preset conflict: --aspect-ratio with a --body selecting another response_format.type is a usage error (exit 2).
+	conflictArgs := append(append([]string{}, baseArgs...),
+		"image", "a lighthouse",
+		"--aspect-ratio", "16:9",
+		"--body", `{"response_format":{"type":"audio"}}`,
+	)
+	resConflict := runCLIInDir(t, t.TempDir(), dir, nil, conflictArgs...)
+	if code := exitCode(t, resConflict); code != 2 {
+		t.Errorf("conflicting response_format.type exit code = %d, want 2\nstderr: %s", code, resConflict.stderr)
+	}
+	if !strings.Contains(resConflict.stderr, "--aspect-ratio applies when response_format.type is \"image\"") {
+		t.Errorf("conflict stderr = %q, want nested preset conflict message", resConflict.stderr)
+	}
+}
+
 // TestImageArtifactMissingContent pins the failure contract: no image content
 // (or URI-only delivery) is a hard error with an empty stdout and no file.
 func TestImageArtifactMissingContent(t *testing.T) {
