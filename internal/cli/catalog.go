@@ -75,6 +75,7 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "gemini-3.6-flash", "description": "Gemini 3.6 Flash - Our previous generation Flash model, balancing speed and multimodal capabilities across general agentic and everyday tasks.", "default": false, "group": "Gemini"},
 				{"value": "gemini-3.7-flash", "description": "Gemini 3.7 Flash - Our high-speed, efficient Flash model built for everyday coding, agentic tool use, and reliable multi-step execution.", "default": false, "group": "Gemini"},
 				{"value": "gemini-3.8-flash", "description": "Gemini 3.8 Flash - Our most intelligent Flash model, engineered for long-horizon software engineering, autonomous agents, and complex enterprise workflows.", "default": true, "group": "Gemini"},
+				{"value": "gemini-4-argon", "description": "Gemini 4 Argon - Our new frontier model, built to solve the hardest problems with depth and precision across real-world software engineering and knowledge work.", "default": false, "group": "Gemini"},
 				{"value": "gemini-2.5-flash-image", "description": "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.", "default": false, "group": "Image"},
 				{"value": "gemini-3.1-flash-lite-image", "description": "Gemini 3.1 Flash Lite Image.", "default": false, "group": "Image"},
 				{"value": "gemini-3-pro-image", "description": "Gemini 3 Pro Image", "default": false, "group": "Image"},
@@ -116,6 +117,7 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.6-flash", "Gemini 3.6 Flash - Our previous generation Flash model, balancing speed and multimodal capabilities across general agentic and everyday tasks.")
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.7-flash", "Gemini 3.7 Flash - Our high-speed, efficient Flash model built for everyday coding, agentic tool use, and reliable multi-step execution.")
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-3.8-flash (default)", "Gemini 3.8 Flash - Our most intelligent Flash model, engineered for long-horizon software engineering, autonomous agents, and complex enterprise workflows.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-4-argon", "Gemini 4 Argon - Our new frontier model, built to solve the hardest problems with depth and precision across real-world software engineering and knowledge work.")
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Image:")
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-2.5-flash-image", "Our native image generation model, optimized for speed, flexibility, and contextual understanding. Text input and output is priced the same as 2.5 Flash.")
