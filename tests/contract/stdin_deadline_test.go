@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,9 +47,15 @@ func TestOpenStdinPipeDoesNotStall(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("command failed on an open stdin pipe: %v\nstderr: %s", err, stderr.String())
+		}
 	case <-time.After(15 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatalf("command still blocked on an open stdin pipe after 15s\nstderr: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "[DRY-RUN] Would send: POST") {
+		t.Fatalf("dry-run preview missing from stderr:\n%s", stderr.String())
 	}
 }
