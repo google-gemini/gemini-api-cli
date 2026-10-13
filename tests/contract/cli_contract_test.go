@@ -373,6 +373,141 @@ func TestImageConversationalEditingAndOutputFormat(t *testing.T) {
 	}
 }
 
+// TestVideoConversationalEditingAndOutputFormat pins the multi-turn and output
+// shaping contract for "video":
+//   - Turn 1 passes --aspect-ratio and --resolution (which merge into
+//     $.response_format alongside the preset's type="video"), polls to
+//     completion, writes the video file to disk, and prints the interaction ID
+//     via --jq .response_id.
+//   - Turn 2 passes that ID as --previous-interaction-id ($.previous_interaction_id)
+//     to extend or edit the video conversationally.
+//   - Combining a nested response_format flag with a --body that selects a
+//     different response_format.type fails with exit code 2.
+func TestVideoConversationalEditingAndOutputFormat(t *testing.T) {
+	const videoB64 = "dmlkZW8tYnl0ZXM=" // "video-bytes"
+	posts := make(chan []byte, 4)
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/interactions"):
+			b, _ := io.ReadAll(r.Body)
+			posts <- b
+			turn++
+			fmt.Fprintf(w, `{"id":"int-vid-%d","object":"interaction","status":"in_progress","model":"gemini-omni-1.1-flash"}`, turn)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/interactions/int-vid-"):
+			id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			fmt.Fprintf(w, `{"id":%q,"object":"interaction","status":"completed","model":"gemini-omni-1.1-flash",`+
+				`"steps":[{"type":"model_output","content":[{"type":"video","data":"%s","mime_type":"video/mp4"}]}]}`, id, videoB64)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":{"message":"unexpected request"}}`)
+		}
+	}))
+	defer server.Close()
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseArgs := []string{"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test"}
+
+	// Turn 1: shape output format and capture response_id via --jq while still polling and writing the video.
+	turn1Out := filepath.Join(dir, "waves.mp4")
+	turn1Args := append(append([]string{}, baseArgs...),
+		"video", "ocean waves at dawn",
+		"--poll-interval", "20ms",
+		"--aspect-ratio", "9:16",
+		"--resolution", "1080p",
+		"--out", turn1Out,
+		"--jq", ".response_id",
+	)
+	res1 := runCLIInDir(t, t.TempDir(), dir, nil, turn1Args...)
+	if res1.err != nil {
+		t.Fatalf("turn 1 video failed: %v\nstderr: %s", res1.err, res1.stderr)
+	}
+	responseID := strings.TrimSpace(res1.stdout)
+	if responseID != "int-vid-1" {
+		t.Fatalf("turn 1 --jq .response_id = %q, want %q", responseID, "int-vid-1")
+	}
+	if data, err := os.ReadFile(turn1Out); err != nil || string(data) != "video-bytes" {
+		t.Errorf("turn 1 written file %q: err=%v content=%q, want %q", turn1Out, err, data, "video-bytes")
+	}
+
+	var sent1 struct {
+		Model          string `json:"model"`
+		Input          string `json:"input"`
+		Stream         *bool  `json:"stream"`
+		Background     *bool  `json:"background"`
+		ResponseFormat struct {
+			Type        string `json:"type"`
+			AspectRatio string `json:"aspect_ratio"`
+			Resolution  string `json:"resolution"`
+		} `json:"response_format"`
+	}
+	if err := json.Unmarshal(<-posts, &sent1); err != nil {
+		t.Fatalf("turn 1 request body is not JSON: %v", err)
+	}
+	if sent1.Model != "gemini-omni-1.1-flash" || sent1.Input != "ocean waves at dawn" ||
+		sent1.Stream == nil || *sent1.Stream || sent1.Background == nil || !*sent1.Background {
+		t.Errorf("turn 1 top-level fields = %+v", sent1)
+	}
+	if sent1.ResponseFormat.Type != "video" ||
+		sent1.ResponseFormat.AspectRatio != "9:16" ||
+		sent1.ResponseFormat.Resolution != "1080p" {
+		t.Errorf("turn 1 response_format = %+v, want type=video aspect_ratio=9:16 resolution=1080p", sent1.ResponseFormat)
+	}
+
+	// Turn 2: conversational edit using --previous-interaction-id from Turn 1.
+	turn2Out := filepath.Join(dir, "panned.mp4")
+	turn2Args := append(append([]string{}, baseArgs...),
+		"video", "now pan to the left",
+		"--poll-interval", "20ms",
+		"--previous-interaction-id", responseID,
+		"--out", turn2Out,
+	)
+	res2 := runCLIInDir(t, t.TempDir(), dir, nil, turn2Args...)
+	if res2.err != nil {
+		t.Fatalf("turn 2 video edit failed: %v\nstderr: %s", res2.err, res2.stderr)
+	}
+	if strings.TrimSpace(res2.stdout) != turn2Out {
+		t.Errorf("turn 2 stdout = %q, want %q", strings.TrimSpace(res2.stdout), turn2Out)
+	}
+	if data, err := os.ReadFile(turn2Out); err != nil || string(data) != "video-bytes" {
+		t.Errorf("turn 2 written file %q: err=%v content=%q, want %q", turn2Out, err, data, "video-bytes")
+	}
+
+	var sent2 struct {
+		Model                 string `json:"model"`
+		Input                 string `json:"input"`
+		PreviousInteractionID string `json:"previous_interaction_id"`
+		ResponseFormat        struct {
+			Type string `json:"type"`
+		} `json:"response_format"`
+	}
+	if err := json.Unmarshal(<-posts, &sent2); err != nil {
+		t.Fatalf("turn 2 request body is not JSON: %v", err)
+	}
+	if sent2.Input != "now pan to the left" || sent2.PreviousInteractionID != "int-vid-1" || sent2.ResponseFormat.Type != "video" {
+		t.Errorf("turn 2 request = %+v, want input=%q previous_interaction_id=%q response_format.type=video",
+			sent2, "now pan to the left", "int-vid-1")
+	}
+
+	// Nested preset conflict: --aspect-ratio with a --body selecting another response_format.type is a usage error (exit 2).
+	conflictArgs := append(append([]string{}, baseArgs...),
+		"video", "ocean waves",
+		"--aspect-ratio", "9:16",
+		"--body", `{"response_format":{"type":"audio"}}`,
+	)
+	resConflict := runCLIInDir(t, t.TempDir(), dir, nil, conflictArgs...)
+	if code := exitCode(t, resConflict); code != 2 {
+		t.Errorf("conflicting response_format.type exit code = %d, want 2\nstderr: %s", code, resConflict.stderr)
+	}
+	if !strings.Contains(resConflict.stderr, "--aspect-ratio applies when response_format.type is \"video\"") {
+		t.Errorf("conflict stderr = %q, want nested preset conflict message", resConflict.stderr)
+	}
+}
+
 // TestImageArtifactMissingContent pins the failure contract: no image content
 // (or URI-only delivery) is a hard error with an empty stdout and no file.
 func TestImageArtifactMissingContent(t *testing.T) {

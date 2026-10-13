@@ -35,8 +35,8 @@ func InitIntentVideo(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "video [prompt]",
 		Short:   "Generate & edit video conversationally (gemini-omni-1.1-flash)",
-		Long:    "Generate video via the Interactions API (video response\nmodality). The interaction runs in the background: the CLI\npolls \"agent status\" with backoff until it completes, writes\nthe video to a file, and prints the file path; --async returns\nthe interaction ID immediately instead (resume with\n\"gemini-api video --resume <id>\"). A requires_action result\nis printed as-is. Use --out to choose the file (or a\ndirectory), --raw-response to see the API response instead.\n\nArguments:\n  <prompt>  Video prompt",
-		Example: "  gemini-api video \"a timelapse of a city at night\" --async\n  gemini-api video \"a timelapse of a city at night\"",
+		Long:    "Generate video via the Interactions API (video response modality); polls \"agent status\" with backoff\nuntil completion, writes the video (--out or default path), and prints the path (--raw-response for raw\nJSON; --async returns the ID to resume with \"gemini-api video --resume <id>\"; requires_action prints as-is).\nPass --previous-interaction-id to extend/edit a prior turn; --aspect-ratio and --resolution shape the output.\n\nArguments:\n  <prompt>  Video prompt",
+		Example: "  gemini-api video \"now pan to the left\" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg\n  gemini-api video \"a timelapse of a city at night\" --async\n  gemini-api video \"ocean waves at dawn\" --aspect-ratio 9:16 --resolution 1080p --out clips/waves.mp4",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentVideoCmd,
 		Annotations: map[string]string{
@@ -57,12 +57,39 @@ func InitIntentVideo(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	cmd.Flags().StringP("aspect-ratio", "", "", "Aspect ratio of the output video (e.g. 16:9, 9:16)")
+	flagutil.MarkRequestInput(cmd, "aspect-ratio")
+	_ = flagutil.AnnotatePromptFlag(cmd, "aspect-ratio", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    0,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().StringP("model", "m", "", "Override the video model (e.g. gemini-omni-flash-preview, default: gemini-omni-1.1-flash)")
 	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    0,
+		Order:    1,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction, extending or editing the video it produced")
+	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
+	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    2,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().StringP("resolution", "", "", "Resolution of the output video (defaults to 720p) (e.g. 360p, 720p, 1080p, 4k)")
+	flagutil.MarkRequestInput(cmd, "resolution")
+	_ = flagutil.AnnotatePromptFlag(cmd, "resolution", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    3,
 
 		BodySources: []string{"body"},
 	})
@@ -158,14 +185,32 @@ func runIntentVideoCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "aspect-ratio") {
+			v, _ := flagutil.GetStringFlag(cmd, "aspect-ratio")
+			if err := intentVideoPreset.MergeNestedInput(cmd, suppliedBodyFlag, []string{"response_format", "aspect_ratio"}, "--aspect-ratio", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "model", "--model", v); err != nil {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "previous_interaction_id", "--previous-interaction-id", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
+		if flagutil.FlagChanged(cmd, "resolution") {
+			v, _ := flagutil.GetStringFlag(cmd, "resolution")
+			if err := intentVideoPreset.MergeNestedInput(cmd, suppliedBodyFlag, []string{"response_format", "resolution"}, "--resolution", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "aspect-ratio") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "resolution") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -179,9 +224,21 @@ func runIntentVideoCmd(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			body["input"] = strings.Join(args, " ")
 		}
+		if flagutil.FlagChanged(cmd, "aspect-ratio") {
+			v, _ := flagutil.GetStringFlag(cmd, "aspect-ratio")
+			flagutil.SetBodyPath(body, []string{"response_format", "aspect_ratio"}, v)
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			body["model"] = v
+		}
+		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
+			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
+			body["previous_interaction_id"] = v
+		}
+		if flagutil.FlagChanged(cmd, "resolution") {
+			v, _ := flagutil.GetStringFlag(cmd, "resolution")
+			flagutil.SetBodyPath(body, []string{"response_format", "resolution"}, v)
 		}
 		encoded, err := json.Marshal(body)
 		if err != nil {
