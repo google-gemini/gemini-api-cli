@@ -61,8 +61,8 @@ type PingWebhookRequest struct {
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// Required. The ID of the webhook to ping.
 	ID string `pathParam:"style=simple,explode=false,name=id"`
-	// Required. The request body.
-	Body webhooks.PingWebhookRequest `request:"mediaType=application/json"`
+	// The request body.
+	Body *webhooks.PingWebhookRequest `request:"mediaType=application/json"`
 }
 
 func (p PingWebhookRequest) MarshalJSON() ([]byte, error) {
@@ -97,9 +97,9 @@ func (p *PingWebhookRequest) GetID() string {
 	return p.ID
 }
 
-func (p *PingWebhookRequest) GetBody() webhooks.PingWebhookRequest {
+func (p *PingWebhookRequest) GetBody() *webhooks.PingWebhookRequest {
 	if p == nil {
-		return webhooks.PingWebhookRequest{}
+		return nil
 	}
 	return p.Body
 }
