@@ -237,7 +237,7 @@ func pollAsyncResult(cmd *cobra.Command, cfg *asyncConfig, timings asyncTimings,
 	resume := asyncResume(cfg.Resume, id)
 	poll, err := newPoll(cmd, id, cfg.Params)
 	if err != nil {
-		return Error(cmd, err)
+		return Error(cmd, &asyncPollError{err: err, id: id, resume: resume})
 	}
 	pollCtx, cancel := context.WithDeadline(cmd.Context(), started.Add(timings.timeout))
 	defer cancel()

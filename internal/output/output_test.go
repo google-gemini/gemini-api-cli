@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -546,6 +548,60 @@ func TestAwaitAsyncDeadlineKeepsPollError(t *testing.T) {
 			}
 			if got := fields.MachineErrorFields(); got["id"] != "handle" || got["resume"] != "resume handle" {
 				t.Fatalf("unexpected handle fields: %+v", got)
+			}
+		})
+	}
+}
+
+func TestAsyncResultSetupErrorKeepsHandle(t *testing.T) {
+	setupErr := errors.New("poll request rejected the pinned parameter")
+
+	for name, tc := range map[string]struct {
+		format string
+		want   []string
+	}{
+		"pretty":     {format: "pretty", want: []string{setupErr.Error(), "Resume polling with: wait --id handle"}},
+		"structured": {format: "json", want: []string{`"id": "handle"`, `"resume": "wait --id handle"`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := &cobra.Command{Annotations: map[string]string{
+				asyncAnnotation: `{"idPointer":"/id","statePointer":"/status","states":{"pending":"pending"},"interval":"1ms","backoff":1,"maxInterval":"1ms","timeout":"1ms","command":"wait","resume":"wait --id"}`,
+			}}
+			cmd.SetContext(context.Background())
+			cmd.Flags().String("output-format", "", "")
+			if err := cmd.Flags().Set("output-format", tc.format); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+			create := &asyncResultEnvelope{HTTPMeta: asyncHTTPMeta{Response: &http.Response{
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body:   io.NopCloser(strings.NewReader(`{"id":"handle","status":"pending"}`)),
+			}}}
+			newPoll := func(*cobra.Command, string, []AsyncParameter) (AsyncPollFunc, error) {
+				return nil, setupErr
+			}
+
+			err := AsyncResult(cmd, create, newPoll)
+
+			if !errors.Is(err, setupErr) {
+				t.Fatalf("expected the setup error to be returned, got %v", err)
+			}
+			var fields interface{ MachineErrorFields() map[string]interface{} }
+			if !errors.As(err, &fields) {
+				t.Fatalf("expected the setup error to carry the operation handle, got %v", err)
+			}
+			if got := fields.MachineErrorFields(); got["id"] != "handle" || got["resume"] != "wait --id handle" {
+				t.Fatalf("unexpected handle fields: %+v", got)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("expected empty stdout, got:\n%s", stdout.String())
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("expected %q in rendered error, got:\n%s", want, stderr.String())
+				}
 			}
 		})
 	}

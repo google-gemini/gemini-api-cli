@@ -19,6 +19,7 @@ package interactions
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
@@ -96,6 +97,9 @@ func (u *SpeechConfigUnion) UnmarshalJSON(data []byte) error {
 	}
 
 	if len(candidates) == 0 {
+		if !json.Valid(data) {
+			return fmt.Errorf("could not unmarshal `%s` into any supported union types for SpeechConfigUnion", string(data))
+		}
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = SpeechConfigUnionTypeUnknown
 		return nil
@@ -120,6 +124,9 @@ func (u *SpeechConfigUnion) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	if !json.Valid(data) {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for SpeechConfigUnion", string(data))
+	}
 	u.UnknownRaw = json.RawMessage(data)
 	u.Type = SpeechConfigUnionTypeUnknown
 	return nil
@@ -213,6 +220,9 @@ func (u *ToolChoice) UnmarshalJSON(data []byte) error {
 	}
 
 	if len(candidates) == 0 {
+		if !json.Valid(data) {
+			return fmt.Errorf("could not unmarshal `%s` into any supported union types for ToolChoice", string(data))
+		}
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = ToolChoiceUnionTypeUnknown
 		return nil
@@ -237,6 +247,9 @@ func (u *ToolChoice) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	if !json.Valid(data) {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for ToolChoice", string(data))
+	}
 	u.UnknownRaw = json.RawMessage(data)
 	u.Type = ToolChoiceUnionTypeUnknown
 	return nil

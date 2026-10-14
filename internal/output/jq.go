@@ -19,10 +19,45 @@ package output
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/spf13/cobra"
 	"github.com/itchyny/gojq"
 )
+
+func ValidateJqFlag(cmd *cobra.Command) error {
+	expression, changed := flagutil.GetStringFlag(cmd, "jq")
+	if !changed || expression == "" {
+		return nil
+	}
+	_, err := compileJqExpression(expression)
+	return err
+}
+
+var compiledJq struct {
+	sync.Mutex
+	expression string
+	code       *gojq.Code
+}
+
+func compileJqExpression(expression string) (*gojq.Code, error) {
+	compiledJq.Lock()
+	defer compiledJq.Unlock()
+	if compiledJq.code != nil && compiledJq.expression == expression {
+		return compiledJq.code, nil
+	}
+	var code *gojq.Code
+	query, err := gojq.Parse(expression)
+	if err == nil {
+		code, err = gojq.Compile(query)
+	}
+	if err != nil {
+		return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid jq expression %q: %w", expression, err))
+	}
+	compiledJq.expression, compiledJq.code = expression, code
+	return code, nil
+}
 
 // ApplyJqFilter applies a jq expression to the given content and returns the results.
 // The content is first marshaled to JSON and back to ensure a clean interface{} structure,
@@ -41,13 +76,13 @@ func ApplyJqFilter(content interface{}, expression string) ([]interface{}, error
 		return nil, fmt.Errorf("failed to prepare data for jq: %w", err)
 	}
 
-	query, err := gojq.Parse(expression)
+	code, err := compileJqExpression(expression)
 	if err != nil {
-		return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid jq expression %q: %w", expression, err))
+		return nil, err
 	}
 
 	var results []interface{}
-	iter := query.Run(data)
+	iter := code.Run(data)
 	for {
 		v, ok := iter.Next()
 		if !ok {

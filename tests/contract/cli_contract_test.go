@@ -1510,7 +1510,7 @@ func TestCreateInteractionRequestsSSE(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accept <- r.Header.Get("Accept")
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"event_type\":\"future.event\",\"payload\":\"first\"}\n\n")
+		fmt.Fprint(w, "data: {\"event_type\":\"future.event\",\"payload\":\"first\"}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
 
@@ -1545,6 +1545,7 @@ func TestSingletonArrayInteractionError(t *testing.T) {
 			args := []string{
 				"--server-url", server.URL,
 				"--api-version", "v1beta",
+				"--access-token", "test",
 				"--no-interactive",
 				"--output-format", "json",
 				"--color", "never",
@@ -1854,6 +1855,8 @@ func TestSSEIncrementalOutput(t *testing.T) {
 				fmt.Fprint(w, "data: {\"event_type\":\"future.event\",\"payload\":\"first\"}\n\n")
 				flusher.Flush()
 				<-release
+				fmt.Fprint(w, "data: [DONE]\n\n")
+				flusher.Flush()
 			}))
 			defer server.Close()
 

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"strings"
@@ -81,6 +82,10 @@ type Classification struct {
 	// only the recorded occurrence was surfaced. Empty when the carrier has
 	// no wildcard hops.
 	reasonCarrierPath []int
+	// credentialsMissing is set when a 403 was re-typed to authentication
+	// because the request carried no credential; hints declared for the
+	// permission reason do not apply to that caller.
+	credentialsMissing bool
 }
 
 type errorRule struct {
@@ -240,6 +245,15 @@ func Classify(cmd *cobra.Command, err error) Classification {
 		}
 		if c.Type == "" {
 			c.Type = classifyStatuslessError(err, c.Origin)
+		}
+		if c.Type == ErrorTypeAuthorization && c.StatusCode == 403 && flagutil.CredentialsMissing(cmd) {
+			c.Type = ErrorTypeAuthentication
+			c.credentialsMissing = true
+			ruleHints = nil
+			if hint := flagutil.CredentialsMissingHint(cmd); hint != "" {
+				ruleHints = []string{hint}
+				useReasonRule = true
+			}
 		}
 		if c.Reason == "" && c.StatusCode == 0 {
 			c.Reason = syntheticCLIReason(c.Type)
@@ -511,7 +525,7 @@ func assembleHints(cmd *cobra.Command, err error, c Classification, bodyMap, err
 		hints = append(hints, builtinTypeHints[c.Type]...)
 	}
 	hints = append(hints, errorCLIHints(err)...)
-	if declared := declaredCommandHints(cmd); declared != nil && c.Reason != "" {
+	if declared := declaredCommandHints(cmd); declared != nil && c.Reason != "" && !c.credentialsMissing {
 		hints = append(hints, declared[c.Reason]...)
 	}
 	seen := make(map[string]bool, len(hints))
@@ -636,7 +650,7 @@ func isConnectionError(err error) bool {
 	if errors.As(err, &dnsErr) {
 		return true
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	return strings.HasPrefix(err.Error(), sdkSendErrorMarker)

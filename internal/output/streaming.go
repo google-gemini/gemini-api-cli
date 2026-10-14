@@ -93,8 +93,17 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 			if finishErr := projector.finish(out); finishErr != nil {
 				return errors.Join(primary, finishErr)
 			}
+			projector.reportMetadata(cmd)
 		}
 		return primary
+	}
+	renderAfterFinish := func(e error) error {
+		finishErr := finishJoin(nil)
+		rendered := Error(cmd, e)
+		if finishErr != nil {
+			return errors.Join(rendered, finishErr)
+		}
+		return rendered
 	}
 
 	first := true
@@ -120,7 +129,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 		if len(valueResults) == 2 {
 			// JsonLStream: check error — route through Error() for JSON formatting
 			if !valueResults[1].IsNil() {
-				return finishJoin(Error(cmd, valueResults[1].Interface().(error)))
+				return renderAfterFinish(valueResults[1].Interface().(error))
 			}
 			item = valueResults[0].Interface()
 		} else {
@@ -137,7 +146,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 
 		if len(valueResults) == 1 {
 			if body, isErr := streamErrorEvent(item); isErr {
-				return finishJoin(Error(cmd, &StreamEventError{Body: string(body)}))
+				return renderAfterFinish(&StreamEventError{Body: string(body)})
 			}
 		}
 
@@ -156,7 +165,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 	if errMethod.IsValid() {
 		errResults := errMethod.Call(nil)
 		if len(errResults) > 0 && !errResults[0].IsNil() {
-			return finishJoin(Error(cmd, errResults[0].Interface().(error)))
+			return renderAfterFinish(errResults[0].Interface().(error))
 		}
 	}
 

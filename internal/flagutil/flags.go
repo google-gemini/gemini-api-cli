@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,17 +93,80 @@ func ResolveOutputFormat(cmd *cobra.Command, configured string, agentMode bool) 
 const dryRunRequestAnnotation = "speakeasy_dry_run_request"
 
 func MarkDryRunRequest(cmd *cobra.Command) {
+	setMarker(cmd, dryRunRequestAnnotation, true)
+}
+
+func DidDryRunRequest(cmd *cobra.Command) bool {
+	return hasMarker(cmd, dryRunRequestAnnotation)
+}
+
+const (
+	credentialsMissingAnnotation     = "speakeasy_credentials_missing"
+	credentialsMissingHintAnnotation = "speakeasy_credentials_missing_hint"
+)
+
+// RecordCredentialsMissing records whether the request carries no credential; a non-empty hint replaces the credential setup hints.
+func RecordCredentialsMissing(cmd *cobra.Command, missing bool, hint string) {
+	setMarker(cmd, credentialsMissingAnnotation, missing)
+	if !missing {
+		hint = ""
+	}
+	setAnnotation(cmd, credentialsMissingHintAnnotation, hint)
+}
+
+// RecordRequestSecurity records the credentials as missing when security is the zero value.
+func RecordRequestSecurity(cmd *cobra.Command, security any, hint string) {
+	RecordCredentialsMissing(cmd, isZeroSecurity(security), hint)
+}
+
+func isZeroSecurity(security any) bool {
+	value := reflect.ValueOf(security)
+	for value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return true
+		}
+		value = value.Elem()
+	}
+	return !value.IsValid() || value.IsZero()
+}
+
+func CredentialsMissing(cmd *cobra.Command) bool {
+	return hasMarker(cmd, credentialsMissingAnnotation)
+}
+
+// CredentialsMissingHint returns the hint recorded with RecordCredentialsMissing, or "".
+func CredentialsMissingHint(cmd *cobra.Command) string {
 	if cmd == nil {
+		return ""
+	}
+	return cmd.Annotations[credentialsMissingHintAnnotation]
+}
+
+func setMarker(cmd *cobra.Command, key string, on bool) {
+	value := ""
+	if on {
+		value = "true"
+	}
+	setAnnotation(cmd, key, value)
+}
+
+func hasMarker(cmd *cobra.Command, key string) bool {
+	return cmd != nil && cmd.Annotations[key] == "true"
+}
+
+// setAnnotation stores value under key, removing the key for an empty value.
+func setAnnotation(cmd *cobra.Command, key, value string) {
+	if cmd == nil {
+		return
+	}
+	if value == "" {
+		delete(cmd.Annotations, key)
 		return
 	}
 	if cmd.Annotations == nil {
 		cmd.Annotations = map[string]string{}
 	}
-	cmd.Annotations[dryRunRequestAnnotation] = "true"
-}
-
-func DidDryRunRequest(cmd *cobra.Command) bool {
-	return cmd != nil && cmd.Annotations[dryRunRequestAnnotation] == "true"
+	cmd.Annotations[key] = value
 }
 
 // GetBoolFlag returns the value of a bool flag and whether it was changed.

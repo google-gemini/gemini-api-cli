@@ -112,6 +112,7 @@ func (s *Triggers) List(ctx context.Context, request *operations.ListTriggersReq
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "ListTriggers")
 	req, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -549,6 +550,7 @@ func (s *Triggers) Get(ctx context.Context, request operations.GetTriggerRequest
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "GetTrigger")
 	req, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -781,6 +783,7 @@ func (s *Triggers) Update(ctx context.Context, request operations.UpdateTriggerR
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "UpdateTrigger")
 	req, err := http.NewRequestWithContext(ctx, "PATCH", opURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)

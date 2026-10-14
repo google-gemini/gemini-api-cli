@@ -968,6 +968,7 @@ func (s *Agent) Run(ctx context.Context, request operations.CreateInteractionReq
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "CreateInteraction")
 	req, err := http.NewRequestWithContext(ctx, "POST", opURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -1361,6 +1362,7 @@ func (s *Agent) Status(ctx context.Context, request operations.GetInteractionByI
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "getInteractionById")
 	req, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -1653,6 +1655,7 @@ func (s *Agent) Cancel(ctx context.Context, request operations.CancelInteraction
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "cancelInteractionById")
 	req, err := http.NewRequestWithContext(ctx, "POST", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)

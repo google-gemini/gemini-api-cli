@@ -50,6 +50,7 @@ func NewRootCommand() (*cobra.Command, error) {
 	cobra.AddTemplateFunc("groupedFlagUsages", groupedFlagUsages)
 	cobra.AddTemplateFunc("groupedGlobalFlagUsages", groupedGlobalFlagUsages)
 	cobra.AddTemplateFunc("compactHelpDefaults", compactHelpDefaults)
+	cobra.AddTemplateFunc("compactHelpSettings", compactHelpSettings)
 	cobra.AddTemplateFunc("compactHelpFooter", compactHelpFooter)
 	cobra.AddTemplateFunc("compactRootHelpFooter", compactRootHelpFooter)
 	rootCmd := &cobra.Command{
@@ -81,6 +82,9 @@ func NewRootCommand() (*cobra.Command, error) {
 				return err
 			}
 			if err := flagutil.ValidateEnumFlag(cmd, "color", []string{"auto", "always", "never"}); err != nil {
+				return err
+			}
+			if err := output.ValidateJqFlag(cmd); err != nil {
 				return err
 			}
 			if err := config.Init("gemini-api", "GEMINI"); err != nil {
@@ -609,6 +613,24 @@ func compactHelpDefaults(cmd *cobra.Command) string {
 	return cmd.Annotations["speakeasy_help_defaults"]
 }
 
+func compactHelpSettings(cmd *cobra.Command) string {
+	if cmd == nil || cmd.Annotations["speakeasy_help_settings"] == "" {
+		return ""
+	}
+	settings := pflag.NewFlagSet("settings", pflag.ContinueOnError)
+	settings.SortFlags = false
+	inherited := cmd.InheritedFlags()
+	for _, name := range strings.Split(cmd.Annotations["speakeasy_help_settings"], ",") {
+		if f := inherited.Lookup(name); f != nil && !f.Hidden {
+			settings.AddFlag(f)
+		}
+	}
+	if !settings.HasFlags() {
+		return ""
+	}
+	return "Settings Flags:" + string(rune(10)) + strings.TrimRight(settings.FlagUsages(), string(rune(10)))
+}
+
 func compactHelpFooter(cmd *cobra.Command) string {
 	if cmd == nil || cmd.Annotations["speakeasy_help_footer"] == "false" {
 		return ""
@@ -627,6 +649,18 @@ func compactHelpFooter(cmd *cobra.Command) string {
 		lines = append(lines, "Learn: "+learn)
 	case escalate != "":
 		lines = append(lines, "Escalate: "+escalate)
+	}
+	if seeAlso := cmd.Annotations["speakeasy_help_see_also"]; seeAlso != "" {
+		refs := []string{}
+		for _, path := range strings.Split(seeAlso, ",") {
+			full := cmd.Root().Name() + " " + path
+			if target, _, err := cmd.Root().Find(strings.Fields(path)); err == nil && target.CommandPath() == full && target.Annotations["speakeasy_settings_command"] == "true" {
+				refs = append(refs, full)
+			}
+		}
+		if len(refs) > 0 {
+			lines = append(lines, "See also: "+strings.Join(refs, " · "))
+		}
 	}
 	return strings.Join(lines, string(rune(10)))
 }
@@ -658,7 +692,8 @@ func groupedUsageTemplate() string {
 	oldLocalCondition := ob + "if .HasAvailableLocalFlags" + cb
 	oldLocal := oldLocalCondition + nl + nl + "Flags:" + nl + ob + ".LocalFlags.FlagUsages | trimTrailingWhitespaces" + cb + ob + "end" + cb
 	newLocalCondition := ob + "if and .HasParent .HasAvailableLocalFlags" + cb
-	newLocal := newLocalCondition + nl + nl + ob + "groupedFlagUsages .LocalFlags | trimTrailingWhitespaces" + cb + ob + "end" + cb
+	newLocal := newLocalCondition + nl + nl + ob + "groupedFlagUsages .LocalFlags | trimTrailingWhitespaces" + cb + ob + "end" + cb +
+		ob + "with compactHelpSettings ." + cb + nl + nl + ob + "." + cb + ob + "end" + cb
 	result := strings.Replace(defaultTmpl, oldLocal, newLocal, 1)
 
 	defaults := ob + "with compactHelpDefaults ." + cb + nl + nl + "Defaults: " + ob + "." + cb + ob + "end" + cb

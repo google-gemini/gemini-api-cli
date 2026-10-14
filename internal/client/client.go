@@ -147,8 +147,10 @@ func BuildGlobalSecurity(cmd *cobra.Command, allowedSecurityFields []string) com
 	credentialCandidates := resolveCandidates(config.ResolveExplicitSecurityCredential)
 	picked := config.PickExplicitCredential(credentialCandidates, allowedSecurityFields)
 	if picked == -1 {
-		picked = config.PickCredential(resolveCandidates(config.ResolveRequestSecurityCredential), allowedSecurityFields)
+		credentialCandidates = resolveCandidates(config.ResolveRequestSecurityCredential)
+		picked = config.PickCredential(credentialCandidates, allowedSecurityFields)
 	}
+	flagutil.RecordCredentialsMissing(cmd, picked == -1 && config.PickCredential(credentialCandidates, nil) == -1, "")
 	switch picked {
 	case 0:
 		globalSecurity.APIKey = &apiKey

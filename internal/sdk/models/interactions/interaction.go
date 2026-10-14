@@ -111,6 +111,10 @@ func (u *InteractionAgentConfig) UnmarshalJSON(data []byte) (err error) {
 
 	dis := new(discriminator)
 	if err := json.Unmarshal(data, &dis); err != nil {
+		var syntaxErr *json.SyntaxError
+		if errors.As(err, &syntaxErr) {
+			return fmt.Errorf("could not unmarshal discriminator: %w", err)
+		}
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = InteractionAgentConfigTypeUnknown
 		return nil
@@ -264,6 +268,9 @@ func (u *InteractionEnvironment) UnmarshalJSON(data []byte) error {
 	}
 
 	if len(candidates) == 0 {
+		if !json.Valid(data) {
+			return fmt.Errorf("could not unmarshal `%s` into any supported union types for InteractionEnvironment", string(data))
+		}
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = InteractionEnvironmentTypeUnknown
 		return nil
@@ -288,6 +295,9 @@ func (u *InteractionEnvironment) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	if !json.Valid(data) {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for InteractionEnvironment", string(data))
+	}
 	u.UnknownRaw = json.RawMessage(data)
 	u.Type = InteractionEnvironmentTypeUnknown
 	return nil
@@ -382,6 +392,9 @@ func (u *InteractionResponseFormat) UnmarshalJSON(data []byte) error {
 	}
 
 	if len(candidates) == 0 {
+		if !json.Valid(data) {
+			return fmt.Errorf("could not unmarshal `%s` into any supported union types for InteractionResponseFormat", string(data))
+		}
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = InteractionResponseFormatTypeUnknown
 		return nil
@@ -406,6 +419,9 @@ func (u *InteractionResponseFormat) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	if !json.Valid(data) {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for InteractionResponseFormat", string(data))
+	}
 	u.UnknownRaw = json.RawMessage(data)
 	u.Type = InteractionResponseFormatTypeUnknown
 	return nil

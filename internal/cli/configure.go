@@ -48,6 +48,10 @@ Priority: CLI flags > environment variables > OS keychain > config file`,
 		Args: cobra.NoArgs,
 		RunE: runConfigureCmd,
 	}
+	cmd.Annotations = map[string]string{"speakeasy_settings_command": "true"}
+	cmd.Example = "  gemini-api configure\n  gemini-api configure --api-key \"$GEMINI_API_KEY\""
+	cmd.Annotations["speakeasy_help_settings"] = "api-key,access-token,api-version,api-revision,user-project"
+	cmd.Annotations["speakeasy_help_see_also"] = "whoami,auth logout"
 	cmd.Flags().String("default-output-format", "", "Store the default output format without opening the form. Options: "+strings.Join(output.Formats, ", ")+". Pass an empty value to clear it.")
 	parent.AddCommand(cmd)
 	return nil
