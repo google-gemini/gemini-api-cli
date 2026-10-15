@@ -206,6 +206,27 @@ func resolveModel(cmd *cobra.Command, def string) (string, error) {
 	return id, nil
 }
 
+// normalizeModelFlag holds an explicit --model on a generated command to the
+// same id shape as resolveModel, stripping a models/ prefix in place. An unset
+// or blank flag is left to the command's own default.
+func normalizeModelFlag(cmd *cobra.Command) error {
+	if cmd.Flags().Lookup("model") == nil || !flagutil.FlagChanged(cmd, "model") {
+		return nil
+	}
+	model, _ := flagutil.GetStringFlag(cmd, "model")
+	if strings.TrimSpace(model) == "" {
+		return nil
+	}
+	id, err := normalizeModelPositional(model)
+	if err != nil {
+		return usageError("--model: " + err.Error())
+	}
+	if id != model {
+		return cmd.Flags().Set("model", id)
+	}
+	return nil
+}
+
 // stringPtr / boolPtr are tiny helpers for the SDK's pointer-heavy request
 // models.
 func stringPtr(s string) *string { return &s }
@@ -221,37 +242,60 @@ func decodeText(data []byte) string {
 // a --<fileFlag> file, or --<stdinFlag> stdin. More than one source is a usage
 // error; the returned text is trimmed and non-empty (or "" when none supplied).
 func textInput(cmd *cobra.Command, args []string, fileFlag, stdinFlag string) (string, error) {
-	sources := 0
+	filePath, fromStdin, sources := textFlagSources(cmd, fileFlag, stdinFlag)
 	if len(args) > 0 {
 		sources++
 	}
-	filePath := ""
+	if sources > 1 {
+		return "", usageError("provide the text once: as an argument, via --" + fileFlag + ", or via --" + stdinFlag + " (not several)")
+	}
+	if filePath != "" || fromStdin {
+		return readTextSource(cmd, fileFlag, filePath, fromStdin)
+	}
+	if len(args) > 0 {
+		text := strings.TrimSpace(strings.Join(args, " "))
+		if text == "" {
+			return "", usageError("text cannot be empty")
+		}
+		return text, nil
+	}
+	return "", nil
+}
+
+// flagTextInput resolves text supplied through --<fileFlag> or --<stdinFlag>
+// alongside, not instead of, a positional prompt or question. Giving both
+// flags is a usage error; the returned text is trimmed and non-empty (or ""
+// when neither flag was given).
+func flagTextInput(cmd *cobra.Command, fileFlag, stdinFlag string) (string, error) {
+	filePath, fromStdin, sources := textFlagSources(cmd, fileFlag, stdinFlag)
+	if sources > 1 {
+		return "", usageError("provide the text once: via --" + fileFlag + " or via --" + stdinFlag + " (not both)")
+	}
+	if sources == 0 {
+		return "", nil
+	}
+	return readTextSource(cmd, fileFlag, filePath, fromStdin)
+}
+
+// textFlagSources reports which of --<fileFlag> / --<stdinFlag> were given and
+// how many, without reading either.
+func textFlagSources(cmd *cobra.Command, fileFlag, stdinFlag string) (filePath string, fromStdin bool, sources int) {
 	if fileFlag != "" && flagutil.FlagChanged(cmd, fileFlag) {
 		filePath, _ = flagutil.GetStringFlag(cmd, fileFlag)
 		sources++
 	}
-	fromStdin := false
 	if stdinFlag != "" {
 		fromStdin, _ = flagutil.GetBoolFlag(cmd, stdinFlag)
 		if fromStdin {
 			sources++
 		}
 	}
-	if sources > 1 {
-		return "", usageError("provide the text once: as an argument, via --" + fileFlag + ", or via --" + stdinFlag + " (not several)")
-	}
-	switch {
-	case filePath != "":
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return "", usageError(fmt.Sprintf("cannot read --%s %q: %v", fileFlag, filePath, err))
-		}
-		text := decodeText(data)
-		if text == "" {
-			return "", usageError(fmt.Sprintf("--%s %q is empty", fileFlag, filePath))
-		}
-		return text, nil
-	case fromStdin:
+	return filePath, fromStdin, sources
+}
+
+// readTextSource reads a --<fileFlag> file or stdin (to EOF) as text.
+func readTextSource(cmd *cobra.Command, fileFlag, filePath string, fromStdin bool) (string, error) {
+	if fromStdin {
 		data, err := io.ReadAll(cmd.InOrStdin())
 		if err != nil {
 			return "", usageError(fmt.Sprintf("cannot read stdin: %v", err))
@@ -261,14 +305,16 @@ func textInput(cmd *cobra.Command, args []string, fileFlag, stdinFlag string) (s
 			return "", usageError("stdin is empty")
 		}
 		return text, nil
-	case len(args) > 0:
-		text := strings.TrimSpace(strings.Join(args, " "))
-		if text == "" {
-			return "", usageError("text cannot be empty")
-		}
-		return text, nil
 	}
-	return "", nil
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", usageError(fmt.Sprintf("cannot read --%s %q: %v", fileFlag, filePath, err))
+	}
+	text := decodeText(data)
+	if text == "" {
+		return "", usageError(fmt.Sprintf("--%s %q is empty", fileFlag, filePath))
+	}
+	return text, nil
 }
 
 // textContentBlock builds a user text content block for an interaction input.

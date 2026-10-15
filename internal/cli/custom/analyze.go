@@ -48,6 +48,7 @@ func attachAnalyze(cmd *cobra.Command) {
 	cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to analyze (repeatable)")
 	cmd.Flags().String("mime-type", "", "Override the detected MIME type (one input only)")
 	cmd.Flags().String("system", "", "System instruction to steer the analysis")
+	cmd.Flags().Bool("stdin", false, "Read text to analyze from stdin to EOF (sent after the --input media, before the question)")
 	modelFlag(cmd, defaultTextModel, "text")
 	annotatePromptFlag(cmd, "input", flagutil.PromptFlagSpec{Required: true, Kind: "string-array", Order: 0})
 	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{{
@@ -61,11 +62,15 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		return emitUsageKDL(cmd, cmd.OutOrStdout())
 	}
 	inputs, _ := cmd.Flags().GetStringArray("input")
-	if len(inputs) == 0 && len(args) == 0 {
+	extraText, err := flagTextInput(cmd, "", "stdin")
+	if err != nil {
+		return err
+	}
+	if len(inputs) == 0 && extraText == "" && len(args) == 0 {
 		return output.UsageHelpError(cmd, errors.New("missing required flag --input (a local path, files/<id>, or YouTube URL)"))
 	}
-	if len(inputs) == 0 {
-		return usageError("--input is required")
+	if len(inputs) == 0 && extraText == "" {
+		return usageError("--input is required", "Or pipe text to analyze with --stdin")
 	}
 	question := strings.TrimSpace(strings.Join(args, " "))
 	if question == "" {
@@ -98,6 +103,9 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		if src.mimeType != "" {
 			mimeTypes = append(mimeTypes, src.mimeType)
 		}
+	}
+	if extraText != "" {
+		contents = append(contents, textContentBlock(extraText))
 	}
 	contents = append(contents, textContentBlock(question))
 

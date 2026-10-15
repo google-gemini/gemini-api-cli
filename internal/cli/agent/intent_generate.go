@@ -65,12 +65,21 @@ func InitIntentGenerate(parent *cobra.Command) error {
 
 		BodySources: []string{"body"},
 	})
+	cmd.Flags().StringP("system", "", "", "System instruction to steer the model")
+	flagutil.MarkRequestInput(cmd, "system")
+	_ = flagutil.AnnotatePromptFlag(cmd, "system", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    1,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction by passing its interaction ID")
 	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
 	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    1,
+		Order:    2,
 
 		BodySources: []string{"body"},
 	})
@@ -79,7 +88,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
-		Order:    2,
+		Order:    3,
 
 		BodySources: []string{"body"},
 	})
@@ -158,6 +167,12 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "system") {
+			v, _ := flagutil.GetStringFlag(cmd, "system")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "system_instruction", "--system", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
 			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "previous_interaction_id", "--previous-interaction-id", v); err != nil {
@@ -171,7 +186,7 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "system") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -188,6 +203,10 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			body["model"] = v
+		}
+		if flagutil.FlagChanged(cmd, "system") {
+			v, _ := flagutil.GetStringFlag(cmd, "system")
+			body["system_instruction"] = v
 		}
 		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
 			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
