@@ -116,6 +116,7 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	case 1:
 		t.accessToken = accessToken
 	}
+	flagutil.RecordCredentialsMissing(cmd, t.apiKey == "" && t.accessToken == "", "")
 	t.userProject = resolveGlobalString(cmd, "user-project")
 	t.apiRevision = resolveGlobalString(cmd, "api-revision")
 
