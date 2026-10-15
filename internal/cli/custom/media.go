@@ -724,6 +724,7 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 		if cmd.Flags().Lookup("mime-type") == nil {
 			cmd.Flags().String("mime-type", "", "Override the detected MIME type (one --input only)")
 		}
+		flagutil.MarkRequestInput(cmd, "input", "mime-type")
 		satisfiedBy = append(satisfiedBy, "input")
 	}
 	fileFlag := ""
@@ -732,12 +733,14 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 		if cmd.Flags().Lookup("file") == nil {
 			cmd.Flags().StringP("file", "f", "", "Read prompt text from a file (sent before the positional "+argName+", if any)")
 		}
+		flagutil.MarkRequestInput(cmd, "file")
 		satisfiedBy = append(satisfiedBy, "file")
 	}
 	if in.stdin {
 		if cmd.Flags().Lookup("stdin") == nil {
 			cmd.Flags().Bool("stdin", false, "Read prompt text from stdin to EOF instead of a JSON body (sent before the positional "+argName+", if any)")
 		}
+		flagutil.MarkRequestInput(cmd, "stdin")
 		satisfiedBy = append(satisfiedBy, "stdin")
 	}
 	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
@@ -757,6 +760,9 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 			return original(c, args)
 		}
 		if schema, _ := c.Flags().GetBool("schema"); schema {
+			return original(c, args)
+		}
+		if flagutil.IsAsyncResume(c) {
 			return original(c, args)
 		}
 		if c.Flags().Lookup("raw-response") != nil && c.Flags().Lookup("out") != nil {
