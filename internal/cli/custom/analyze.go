@@ -70,6 +70,10 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		return output.UsageHelpError(cmd, errors.New("missing required flag --input (a local path, files/<id>, or YouTube URL)"))
 	}
 	if len(inputs) == 0 && extraText == "" {
+		if _, err := classifyMediaInput(cmd, args[0], "", true); err == nil {
+			return usageError(fmt.Sprintf("--input is required; %q is media to analyze, not a question", args[0]),
+				fmt.Sprintf("Pass it with -i: gemini-api analyze -i %s [question]", args[0]))
+		}
 		return usageError("--input is required", "Or pipe text to analyze with --stdin")
 	}
 	question := strings.TrimSpace(strings.Join(args, " "))
