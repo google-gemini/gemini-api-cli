@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/environments"
@@ -30,6 +32,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
+	"github.com/spyzhov/ajson"
 )
 
 // EnvironmentsFiles - List and inspect files in an environment's snapshot
@@ -92,6 +95,7 @@ func (s *EnvironmentsFiles) List(ctx context.Context, request operations.GetEnvi
 	if timeout == nil {
 		timeout = s.sdkConfiguration.Timeout
 	}
+	paginationCtx := ctx
 
 	var streamCancel context.CancelFunc
 
@@ -230,6 +234,50 @@ func (s *EnvironmentsFiles) List(ctx context.Context, request operations.GetEnvi
 			Request:  req,
 			Response: httpRes,
 		},
+	}
+	res.Next = func() (*operations.GetEnvironmentFilesResponse, error) {
+		rawBody, err := utils.ConsumeRawBody(httpRes)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := ajson.Unmarshal(rawBody)
+		if err != nil {
+			return nil, err
+		}
+		nC, err := ajson.Eval(b, "$.next_page_token")
+		if err != nil {
+			return nil, err
+		}
+		var nCVal string
+
+		if nC.IsNumeric() {
+			numVal, err := nC.GetNumeric()
+			if err != nil {
+				return nil, err
+			}
+			// GetNumeric returns as float64 so convert to the appropriate type.
+			nCVal = strconv.FormatFloat(numVal, 'f', 0, 64)
+		} else {
+			val, err := nC.Value()
+			if err != nil {
+				return nil, err
+			}
+			if val == nil {
+				return nil, nil
+			}
+			nCVal = val.(string)
+			if strings.TrimSpace(nCVal) == "" {
+				return nil, nil
+			}
+		}
+		request.PageToken = &nCVal
+
+		return s.List(
+			paginationCtx,
+			request,
+			opts...,
+		)
 	}
 
 	switch {

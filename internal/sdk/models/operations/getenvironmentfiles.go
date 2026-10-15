@@ -117,6 +117,8 @@ type GetEnvironmentFilesResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
 	GetEnvironmentFilesResponse *environments.GetEnvironmentFilesResponse
+
+	Next func() (*GetEnvironmentFilesResponse, error)
 }
 
 func (g GetEnvironmentFilesResponse) MarshalJSON() ([]byte, error) {

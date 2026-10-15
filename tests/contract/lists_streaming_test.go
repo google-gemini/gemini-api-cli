@@ -140,6 +140,86 @@ func TestFilesListAll(t *testing.T) {
 	}
 }
 
+func TestEnvironmentsFilesListAll(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber := requests.Add(1)
+		if r.URL.Path != "/v1beta/environments/env_1/files/src" {
+			t.Errorf("path = %q, want /v1beta/environments/env_1/files/src", r.URL.Path)
+		}
+		query := r.URL.Query()
+		wantToken := ""
+		if requestNumber == 2 {
+			wantToken = "p2"
+		}
+		if got := query.Get("page_token"); got != wantToken {
+			t.Errorf("request %d page_token = %q, want %q", requestNumber, got, wantToken)
+		}
+		if got := query.Get("page_size"); got != "2" {
+			t.Errorf("request %d page_size = %q, want 2", requestNumber, got)
+		}
+		if got := query.Get("recursive"); got != "true" {
+			t.Errorf("request %d recursive = %q, want true", requestNumber, got)
+		}
+		page := map[string]any{
+			"files": []map[string]any{{"name": fmt.Sprintf("f%d", requestNumber)}},
+		}
+		if requestNumber == 1 {
+			page["next_page_token"] = "p2"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(page)
+	}))
+	defer server.Close()
+
+	args := append(
+		baseArgs(server.URL),
+		"environments", "files", "list",
+		"-e", "environments/env_1",
+		"-p", "/src",
+		"--recursive",
+		"--page-size", "2",
+		"--all",
+	)
+	result := runCLI(t, t.TempDir(), nil, args...)
+	if result.err != nil {
+		t.Fatalf("environments files list --all failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	if requests.Load() != 2 {
+		t.Errorf("requests = %d, want 2", requests.Load())
+	}
+	if pages := decodeNDJSON(t, result.stdout); len(pages) != 2 {
+		t.Errorf("NDJSON pages = %d, want 2", len(pages))
+	}
+	if result.stderr != "" {
+		t.Errorf("stderr = %q, want empty", result.stderr)
+	}
+
+	requests.Store(0)
+	humanResult := runCLI(
+		t,
+		t.TempDir(),
+		nil,
+		append(
+			humanArgs(server.URL),
+			"environments", "files", "list",
+			"-e", "environments/env_1",
+			"-p", "/src",
+			"--recursive",
+			"--page-size", "2",
+		)...,
+	)
+	if humanResult.err != nil {
+		t.Fatalf("environments files list failed: %v\nstderr: %s", humanResult.err, humanResult.stderr)
+	}
+	if requests.Load() != 1 {
+		t.Errorf("requests = %d, want 1", requests.Load())
+	}
+	if humanResult.stderr != paginationHint {
+		t.Errorf("stderr = %q, want %q", humanResult.stderr, paginationHint)
+	}
+}
+
 // TestListHintPolicy pins the "more pages" stderr hint on the camelCase
 // cursored lists: human mode with a continuation only, never in machine modes.
 func TestListHintPolicy(t *testing.T) {
