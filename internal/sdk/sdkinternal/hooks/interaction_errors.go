@@ -25,7 +25,7 @@ import (
 	"strings"
 )
 
-var internalBlobstoreURIPattern = regexp.MustCompile(`blobstore:///[^\s"'\\]+`)
+var internalBlobstoreURIPattern = regexp.MustCompile(`blobstore:///[^\s"'\\]*[^\s"'\\:]`)
 
 func sanitizeInteractionErrorBody(body []byte) []byte {
 	return internalBlobstoreURIPattern.ReplaceAll(body, []byte("[internal-file-uri]"))

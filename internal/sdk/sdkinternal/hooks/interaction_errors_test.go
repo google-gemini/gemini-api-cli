@@ -304,6 +304,11 @@ func TestSanitizeInteractionErrorBody(t *testing.T) {
 			in:   `{"error":{"code":400,"message":"Failed to load media from blobstore:///genai-api/blobref/global::abcdef0123456789 for video generation","status":"INVALID_ARGUMENT"}}`,
 			want: `{"error":{"code":400,"message":"Failed to load media from [internal-file-uri] for video generation","status":"INVALID_ARGUMENT"}}`,
 		},
+		{
+			name: "keeps the separator after a redacted blobstore URI",
+			in:   `{"error":{"code":400,"message":"Failed to read blobstore:///genai-api/blobref/global::abcdef0123456789: Unsupported file","status":"INVALID_ARGUMENT"}}`,
+			want: `{"error":{"code":400,"message":"Failed to read [internal-file-uri]: Unsupported file","status":"INVALID_ARGUMENT"}}`,
+		},
 	}
 
 	for _, tt := range tests {
