@@ -25,15 +25,10 @@ import (
 	"strings"
 )
 
-var (
-	malformedFileURIErrorPattern = regexp.MustCompile(`\. ?\), or a valid gURI \(e\.g\. gs://bucket/object\)?\.?`)
-	internalBlobstoreURIPattern  = regexp.MustCompile(`blobstore:///[^\s"'\\]+`)
-)
+var internalBlobstoreURIPattern = regexp.MustCompile(`blobstore:///[^\s"'\\]+`)
 
 func sanitizeInteractionErrorBody(body []byte) []byte {
-	body = malformedFileURIErrorPattern.ReplaceAll(body, []byte("), or a valid gURI (e.g. gs://bucket/object)."))
-	body = internalBlobstoreURIPattern.ReplaceAll(body, []byte("[internal-file-uri]"))
-	return body
+	return internalBlobstoreURIPattern.ReplaceAll(body, []byte("[internal-file-uri]"))
 }
 
 type interactionErrorHook struct{}
