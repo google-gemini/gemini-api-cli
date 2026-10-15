@@ -944,13 +944,12 @@ func normalizeInputValueFileURIs(cmd *cobra.Command, s **sdk.GeminiAPI, val any)
 	return nil
 }
 
+// expandedFilesURI returns the canonical Files API URI for name. The model
+// backend only resolves generativelanguage.googleapis.com file URIs, so the
+// host never follows --server-url; the version follows --api-version, as the
+// uri in a files.get response does.
 func expandedFilesURI(cmd *cobra.Command, name string) string {
 	base := "https://generativelanguage.googleapis.com"
-	if cmd != nil && flagutil.FlagChanged(cmd, "server-url") {
-		if srv, ok := flagutil.GetStringFlag(cmd, "server-url"); ok && strings.TrimSpace(srv) != "" {
-			base = strings.TrimRight(strings.TrimSpace(srv), "/")
-		}
-	}
 	ver := "v1beta"
 	if cmd != nil && flagutil.FlagChanged(cmd, "api-version") {
 		if v, ok := flagutil.GetStringFlag(cmd, "api-version"); ok && strings.TrimSpace(v) != "" {
@@ -974,18 +973,19 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 	trimmed := strings.TrimSpace(rawURI)
 
 	var (
-		name       string
-		id         string
-		valid      bool
-		isShortRef bool
+		name    string
+		id      string
+		valid   bool
+		rewrite bool
 	)
 	if strings.HasPrefix(trimmed, "files/") || strings.HasPrefix(trimmed, "/files/") {
-		isShortRef = true
+		rewrite = true
 		name, id, valid = normalizeFileID(strings.TrimPrefix(trimmed, "/"))
 		if !valid {
 			return usageError(fmt.Sprintf("invalid Files API reference %q; expected files/<id>", rawURI))
 		}
 	} else if fileRef, matched := extractFullFilesURI(cmd, trimmed); matched {
+		rewrite = !fullFilesURIPattern.MatchString(trimmed)
 		name, id, valid = normalizeFileID(fileRef)
 		if !valid {
 			return usageError(fmt.Sprintf("invalid Files API reference %q; expected files/<id>", rawURI))
@@ -1001,7 +1001,7 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 	existingType = strings.TrimSpace(existingType)
 
 	if isDryRun(cmd) {
-		if isShortRef {
+		if rewrite {
 			obj["uri"] = expandedFilesURI(cmd, name)
 		}
 		if existingMime != "" {
@@ -1036,7 +1036,7 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 		}
 		if u, ok := resolvedMap["uri"].(string); ok && u != "" {
 			obj["uri"] = u
-		} else if isShortRef {
+		} else if rewrite {
 			obj["uri"] = expandedFilesURI(cmd, name)
 		}
 		if mt, ok := resolvedMap["mime_type"].(string); ok && mt != "" {
@@ -1055,7 +1055,7 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 		return err
 	}
 	obj["mime_type"] = canonMime
-	if isShortRef {
+	if rewrite {
 		obj["uri"] = expandedFilesURI(cmd, name)
 	}
 	if existingType == "" {
