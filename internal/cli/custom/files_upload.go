@@ -122,55 +122,25 @@ func runFilesUpload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	startReq.Header.Set("Content-Type", "application/json")
-	startReq.Header.Set("X-Goog-Upload-Protocol", "resumable")
-	startReq.Header.Set("X-Goog-Upload-Command", "start")
-	startReq.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.FormatInt(info.Size(), 10))
-	startReq.Header.Set("X-Goog-Upload-Header-Content-Type", mimeType)
+	setUploadStartHeaders(startReq, info.Size(), mimeType)
 
+	if !isDryRun(cmd) {
+		progress(cmd, "Starting upload of %s (%d bytes, %s)...", path, info.Size(), mimeType)
+	}
+	// Step 2: send the start request, then stream the bytes in chunks; only
+	// the last chunk finalizes.
+	finalBody, err := t.resumableUpload(cmd, startReq, source, path, info.Size())
+	if err != nil {
+		return err
+	}
 	if isDryRun(cmd) {
-		startRes, err := t.do(startReq)
-		if err != nil {
-			return err
-		}
-		startRes.Body.Close()
-		// The real session URL is response-dependent. A stable URL derived
-		// from the start endpoint lets the preview show every exact chunk.
-		placeholderURL := strings.TrimRight(startURL, "/") + "/dry-run-session"
-		if err := t.previewUploadChunks(cmd.Context(), placeholderURL, source, path, info.Size()); err != nil {
-			return err
-		}
 		if wait, _ := flagutil.GetBoolFlag(cmd, "wait"); wait {
 			progress(cmd, "[DRY-RUN] --wait polling is response-dependent and was not simulated.")
 		}
 		return nil
 	}
-
-	progress(cmd, "Starting upload of %s (%d bytes, %s)...", path, info.Size(), mimeType)
-	startRes, err := t.do(startReq)
+	file, err := decodeUploadedFile(finalBody)
 	if err != nil {
-		return output.Error(cmd, err)
-	}
-	uploadURL := startRes.Header.Get("X-Goog-Upload-Url")
-	io.Copy(io.Discard, startRes.Body)
-	startRes.Body.Close()
-	if uploadURL == "" {
-		return runtimeError("the server did not return an upload URL")
-	}
-	if !t.sameService(uploadURL) {
-		// Name the host only: the session URL carries the upload_id capability.
-		host := uploadURL
-		if parsed, err := url.Parse(uploadURL); err == nil && parsed.Host != "" {
-			host = parsed.Scheme + "://" + parsed.Host
-		}
-		return runtimeError(fmt.Sprintf("refusing to upload to an unexpected host: %s", host))
-	}
-
-	// Step 2: stream the bytes in chunks; only the last chunk finalizes.
-	file, err := t.uploadBytes(cmd.Context(), uploadURL, source, path, info.Size())
-	if err != nil {
-		if r, ok := err.(rawErr); ok {
-			return output.Error(cmd, r.err)
-		}
 		return runtimeError(err.Error())
 	}
 	if file.Name == nil || *file.Name == "" {
@@ -191,6 +161,41 @@ func runFilesUpload(cmd *cobra.Command, args []string) error {
 	return emitResult(cmd, name, fileEnvelope(&file))
 }
 
+// setUploadStartHeaders declares the resumable session a start request opens.
+func setUploadStartHeaders(req *http.Request, size int64, mimeType string) {
+	req.Header.Set("X-Goog-Upload-Protocol", "resumable")
+	req.Header.Set("X-Goog-Upload-Command", "start")
+	req.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.FormatInt(size, 10))
+	req.Header.Set("X-Goog-Upload-Header-Content-Type", mimeType)
+}
+
+// dryRunSessionURL stands in for the session URL under --dry-run.
+// The real session URL is response-dependent. A stable URL derived
+// from the start endpoint lets the preview show every exact chunk.
+func dryRunSessionURL(startURL string) string {
+	return strings.TrimRight(startURL, "/") + "/dry-run-session"
+}
+
+// uploadSessionURL drains the start response and returns its session URL,
+// refusing one on another service.
+func (t *rawTransport) uploadSessionURL(startRes *http.Response) (string, error) {
+	uploadURL := startRes.Header.Get("X-Goog-Upload-Url")
+	io.Copy(io.Discard, startRes.Body)
+	startRes.Body.Close()
+	if uploadURL == "" {
+		return "", runtimeError("the server did not return an upload URL")
+	}
+	if !t.sameService(uploadURL) {
+		// Name the host only: the session URL carries the upload_id capability.
+		host := uploadURL
+		if parsed, err := url.Parse(uploadURL); err == nil && parsed.Host != "" {
+			host = parsed.Scheme + "://" + parsed.Host
+		}
+		return "", runtimeError(fmt.Sprintf("refusing to upload to an unexpected host: %s", host))
+	}
+	return uploadURL, nil
+}
+
 // previewUploadChunks reuses the source handle opened before the start request
 // but does not read it. The known file size is enough to emit the same offsets,
 // lengths, commands, and binary body markers that the live loop would send.
@@ -199,32 +204,44 @@ func (t *rawTransport) previewUploadChunks(ctx context.Context, uploadURL string
 		return fmt.Errorf("cannot inspect %s: %w", path, err)
 	}
 
-	for offset := int64(0); offset < size; {
+	// A 0-byte source still sends one empty "upload, finalize" chunk.
+	for offset := int64(0); ; {
 		n := int64(uploadChunkSize)
 		if remaining := size - offset; remaining < n {
 			n = remaining
 		}
-		command := "upload"
-		if offset+n == size {
-			command = "upload, finalize"
-		}
-		req, err := t.newRequest(ctx, http.MethodPost, uploadURL, client.NewDryRunBody(n))
+		req, err := t.newChunkRequest(ctx, uploadURL, client.NewDryRunBody(n), n, offset, offset+n == size)
 		if err != nil {
 			return err
 		}
-		req.ContentLength = n
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("Content-Length", strconv.FormatInt(n, 10))
-		req.Header.Set("X-Goog-Upload-Command", command)
-		req.Header.Set("X-Goog-Upload-Offset", strconv.FormatInt(offset, 10))
 		res, err := t.do(req)
 		if err != nil {
 			return err
 		}
 		res.Body.Close()
-		offset += n
+		if offset += n; offset == size {
+			return nil
+		}
 	}
-	return nil
+}
+
+// newChunkRequest builds the POST that carries n bytes at offset to the
+// session URL; only the final chunk carries "finalize".
+func (t *rawTransport) newChunkRequest(ctx context.Context, uploadURL string, body io.Reader, n, offset int64, final bool) (*http.Request, error) {
+	command := "upload"
+	if final {
+		command = "upload, finalize"
+	}
+	req, err := t.newRequest(ctx, http.MethodPost, uploadURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = n
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", strconv.FormatInt(n, 10))
+	req.Header.Set("X-Goog-Upload-Command", command)
+	req.Header.Set("X-Goog-Upload-Offset", strconv.FormatInt(offset, 10))
+	return req, nil
 }
 
 // rawErr marks an error that already carries an SDK-classified API error so
@@ -233,14 +250,55 @@ type rawErr struct{ err error }
 
 func (r rawErr) Error() string { return r.err.Error() }
 
-// uploadBytes streams the already-open source to the resumable session URL in
-// chunks. Exactly the declared size is sent: bytes appended after the start
-// request are ignored, and a source that shrank fails before finalizing.
-func (t *rawTransport) uploadBytes(ctx context.Context, uploadURL string, source io.Reader, path string, size int64) (genai.File, error) {
+// resumableUpload sends startReq, then streams source to the session it opens
+// and returns the finalize response body. Under --dry-run it previews the
+// start request and every chunk instead, and returns a nil body.
+func (t *rawTransport) resumableUpload(cmd *cobra.Command, startReq *http.Request, source *os.File, path string, size int64) ([]byte, error) {
+	startRes, err := t.do(startReq)
+	if err != nil {
+		return nil, output.Error(cmd, err)
+	}
+	if isDryRun(cmd) {
+		startRes.Body.Close()
+		startURL := *startReq.URL
+		startURL.RawQuery = ""
+		return nil, t.previewUploadChunks(cmd.Context(), dryRunSessionURL(startURL.String()), source, path, size)
+	}
+	uploadURL, err := t.uploadSessionURL(startRes)
+	if err != nil {
+		return nil, err
+	}
+	finalBody, err := t.streamUpload(cmd.Context(), uploadURL, source, path, size)
+	// API errors keep their SDK classification, everything else is a runtime
+	// failure.
+	if r, ok := err.(rawErr); ok {
+		return nil, output.Error(cmd, r.err)
+	}
+	if err != nil {
+		return nil, runtimeError(err.Error())
+	}
+	return finalBody, nil
+}
+
+// decodeUploadedFile decodes the File a Files API finalize response carries.
+func decodeUploadedFile(lastBody []byte) (genai.File, error) {
+	var wrapper struct {
+		File genai.File `json:"file"`
+	}
+	if err := json.Unmarshal(lastBody, &wrapper); err != nil {
+		return genai.File{}, fmt.Errorf("upload finished but the response was not valid JSON: %w", err)
+	}
+	return wrapper.File, nil
+}
+
+// streamUpload streams the already-open source to the resumable session URL in
+// chunks and returns the finalize response body. Exactly the declared size is
+// sent: bytes appended after the start request are ignored, and a source that
+// shrank fails before finalizing.
+func (t *rawTransport) streamUpload(ctx context.Context, uploadURL string, source io.Reader, path string, size int64) ([]byte, error) {
 	f := io.LimitReader(source, size)
 	buf := make([]byte, uploadChunkSize)
 	var offset int64
-	var lastBody []byte
 	for {
 		n, readErr := io.ReadFull(f, buf)
 		// "finalize" must ride the last chunk. Detect the end by byte count
@@ -254,54 +312,37 @@ func (t *rawTransport) uploadBytes(ctx context.Context, uploadURL string, source
 			final = offset+int64(n) >= size
 		case readErr == io.EOF || readErr == io.ErrUnexpectedEOF:
 			if offset+int64(n) != size {
-				return genai.File{}, fmt.Errorf("%s changed during upload: read %d of %d bytes", path, offset+int64(n), size)
+				return nil, fmt.Errorf("%s changed during upload: read %d of %d bytes", path, offset+int64(n), size)
 			}
 			final = true
 		default:
-			return genai.File{}, fmt.Errorf("reading %s at offset %d: %w", path, offset, readErr)
+			return nil, fmt.Errorf("reading %s at offset %d: %w", path, offset, readErr)
 		}
-		command := "upload"
-		if final {
-			command = "upload, finalize"
-		}
-		req, err := t.newRequest(ctx, http.MethodPost, uploadURL, bytes.NewReader(buf[:n]))
+		req, err := t.newChunkRequest(ctx, uploadURL, bytes.NewReader(buf[:n]), int64(n), offset, final)
 		if err != nil {
-			return genai.File{}, err
+			return nil, err
 		}
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("Content-Length", strconv.Itoa(n))
-		req.Header.Set("X-Goog-Upload-Command", command)
-		req.Header.Set("X-Goog-Upload-Offset", strconv.FormatInt(offset, 10))
 		res, err := t.do(req)
 		if err != nil {
-			return genai.File{}, rawErr{err}
+			return nil, rawErr{err}
 		}
 		body, readBodyErr := io.ReadAll(res.Body)
 		status := res.Header.Get("X-Goog-Upload-Status")
 		res.Body.Close()
 		if readBodyErr != nil {
-			return genai.File{}, fmt.Errorf("reading the upload response at offset %d: %w", offset, readBodyErr)
+			return nil, fmt.Errorf("reading the upload response at offset %d: %w", offset, readBodyErr)
 		}
-		lastBody = body
 		offset += int64(n)
 		if final {
 			if status != "final" {
-				return genai.File{}, fmt.Errorf("upload finalized but server status is %q", status)
+				return nil, fmt.Errorf("upload finalized but server status is %q", status)
 			}
-			break
+			return body, nil
 		}
 		if status != "active" {
-			return genai.File{}, fmt.Errorf("upload interrupted: server status is %q at offset %d", status, offset)
+			return nil, fmt.Errorf("upload interrupted: server status is %q at offset %d", status, offset)
 		}
 	}
-
-	var wrapper struct {
-		File genai.File `json:"file"`
-	}
-	if err := json.Unmarshal(lastBody, &wrapper); err != nil {
-		return genai.File{}, fmt.Errorf("upload finished but the response was not valid JSON: %w", err)
-	}
-	return wrapper.File, nil
 }
 
 // waitActive polls files.get until the file is ACTIVE, fails, or the

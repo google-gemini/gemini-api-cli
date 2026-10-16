@@ -162,16 +162,7 @@ func TestFilesUploadProtocol(t *testing.T) {
 		}
 	})
 
-	sizes := []struct {
-		name         string
-		size         int
-		wantOffsets  []string
-		wantCommands []string
-	}{
-		{"exact chunk multiple", uploadChunk, []string{"0"}, []string{"upload, finalize"}},
-		{"three chunks", 2*uploadChunk + 5, []string{"0", "8388608", "16777216"}, []string{"upload", "upload", "upload, finalize"}},
-	}
-	for _, tc := range sizes {
+	for _, tc := range uploadSizes {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := newUploadMock(t)
 			data := patterned(tc.size)
@@ -183,68 +174,116 @@ func TestFilesUploadProtocol(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("upload failed: %v\nstderr: %s", result.err, result.stderr)
 			}
-			chunks := mock.chunks()
-			if len(chunks) != len(tc.wantOffsets) {
-				t.Fatalf("chunk requests = %d, want %d", len(chunks), len(tc.wantOffsets))
-			}
-			var sent []byte
-			for i, chunk := range chunks {
-				if got := chunk.headers.Get("X-Goog-Upload-Offset"); got != tc.wantOffsets[i] {
-					t.Errorf("chunk %d offset = %q, want %q", i, got, tc.wantOffsets[i])
-				}
-				if chunk.command != tc.wantCommands[i] {
-					t.Errorf("chunk %d command = %q, want %q", i, chunk.command, tc.wantCommands[i])
-				}
-				sent = append(sent, chunk.body...)
-			}
-			if !bytes.Equal(sent, data) {
-				t.Errorf("uploaded %d bytes that differ from the %d-byte source", len(sent), len(data))
-			}
+			checkChunks(t, mock.chunks(), data, tc)
 		})
+	}
+}
+
+// uploadSize is a source size and the chunk layout the resumable loop must
+// send for it.
+type uploadSize struct {
+	name         string
+	size         int
+	wantOffsets  []string
+	wantCommands []string
+}
+
+var uploadSizes = []uploadSize{
+	{"exact chunk multiple", uploadChunk, []string{"0"}, []string{"upload, finalize"}},
+	{"three chunks", 2*uploadChunk + 5, []string{"0", "8388608", "16777216"}, []string{"upload", "upload", "upload, finalize"}},
+}
+
+// checkChunks asserts the chunk requests are POSTs of raw bytes at the
+// expected offsets, with "finalize" riding only the last, and that together
+// they carry exactly data.
+func checkChunks(t *testing.T, chunks []uploadRequest, data []byte, want uploadSize) {
+	t.Helper()
+	if len(chunks) != len(want.wantOffsets) {
+		t.Fatalf("chunk requests = %d, want %d", len(chunks), len(want.wantOffsets))
+	}
+	var sent []byte
+	for i, chunk := range chunks {
+		if chunk.method != http.MethodPost {
+			t.Errorf("chunk %d method = %s, want POST", i, chunk.method)
+		}
+		if got := chunk.headers.Get("Content-Type"); got != "application/octet-stream" {
+			t.Errorf("chunk %d Content-Type = %q, want application/octet-stream", i, got)
+		}
+		if got := chunk.headers.Get("X-Goog-Upload-Offset"); got != want.wantOffsets[i] {
+			t.Errorf("chunk %d offset = %q, want %q", i, got, want.wantOffsets[i])
+		}
+		if chunk.command != want.wantCommands[i] {
+			t.Errorf("chunk %d command = %q, want %q", i, chunk.command, want.wantCommands[i])
+		}
+		sent = append(sent, chunk.body...)
+	}
+	if !bytes.Equal(sent, data) {
+		t.Errorf("uploaded %d bytes that differ from the %d-byte source", len(sent), len(data))
 	}
 }
 
 // TestFilesUploadFailures pins every way the exchange can go wrong: a
 // classified exit code, a named cause, nothing on stdout.
 func TestFilesUploadFailures(t *testing.T) {
-	status := func(code int, body string) func(http.ResponseWriter) {
-		return func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(code)
-			fmt.Fprint(w, body)
-		}
-	}
-	cases := []struct {
-		name       string
-		size       int
-		on         string // command the override answers
-		answer     func(http.ResponseWriter)
-		wantStderr string
-		wantChunks int
-		wantCode   int
-	}{
-		{"start rejected", 16, "start", status(http.StatusForbidden, `{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}`), "denied", 0, 3},
-		{"start without session URL", 16, "start", func(w http.ResponseWriter) {}, "did not return an upload URL", 0, 1},
-		{"start redirected", 16, "start", func(w http.ResponseWriter) {
+	cases := append(uploadExchangeFailures(),
+		uploadFailure{"start redirected", 16, "start", func(w http.ResponseWriter) {
 			w.Header().Set("Location", "http://127.0.0.1:1/elsewhere")
 			w.WriteHeader(http.StatusFound)
 		}, "API error occurred", 0, 1},
-		{"chunk server error", uploadChunk + 1, "upload", status(http.StatusInternalServerError, `{"error":{"code":500,"message":"chunk exploded","status":"INTERNAL"}}`), "chunk exploded", 1, 1},
+		uploadFailure{"finalize body not JSON", 16, "upload, finalize", func(w http.ResponseWriter) {
+			w.Header().Set("X-Goog-Upload-Status", "final")
+			fmt.Fprint(w, "<html>")
+		}, "response was not valid JSON", 1, 1},
+		uploadFailure{"finalize without file name", 16, "upload, finalize", func(w http.ResponseWriter) {
+			w.Header().Set("X-Goog-Upload-Status", "final")
+			fmt.Fprint(w, `{"file":{}}`)
+		}, "response had no file name", 1, 1},
+	)
+	runUploadFailures(t, cases, func(serverURL, src string) []string {
+		return append(plainArgs(serverURL), "files", "upload", src, "--mime-type", "application/octet-stream")
+	})
+}
+
+// uploadFailure is one way the resumable exchange goes wrong, and how the
+// command must report it.
+type uploadFailure struct {
+	name       string
+	size       int
+	on         string // command the override answers
+	answer     func(http.ResponseWriter)
+	wantStderr string
+	wantChunks int
+	wantCode   int
+}
+
+func answerStatus(code int, body string) func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		fmt.Fprint(w, body)
+	}
+}
+
+// uploadExchangeFailures are the failures every resumable upload command
+// classifies the same way.
+func uploadExchangeFailures() []uploadFailure {
+	return []uploadFailure{
+		{"start rejected", 16, "start", answerStatus(http.StatusForbidden, `{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}`), "denied", 0, 3},
+		{"start without session URL", 16, "start", func(w http.ResponseWriter) {}, "did not return an upload URL", 0, 1},
+		{"chunk server error", uploadChunk + 1, "upload", answerStatus(http.StatusInternalServerError, `{"error":{"code":500,"message":"chunk exploded","status":"INTERNAL"}}`), "chunk exploded", 1, 1},
 		{"chunk session cancelled", uploadChunk + 1, "upload", func(w http.ResponseWriter) {
 			w.Header().Set("X-Goog-Upload-Status", "cancelled")
 		}, `upload interrupted: server status is "cancelled" at offset 8388608`, 1, 1},
 		{"finalize not final", 16, "upload, finalize", func(w http.ResponseWriter) {
 			w.Header().Set("X-Goog-Upload-Status", "active")
 		}, `upload finalized but server status is "active"`, 1, 1},
-		{"finalize body not JSON", 16, "upload, finalize", func(w http.ResponseWriter) {
-			w.Header().Set("X-Goog-Upload-Status", "final")
-			fmt.Fprint(w, "<html>")
-		}, "response was not valid JSON", 1, 1},
-		{"finalize without file name", 16, "upload, finalize", func(w http.ResponseWriter) {
-			w.Header().Set("X-Goog-Upload-Status", "final")
-			fmt.Fprint(w, `{"file":{}}`)
-		}, "response had no file name", 1, 1},
 	}
+}
+
+// runUploadFailures runs each case through the command args builds and
+// expects a classified exit code, a named cause, and nothing on stdout.
+func runUploadFailures(t *testing.T, cases []uploadFailure, args func(serverURL, src string) []string) {
+	t.Helper()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := newUploadMock(t)
@@ -259,7 +298,7 @@ func TestFilesUploadFailures(t *testing.T) {
 			if err := os.WriteFile(src, patterned(tc.size), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "files", "upload", src, "--mime-type", "application/octet-stream")...)
+			result := runCLI(t, t.TempDir(), nil, args(mock.URL, src)...)
 			if code := exitCode(t, result); code != tc.wantCode {
 				t.Errorf("exit code = %d, want %d\nstderr: %s", code, tc.wantCode, result.stderr)
 			}
@@ -276,15 +315,38 @@ func TestFilesUploadFailures(t *testing.T) {
 	}
 }
 
+// TestFilesUploadDryRunProgress: --dry-run prints no upload progress, and
+// says that --wait polling was not simulated.
+func TestFilesUploadDryRunProgress(t *testing.T) {
+	src := writeTempFile(t, "clip.mp3", "some audio bytes")
+	result := runCLI(t, t.TempDir(), nil, append(plainArgs("http://127.0.0.1:1"), "--dry-run", "files", "upload", src, "--wait")...)
+	if result.err != nil {
+		t.Fatalf("files upload --dry-run --wait failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	if strings.Contains(result.stderr, "Starting upload") || strings.Contains(result.stderr, "Uploaded ") {
+		t.Errorf("dry-run printed upload progress:\n%s", result.stderr)
+	}
+	if !strings.Contains(result.stderr, "[DRY-RUN] --wait polling is response-dependent and was not simulated.") {
+		t.Errorf("dry-run did not note the skipped --wait polling:\n%s", result.stderr)
+	}
+}
+
 // TestFilesUploadRefusesForeignSession: a session URL on another host must
 // never receive the credentials or the file bytes.
 func TestFilesUploadRefusesForeignSession(t *testing.T) {
-	var foreignHits int
-	var mu sync.Mutex
+	checkForeignSessionRefused(t, func(serverURL, src string) []string {
+		return append(plainArgs(serverURL), "files", "upload", src)
+	})
+}
+
+// checkForeignSessionRefused points the start response at another host and
+// expects the command to send it nothing, naming the host only: the session
+// URL carries the upload_id capability.
+func checkForeignSessionRefused(t *testing.T, args func(serverURL, src string) []string) {
+	t.Helper()
+	var foreignHits atomic.Int32
 	foreign := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		mu.Lock()
-		foreignHits++
-		mu.Unlock()
+		foreignHits.Add(1)
 	}))
 	defer foreign.Close()
 	// Same loopback host, different port: still a different service.
@@ -293,19 +355,19 @@ func TestFilesUploadRefusesForeignSession(t *testing.T) {
 		if r.command != "start" {
 			return false
 		}
-		w.Header().Set("X-Goog-Upload-Url", foreign.URL+"/steal")
+		w.Header().Set("X-Goog-Upload-Url", foreign.URL+"/steal?upload_id=secret")
 		return true
 	}
 	src := writeTempFile(t, "clip.mp3", "some audio bytes")
-	result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "files", "upload", src)...)
+	result := runCLI(t, t.TempDir(), nil, args(mock.URL, src)...)
 	if code := exitCode(t, result); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	if !strings.Contains(result.stderr, "refusing to upload to an unexpected host") {
+	if !strings.Contains(result.stderr, "refusing to upload to an unexpected host") || strings.Contains(result.stderr, "secret") {
 		t.Errorf("stderr = %q", result.stderr)
 	}
-	if foreignHits != 0 || len(mock.chunks()) != 0 {
-		t.Errorf("foreign hits = %d, chunk requests = %d; want none", foreignHits, len(mock.chunks()))
+	if foreignHits.Load() != 0 || len(mock.chunks()) != 0 {
+		t.Errorf("foreign hits = %d, chunk requests = %d; want none", foreignHits.Load(), len(mock.chunks()))
 	}
 }
 

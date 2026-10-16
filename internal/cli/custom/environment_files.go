@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/sdkerrors"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -237,6 +239,12 @@ func runEnvironmentFilesUpload(cmd *cobra.Command, envRaw, localFile, pathFlag, 
 		return usageError(err.Error())
 	}
 
+	source, err := os.Open(localFile)
+	if err != nil {
+		return usageError(fmt.Sprintf("cannot read %q: %v", localFile, err))
+	}
+	defer source.Close()
+
 	mimeType := detectEnvironmentFileMIME(localFile, destPath, mimeFlag)
 
 	t, err := newRawTransport(cmd)
@@ -268,151 +276,109 @@ func runEnvironmentFilesUpload(cmd *cobra.Command, envRaw, localFile, pathFlag, 
 	if err != nil {
 		return output.Error(cmd, err)
 	}
-	startReq.Header.Set("X-Goog-Upload-Protocol", "resumable")
-	startReq.Header.Set("X-Goog-Upload-Command", "start")
-	startReq.Header.Set("X-Goog-Upload-Header-Content-Length", strconv.FormatInt(size, 10))
-	startReq.Header.Set("X-Goog-Upload-Header-Content-Type", mimeType)
+	setUploadStartHeaders(startReq, size, mimeType)
 
-	// --dry-run previews the start request without uploading bytes.
-	if isDryRun(cmd) {
-		startRes, err := t.do(startReq)
-		if startRes != nil && startRes.Body != nil {
-			_ = startRes.Body.Close()
+	finalBody, err := t.resumableUpload(cmd, startReq, source, localFile, size)
+	if err != nil || isDryRun(cmd) {
+		return err
+	}
+
+	parsed := parseEnvironmentUploadBody(finalBody)
+	file := uploadedEnvironmentFile(parsed)
+	printedPath, envelope := buildEnvironmentUploadResult(envID, destPath, extractFlag, parsed, file)
+	// An archive's size says nothing about the files --extract writes.
+	if !extractFlag {
+		if err := verifyStoredSize(file, size, localFile, envID, printedPath); err != nil {
+			return err
 		}
-		if err != nil {
-			return output.Error(cmd, err)
-		}
-		return nil
 	}
-
-	startRes, err := t.do(startReq)
-	if err != nil {
-		return output.Error(cmd, err)
-	}
-	_, _ = io.Copy(io.Discard, startRes.Body)
-	_ = startRes.Body.Close()
-
-	uploadURL := strings.TrimSpace(startRes.Header.Get("X-Goog-Upload-Url"))
-	if uploadURL == "" {
-		return output.Error(cmd, fmt.Errorf("resumable upload start succeeded (HTTP %d) but response omitted X-Goog-Upload-Url header", startRes.StatusCode))
-	}
-	if !t.sameService(uploadURL) {
-		return output.Error(cmd, fmt.Errorf("refusing to send upload bytes to untrusted URL %q", uploadURL))
-	}
-
-	f, err := os.Open(localFile)
-	if err != nil {
-		return output.Error(cmd, fmt.Errorf("open %q: %w", localFile, err))
-	}
-	defer f.Close()
-
-	finalBody, err := uploadEnvironmentChunks(cmd, t, uploadURL, f, size, mimeType)
-	if err != nil {
-		return output.Error(cmd, err)
-	}
-
-	printedPath, envelope := buildEnvironmentUploadResult(envID, destPath, extractFlag, finalBody)
 	return emitResult(cmd, printedPath, envelope)
 }
 
-func uploadEnvironmentChunks(cmd *cobra.Command, t *rawTransport, uploadURL string, r io.Reader, totalSize int64, mimeType string) ([]byte, error) {
-	if totalSize == 0 {
-		return sendEnvironmentChunk(cmd, t, uploadURL, nil, 0, mimeType, true)
+// verifyStoredSize compares the size_bytes the finalize response reports with
+// the local file, so an upload the server did not persist never reports
+// success.
+func verifyStoredSize(file map[string]any, size int64, localFile, envID, storedPath string) error {
+	hint := fmt.Sprintf("Inspect it with \"gemini-api environments files list --environment %s --path %s\"", envID, flagutil.ShellQuote(storedPath))
+	if file == nil {
+		if size == 0 {
+			return nil
+		}
+		return runtimeError(fmt.Sprintf("upload of %s finished, but the server response did not describe the stored file, so its size could not be verified", localFile), hint)
 	}
-	buf := make([]byte, uploadChunkSize)
-	var offset int64
-	for offset < totalSize {
-		remaining := totalSize - offset
-		toRead := int64(len(buf))
-		if remaining < toRead {
-			toRead = remaining
-		}
-		n, err := io.ReadFull(r, buf[:toRead])
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, fmt.Errorf("read upload chunk at offset %d: %w", offset, err)
-		}
-		if n == 0 && offset < totalSize {
-			return nil, fmt.Errorf("unexpected EOF reading chunk at offset %d of %d", offset, totalSize)
-		}
-		chunk := buf[:n]
-		final := offset+int64(n) >= totalSize
-		body, err := sendEnvironmentChunk(cmd, t, uploadURL, chunk, offset, mimeType, final)
-		if err != nil {
-			return nil, err
-		}
-		offset += int64(n)
-		if final {
-			return body, nil
-		}
+	stored, ok := environmentFileSize(file["size_bytes"])
+	if !ok {
+		raw, _ := json.Marshal(file["size_bytes"])
+		return runtimeError(fmt.Sprintf("upload of %s finished, but the server reported an unreadable size_bytes %s", localFile, raw), hint)
 	}
-	return nil, nil
+	if stored != size {
+		return runtimeError(fmt.Sprintf("upload of %s finished, but the server stored %d bytes at %s, expected %d", localFile, stored, storedPath, size), hint)
+	}
+	return nil
 }
 
-func sendEnvironmentChunk(cmd *cobra.Command, t *rawTransport, uploadURL string, chunk []byte, offset int64, mimeType string, final bool) ([]byte, error) {
-	command := "upload"
-	if final {
-		command = "upload, finalize"
+// parseEnvironmentUploadBody decodes the finalize response, or returns nil
+// when it is empty or not a JSON object.
+func parseEnvironmentUploadBody(finalBody []byte) map[string]any {
+	var parsed map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(finalBody), &parsed); err != nil {
+		return nil
 	}
-	req, err := t.newRequest(cmd.Context(), http.MethodPut, uploadURL, bytes.NewReader(chunk))
-	if err != nil {
-		return nil, err
-	}
-	req.ContentLength = int64(len(chunk))
-	req.Header.Set("Content-Length", strconv.Itoa(len(chunk)))
-	req.Header.Set("Content-Type", mimeType)
-	req.Header.Set("X-Goog-Upload-Offset", strconv.FormatInt(offset, 10))
-	req.Header.Set("X-Goog-Upload-Command", command)
-
-	res, err := t.do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read upload chunk response: %w", err)
-	}
-
-	status := strings.TrimSpace(res.Header.Get("X-Goog-Upload-Status"))
-	if !final && status != "active" {
-		return nil, fmt.Errorf("unexpected X-Goog-Upload-Status %q after intermediate chunk at offset %d (expected \"active\")", status, offset)
-	}
-	if final && status != "final" {
-		return nil, fmt.Errorf("unexpected X-Goog-Upload-Status %q after final chunk (expected \"final\")", status)
-	}
-	return body, nil
+	return parsed
 }
 
-func buildEnvironmentUploadResult(envID, destPath string, extractFlag bool, finalBody []byte) (string, map[string]any) {
+// uploadedEnvironmentFile picks the EnvironmentFile a finalize response
+// describes: the body itself, its "file", or its only "files" entry.
+func uploadedEnvironmentFile(parsed map[string]any) map[string]any {
+	if p, ok := parsed["path"].(string); ok && strings.TrimSpace(p) != "" {
+		return parsed
+	}
+	if fileObj, ok := parsed["file"].(map[string]any); ok {
+		return fileObj
+	}
+	if filesArr, ok := parsed["files"].([]any); ok && len(filesArr) == 1 {
+		if first, ok := filesArr[0].(map[string]any); ok {
+			return first
+		}
+	}
+	return nil
+}
+
+// environmentFileSize reads size_bytes, an int64 the API encodes as a JSON
+// string and omits when zero, so an absent value is 0. ok is false when a
+// present value is not a non-negative whole number that fits an int64.
+func environmentFileSize(sizeBytes any) (size int64, ok bool) {
+	switch v := sizeBytes.(type) {
+	case nil:
+		return 0, true
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		return n, err == nil && n >= 0
+	case float64:
+		// float64(math.MaxInt64) rounds up to 2^63, which int64 cannot hold.
+		if v < 0 || v >= math.MaxInt64 || v != math.Trunc(v) {
+			return 0, false
+		}
+		return int64(v), true
+	}
+	return 0, false
+}
+
+func buildEnvironmentUploadResult(envID, destPath string, extractFlag bool, parsed, file map[string]any) (string, map[string]any) {
 	printedPath := destPath
 	envelope := map[string]any{
 		"environment": "environments/" + envID,
 		"path":        destPath,
 	}
-	trimmed := bytes.TrimSpace(finalBody)
-	if len(trimmed) == 0 {
-		return printedPath, envelope
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(trimmed, &parsed); err != nil || parsed == nil {
+	if parsed == nil {
 		return printedPath, envelope
 	}
 	for k, v := range parsed {
 		envelope[k] = v
 	}
-	if !extractFlag {
-		if p, ok := parsed["path"].(string); ok && strings.TrimSpace(p) != "" {
+	if !extractFlag && file != nil {
+		if p, ok := file["path"].(string); ok && strings.TrimSpace(p) != "" {
 			printedPath = strings.TrimSpace(p)
-		} else if fileObj, ok := parsed["file"].(map[string]any); ok {
-			if p, ok := fileObj["path"].(string); ok && strings.TrimSpace(p) != "" {
-				printedPath = strings.TrimSpace(p)
-			}
-		} else if filesArr, ok := parsed["files"].([]any); ok && len(filesArr) == 1 {
-			if first, ok := filesArr[0].(map[string]any); ok {
-				if p, ok := first["path"].(string); ok && strings.TrimSpace(p) != "" {
-					printedPath = strings.TrimSpace(p)
-				}
-			}
 		}
 	}
 	envelope["path"] = printedPath

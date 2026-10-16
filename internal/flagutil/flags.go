@@ -344,7 +344,7 @@ func ValidateOutputFormatFlag(cmd *cobra.Command, allowed []string) error {
 	if !looksLikePath(val) {
 		return err
 	}
-	quoted := shellQuote(val)
+	quoted := ShellQuote(val)
 	switch {
 	case lookupFlag(cmd, "out") != nil:
 		if !FlagChanged(cmd, "out") {
@@ -464,7 +464,7 @@ func ShorthandConfusionHint(cmd *cobra.Command, args []string, errMsg string) st
 		}
 		usage := "<value>"
 		if value != "" {
-			usage = shellQuote(value)
+			usage = ShellQuote(value)
 		}
 		return fmt.Sprintf("-%s is short for --%s, not --%s. Use --%s %s", letter, global.Name, named, named, usage)
 	}
@@ -496,7 +496,9 @@ func longFlagTyped(args []string, name string) bool {
 	return false
 }
 
-func shellQuote(val string) string {
+// ShellQuote quotes val for a POSIX shell when it holds anything beyond plain
+// word characters.
+func ShellQuote(val string) string {
 	if val != "" && !strings.ContainsAny(val, " \t\n\"'`$&|;<>()*?[]{}\\!#~") {
 		return val
 	}
