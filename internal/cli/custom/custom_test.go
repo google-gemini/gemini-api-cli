@@ -1542,8 +1542,21 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if err := rootDry.Execute(); err != nil {
 			t.Fatalf("Execute custom server-url --dry-run failed: %v", err)
 		}
-		if !strings.Contains(gotBody, "https://custom.example.com/v1beta/files/abc123") {
-			t.Errorf("dry-run body = %s, want custom server-url expansion", gotBody)
+		if !strings.Contains(gotBody, "https://generativelanguage.googleapis.com/v1beta/files/abc123") || strings.Contains(gotBody, "custom.example.com") {
+			t.Errorf("dry-run body = %s, want canonical Files API expansion independent of --server-url", gotBody)
+		}
+
+		filesGetCalls = 0
+		rootMime := newTestTree(&gotBody, &gotArgs)
+		rootMime.SetArgs([]string{"--server-url", srv.URL, "generate", "-b", `{"input":[{"type":"image","uri":"` + srv.URL + `/v1beta/files/abc123","mime_type":"image/png"},{"type":"text","text":"describe"}]}`})
+		if err := rootMime.Execute(); err != nil {
+			t.Fatalf("Execute custom server-url full URI with mime_type failed: %v", err)
+		}
+		if filesGetCalls != 0 {
+			t.Errorf("filesGetCalls = %d, want 0 when mime_type is set", filesGetCalls)
+		}
+		if !strings.Contains(gotBody, `"uri":"https://generativelanguage.googleapis.com/v1beta/files/abc123"`) || strings.Contains(gotBody, srv.URL) {
+			t.Errorf("body = %s, want --server-url Files URI rewritten to the canonical Files API URI", gotBody)
 		}
 	})
 
