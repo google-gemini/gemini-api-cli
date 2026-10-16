@@ -84,6 +84,9 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 	if err := setCommandGroup(rootCmd, "agent", "manage"); err != nil {
 		return err
 	}
+	if err := setCommandGroup(rootCmd, "auth", "manage"); err != nil {
+		return err
+	}
 	if err := setCommandGroup(rootCmd, "configure", "manage"); err != nil {
 		return err
 	}
@@ -103,6 +106,9 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		return err
 	}
 	if err := setCommandGroup(rootCmd, "webhooks", "advanced"); err != nil {
+		return err
+	}
+	if err := setCommandGroup(rootCmd, "whoami", "manage"); err != nil {
 		return err
 	}
 
@@ -180,6 +186,7 @@ var intentDeclarationOrder = []intentOrderEntry{
 	{ParentPath: []string{}, Name: "agent"},
 	{ParentPath: []string{"agent"}, Name: "run"},
 	{ParentPath: []string{}, Name: "analyze"},
+	{ParentPath: []string{}, Name: "auth"},
 	{ParentPath: []string{}, Name: "configure"},
 	{ParentPath: []string{}, Name: "credentials"},
 	{ParentPath: []string{}, Name: "environments"},
@@ -193,6 +200,7 @@ var intentDeclarationOrder = []intentOrderEntry{
 	{ParentPath: []string{}, Name: "tts"},
 	{ParentPath: []string{}, Name: "video"},
 	{ParentPath: []string{}, Name: "webhooks"},
+	{ParentPath: []string{}, Name: "whoami"},
 }
 
 func applyDeclaredCommandOrder(rootCmd *cobra.Command) {

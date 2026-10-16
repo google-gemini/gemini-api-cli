@@ -125,11 +125,12 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
 | | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |
 | | `gemini-api configure` | `--api-key`, `--interactive`, `--output-format` | Configure authentication, global parameters, and persistent preferences |
+| | `gemini-api auth` / `whoami` | `auth login`, `auth whoami`, `auth logout` | Manage stored credentials (`auth`) or inspect active authentication and configuration (`whoami`) |
 | **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`) | Manage sandbox environments and upload, list, or download environment files |
 | | `gemini-api credentials` | `create`, `list`, `get`, `update`, `delete` | Manage stored server-side credentials for managed agents |
 | | `gemini-api webhooks` | `create`, `list`, `get`, `update`, `ping`, `rotate-signing-secret`, `delete` | Manage webhook endpoints and signing secrets for event delivery |
 | | `gemini-api triggers` | `list`, `get`, `update`, `run`, `list-executions`, `delete` | Inspect, run, update, and delete cron triggers for managed agents |
-| **Utility** | `gemini-api whoami` / `auth` / `explore` / `version` | `auth login`, `auth status`, `auth logout` | Inspect active credentials (`whoami`, `auth`), launch the interactive explorer (`explore`), or print the CLI version (`version`) |
+| **Utility** | `gemini-api explore` / `version` | — | Launch the interactive command explorer (`explore`) or print the CLI version (`version`) |
 
 ---
 
