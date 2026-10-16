@@ -248,6 +248,35 @@ func TestVideoHandoffAndFailure(t *testing.T) {
 	}
 }
 
+// TestVideoResumeRejectsCreateInputs pins that --resume is checked before the
+// -i/--input and --stdin porcelain runs: a create input is reported by its own
+// flag name, without resolving files/<id> or reading stdin first.
+func TestVideoResumeRejectsCreateInputs(t *testing.T) {
+	for _, tc := range []struct {
+		flags    []string
+		wantFlag string
+	}{
+		{[]string{"-i", "files/abc123"}, "--input"},
+		{[]string{"--stdin"}, "--stdin"},
+	} {
+		t.Run(tc.wantFlag, func(t *testing.T) {
+			server := newAsyncVideoServer(t, asyncCreateInProgress, asyncPollCompleted)
+			args := append([]string{"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test",
+				"video", "--resume", "int-vid"}, tc.flags...)
+			result := runCLIWithStdin(t, t.TempDir(), nil, "prompt text", args...)
+			if code := exitCode(t, result); code != 2 {
+				t.Errorf("exit code = %d, want 2\nstderr: %s", code, result.stderr)
+			}
+			if want := "--resume cannot be combined with create request flag " + tc.wantFlag; !strings.Contains(result.stderr, want) {
+				t.Errorf("stderr = %q, want %q", result.stderr, want)
+			}
+			if seen := server.seen(); len(seen) != 0 {
+				t.Errorf("a rejected --resume must not touch the network, requests: %v", seen)
+			}
+		})
+	}
+}
+
 // TestVideoDryRunDoesNotPoll pins that --dry-run previews the create request
 // only: no network calls, no polling, empty stdout.
 func TestVideoDryRunDoesNotPoll(t *testing.T) {

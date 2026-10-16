@@ -643,24 +643,37 @@ func extractFullFilesURI(cmd *cobra.Command, raw string) (string, bool) {
 	return "", false
 }
 
-// attachInteractionInputs wires -i/--input, --mime-type, and automatic
-// files/<id> URI resolution onto generate, image, video, and agent run.
+// intentInputs selects the porcelain inputs attachIntentInputs adds to a
+// generated intent command on top of its declared flags.
+type intentInputs struct {
+	media bool // -i/--input and --mime-type: media content blocks
+	stdin bool // --stdin: a text content block read from stdin
+	// file is -f/--file, a text content block read from a file; only for
+	// commands without media inputs, where -i already takes text files.
+	file bool
+}
+
+// attachInteractionInputs wires -i/--input, --mime-type, --stdin, -f/--file,
+// --model validation, and automatic files/<id> URI resolution onto generate,
+// image, video, music, and agent run.
 func attachInteractionInputs(root *cobra.Command) error {
 	intentSpecs := []struct {
 		name       string
 		argName    string
 		promptDesc string
+		inputs     intentInputs
 	}{
-		{"generate", "prompt", "Prompt to send to the model"},
-		{"image", "prompt", "Description of the image to generate"},
-		{"video", "prompt", "Scene description for the video to generate"},
+		{"generate", "prompt", "Prompt to send to the model", intentInputs{media: true, stdin: true}},
+		{"image", "prompt", "Description of the image to generate", intentInputs{media: true, stdin: true}},
+		{"video", "prompt", "Scene description for the video to generate", intentInputs{media: true, stdin: true}},
+		{"music", "prompt", "Music prompt", intentInputs{stdin: true, file: true}},
 	}
 	for _, spec := range intentSpecs {
 		cmd := findChild(root, spec.name)
 		if cmd == nil {
-			return fmt.Errorf("expected intent command %q to attach media inputs to, but it is not registered", spec.name)
+			return fmt.Errorf("expected intent command %q to attach inputs to, but it is not registered", spec.name)
 		}
-		if err := attachIntentMediaInputs(cmd, spec.argName, spec.promptDesc); err != nil {
+		if err := attachIntentInputs(cmd, spec.argName, spec.promptDesc, spec.inputs); err != nil {
 			return fmt.Errorf("%s: %w", spec.name, err)
 		}
 	}
@@ -670,7 +683,9 @@ func attachInteractionInputs(root *cobra.Command) error {
 		return fmt.Errorf("expected the generated agent group to mount porcelain under")
 	}
 	agentRunCmd := findChild(agentGroup, "run")
-	if err := attachIntentMediaInputs(agentRunCmd, "input", "Prompt or task to send"); err != nil {
+	// agent run keeps piped stdin as the request body: it is the full-control
+	// surface, so it takes media inputs but no --stdin/--file text.
+	if err := attachIntentInputs(agentRunCmd, "input", "Prompt or task to send", intentInputs{media: true}); err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
 	agentRunCmd.Long = strings.Replace(
@@ -682,7 +697,12 @@ func attachInteractionInputs(root *cobra.Command) error {
 	return nil
 }
 
-func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) error {
+// attachIntentInputs wraps a generated intent command: it holds an explicit
+// --model to the model id shape, and adds the porcelain inputs that in selects.
+// Media and --stdin/--file text become content blocks ahead of the positional
+// prompt; a --stdin/--file text with no other input is the prompt itself.
+// --stdin claims stdin, so piped stdin is then never read as a JSON body.
+func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in intentInputs) error {
 	if cmd == nil {
 		return fmt.Errorf("command is not registered")
 	}
@@ -693,15 +713,35 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 	if original == nil {
 		return fmt.Errorf("command %q has no RunE", cmd.Name())
 	}
-	if cmd.Flags().Lookup("input") == nil {
-		cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to include as input (repeatable)")
-	}
-	if cmd.Flags().Lookup("mime-type") == nil {
-		cmd.Flags().String("mime-type", "", "Override the detected MIME type (one --input only)")
-	}
-	satisfiedBy := []string{"body", "input"}
+	satisfiedBy := []string{"body"}
 	if cmd.Flags().Lookup("body-param") != nil {
-		satisfiedBy = []string{"body", "body-param", "input"}
+		satisfiedBy = append(satisfiedBy, "body-param")
+	}
+	if in.media {
+		if cmd.Flags().Lookup("input") == nil {
+			cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to include as input (repeatable)")
+		}
+		if cmd.Flags().Lookup("mime-type") == nil {
+			cmd.Flags().String("mime-type", "", "Override the detected MIME type (one --input only)")
+		}
+		flagutil.MarkRequestInput(cmd, "input", "mime-type")
+		satisfiedBy = append(satisfiedBy, "input")
+	}
+	fileFlag := ""
+	if in.file {
+		fileFlag = "file"
+		if cmd.Flags().Lookup("file") == nil {
+			cmd.Flags().StringP("file", "f", "", "Read prompt text from a file (sent before the positional "+argName+", if any)")
+		}
+		flagutil.MarkRequestInput(cmd, "file")
+		satisfiedBy = append(satisfiedBy, "file")
+	}
+	if in.stdin {
+		if cmd.Flags().Lookup("stdin") == nil {
+			cmd.Flags().Bool("stdin", false, "Read prompt text from stdin to EOF instead of a JSON body (sent before the positional "+argName+", if any)")
+		}
+		flagutil.MarkRequestInput(cmd, "stdin")
+		satisfiedBy = append(satisfiedBy, "stdin")
 	}
 	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
 		{
@@ -722,6 +762,9 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 		if schema, _ := c.Flags().GetBool("schema"); schema {
 			return original(c, args)
 		}
+		if flagutil.IsAsyncResume(c) {
+			return original(c, args)
+		}
 		if c.Flags().Lookup("raw-response") != nil && c.Flags().Lookup("out") != nil {
 			if flagutil.FlagChanged(c, "raw-response") && flagutil.FlagChanged(c, "out") {
 				return original(c, args)
@@ -730,14 +773,38 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 		if c.Flags().Lookup("body-param") != nil && flagutil.FlagChanged(c, "body") && flagutil.FlagChanged(c, "body-param") {
 			return original(c, args)
 		}
-
-		inputs, err := c.Flags().GetStringArray("input")
-		if err != nil {
-			return output.CLIError(c, err)
+		if err := normalizeModelFlag(c); err != nil {
+			return err
 		}
-		mimeOverride, _ := flagutil.GetStringFlag(c, "mime-type")
-		if len(inputs) == 0 && strings.TrimSpace(mimeOverride) != "" {
-			return usageError("--mime-type requires --input")
+
+		var inputs []string
+		if in.media {
+			var err error
+			inputs, err = c.Flags().GetStringArray("input")
+			if err != nil {
+				return output.CLIError(c, err)
+			}
+			mimeOverride, _ := flagutil.GetStringFlag(c, "mime-type")
+			if len(inputs) == 0 && strings.TrimSpace(mimeOverride) != "" {
+				return usageError("--mime-type requires --input")
+			}
+		}
+
+		text := ""
+		stdinClaimed := false
+		if in.stdin || in.file {
+			stdinClaimed, _ = flagutil.GetBoolFlag(c, "stdin")
+			for _, surface := range []string{"body", "body-param"} {
+				if stdinClaimed && c.Flags().Lookup(surface) != nil && flagutil.FlagChanged(c, surface) {
+					if v, _ := c.Flags().GetString(surface); strings.TrimSpace(v) == "@-" {
+						return usageError("--stdin and --" + surface + " @- both read stdin; pass the body from a file (@path) or inline instead")
+					}
+				}
+			}
+			var err error
+			if text, err = flagTextInput(c, fileFlag, "stdin"); err != nil {
+				return err
+			}
 		}
 
 		for _, surface := range []string{"body", "body-param"} {
@@ -748,7 +815,7 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 			}
 		}
 		stdinAttached := false
-		if !flagutil.FlagChanged(c, "body") && (c.Flags().Lookup("body-param") == nil || !flagutil.FlagChanged(c, "body-param")) {
+		if !stdinClaimed && !flagutil.FlagChanged(c, "body") && (c.Flags().Lookup("body-param") == nil || !flagutil.FlagChanged(c, "body-param")) {
 			attached, err := flagutil.AttachStdinBody(c, "body")
 			if err != nil {
 				return output.CLIError(c, err)
@@ -764,7 +831,11 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 			suppliedBodyFlag = "body-param"
 		}
 
-		if len(inputs) == 0 && suppliedBodyFlag == "" && !stdinAttached {
+		if text != "" && len(args) == 0 && len(inputs) == 0 && suppliedBodyFlag == "" && !stdinAttached {
+			args = []string{text}
+			text = ""
+		}
+		if len(inputs) == 0 && text == "" && suppliedBodyFlag == "" && !stdinAttached {
 			return original(c, args)
 		}
 
@@ -781,6 +852,10 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 				bodySource = "stdin"
 			}
 			if err := json.Unmarshal(rawBody, &bodyMap); err != nil || bodyMap == nil {
+				if err != nil && stdinAttached && in.stdin {
+					return usageError(fmt.Sprintf("failed to parse stdin as JSON: %v", err),
+						"Piped stdin is read as the JSON request body; add --stdin to send it as prompt text instead")
+				}
 				return original(c, args)
 			}
 			if c.Name() != "run" {
@@ -789,7 +864,7 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 				}
 			}
 			if _, hasInput := bodyMap["input"]; hasInput && len(args) > 0 {
-				if len(inputs) == 0 {
+				if len(inputs) == 0 && text == "" {
 					return original(c, args)
 				}
 				return usageError(fmt.Sprintf("cannot combine positional <%s> with \"input\" in %s", argName, bodySource))
@@ -800,6 +875,7 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 		var mediaBlocks []any
 		if len(inputs) > 0 {
 			var sources []*mediaSource
+			var err error
 			s, sources, err = resolveMediaSources(c, inputs, analyzePolicy)
 			if err != nil {
 				return err
@@ -816,6 +892,9 @@ func attachIntentMediaInputs(cmd *cobra.Command, argName, promptDesc string) err
 				}
 				mediaBlocks = append(mediaBlocks, bMap)
 			}
+		}
+		if text != "" {
+			mediaBlocks = append(mediaBlocks, map[string]any{"type": "text", "text": text})
 		}
 
 		if bodyMap != nil {

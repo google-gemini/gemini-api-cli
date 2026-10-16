@@ -35,7 +35,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "video [prompt]",
 		Short:   "Generate & edit video conversationally (gemini-omni-1.1-flash)",
-		Long:    "Generate video via the Interactions API (video response modality); polls \"agent status\" with backoff\nuntil completion, writes the video (--out or default path), and prints the path (--raw-response for raw\nJSON; --async returns the ID to resume with \"gemini-api video --resume <id>\"; requires_action prints as-is).\nPass --previous-interaction-id to extend/edit a prior turn; --aspect-ratio and --resolution shape the output.\n\nArguments:\n  <prompt>  Video prompt",
+		Long:    "Generate video via the Interactions API (video response modality); polls \"agent status\" with backoff\nuntil completion, writes the video (--out or default path), and prints the path (--raw-response for raw\nJSON; --async returns the ID to resume with \"gemini-api video --resume <id>\"; requires_action prints as-is).\n\nArguments:\n  <prompt>  Video prompt",
 		Example: "  gemini-api video \"now pan to the left\" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg\n  gemini-api video \"a timelapse of a city at night\" --async\n  gemini-api video \"ocean waves at dawn\" --aspect-ratio 9:16 --resolution 1080p --out clips/waves.mp4",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentVideoCmd,

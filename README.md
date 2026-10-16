@@ -114,12 +114,12 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 
 | Category | Command | Subcommands / Key Flags | Description & default model |
 |---|---|---|---|
-| **Create** | `gemini-api generate` | `-m`, `-i/--input`, `--stream=false`, `--body` | Text and multimodal generation (`gemini-3.8-flash`) |
-| | `gemini-api image` | `-m`, `-i/--input`, `--out`, `--body` | Generate or edit images (`gemini-nano-banana-2.1`) |
+| **Create** | `gemini-api generate` | `-m`, `-i/--input`, `--stdin`, `--system`, `--stream=false`, `--body` | Text and multimodal generation (`gemini-3.8-flash`) |
+| | `gemini-api image` | `-m`, `-i/--input`, `--stdin`, `--out`, `--body` | Generate or edit images (`gemini-nano-banana-2.1`) |
 | | `gemini-api tts` | `-f/--file`, `--stdin`, `--voice`, `--multi-speaker`, `--out` | Text-to-speech audio generation (`gemini-3.8-flash-tts`) |
-| | `gemini-api music` | `-m`, `--out`, `--body` | Music generation (`lyria-3.5`) |
-| | `gemini-api video` | `-m`, `-i/--input`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.1-flash`) |
-| **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `-f/--file`, `--stdin`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-3.8-flash`) |
+| | `gemini-api music` | `-m`, `-f/--file`, `--stdin`, `--out`, `--body` | Music generation (`lyria-3.5`) |
+| | `gemini-api video` | `-m`, `-i/--input`, `--stdin`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.1-flash`) |
+| **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `--stdin`, `--system`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-3.8-flash`) |
 | | `gemini-api transcribe` | `-i/--input` *(repeatable)*, `--format` (`md`, `text`, `json`, `srt`), `--out` | Transcribe audio or video to Markdown (`md`), plain text (`text`), JSON (`json`), or SRT captions (`srt`) (`gemini-3.8-flash`) |
 | **Manage** | `gemini-api agent` | `run`, `status`, `cancel`, `delete-interaction`, `create`, `list`, `get`, `delete` | Run interactions with models or managed agents (`run`, `status`, `cancel`) and manage agent definitions |
 | | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
