@@ -16,6 +16,9 @@ package custom
 
 import (
 	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -197,11 +200,27 @@ func FuzzAudioMIME(f *testing.F) {
 	})
 }
 
-func TestUploadBytesSendsTheDeclaredSize(t *testing.T) {
+func TestStreamUploadSendsTheDeclaredSize(t *testing.T) {
 	// A source that shrank below the declared size fails before finalizing.
 	transport := &rawTransport{}
-	_, err := transport.uploadBytes(t.Context(), "http://127.0.0.1:1/session", bytes.NewReader(nil), "gone.bin", 10)
+	_, err := transport.streamUpload(t.Context(), "http://127.0.0.1:1/session", bytes.NewReader(nil), "gone.bin", 10)
 	if err == nil || !strings.Contains(err.Error(), "changed during upload") {
 		t.Errorf("error = %v, want the shrunken source named", err)
+	}
+
+	// Reader has more bytes than size; streamUpload must read exactly size bytes.
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk, _ := io.ReadAll(r.Body)
+		received = append(received, chunk...)
+		w.Header().Set("X-Goog-Upload-Status", "final")
+	}))
+	defer srv.Close()
+	transport.client = srv.Client()
+	if _, err := transport.streamUpload(t.Context(), srv.URL+"/upload", strings.NewReader("0123456789EXTRA"), "data.bin", 10); err != nil {
+		t.Fatalf("streamUpload exact boundary failed: %v", err)
+	}
+	if string(received) != "0123456789" {
+		t.Errorf("received = %q, want \"0123456789\"", string(received))
 	}
 }
