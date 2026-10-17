@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
@@ -30,6 +31,7 @@ import (
 // InstallErrorHandling runs after usage.Intercept, which rewrites the hooks and Args wrapped here.
 func InstallErrorHandling(root *cobra.Command) {
 	installCommandErrorHandling(root)
+	installHelpTopicCheck(root)
 }
 
 func installCommandErrorHandling(cmd *cobra.Command) {
@@ -38,26 +40,40 @@ func installCommandErrorHandling(cmd *cobra.Command) {
 		installCommandErrorHandling(child)
 	}
 
+	rejectsPositionals := cmd.Args == nil && (usage.GroupMadeRunnable(cmd) || !cmd.HasParent())
+	if rejectsPositionals {
+		cmd.Args = cobra.NoArgs
+	}
+	rejectsPositionals = rejectsPositionals || (cmd.Args != nil && isNoArgs(cmd.Args))
+
 	flagError := cmd.FlagErrorFunc()
 	cmd.SetFlagErrorFunc(func(current *cobra.Command, err error) error {
 		err = flagError(current, err)
 		if err == nil {
 			return nil
 		}
+		if rejectsPositionals && current.HasSubCommands() {
+			if positionals := current.Flags().Args(); len(positionals) > 0 {
+				if argsErr := current.ValidateArgs(positionals); argsErr != nil {
+					return argsErr
+				}
+			}
+		}
 		hints := append([]string(nil), errorCLIHints(err)...)
 		if hint := flagutil.UnknownFlagSuggestionHint(current, err.Error()); hint != "" {
 			hints = append(hints, hint)
 		}
-		hints = append(hints, fmt.Sprintf("Run '%s --help' for usage and examples, or --usage for the machine-readable surface", current.CommandPath()))
+		hints = append(hints, helpPointerHint(current, "for usage and examples"))
 		return cliHintsError{error: flagutil.WithCLIValidation(err), hints: hints, omitTypeHints: true}
 	})
 
-	if usage.GroupMadeRunnable(cmd) && cmd.Args == nil {
-		cmd.Args = cobra.NoArgs
-	}
 	if argsValidator := cmd.Args; argsValidator != nil {
 		cmd.Args = func(current *cobra.Command, args []string) error {
-			return flagutil.WithCLIValidation(argsValidator(current, args))
+			err := argsValidator(current, args)
+			if err != nil && rejectsPositionals && len(args) > 0 && current.HasSubCommands() {
+				return UnknownSubcommandError(current, args[0])
+			}
+			return flagutil.WithCLIValidation(err)
 		}
 	}
 
@@ -97,6 +113,106 @@ func installCommandErrorHandling(cmd *cobra.Command) {
 			return runE(current, args)
 		}
 	}
+}
+
+// installHelpTopicCheck reports a help topic that names no command.
+func installHelpTopicCheck(root *cobra.Command) {
+	for _, child := range root.Commands() {
+		if child.Name() != "help" {
+			continue
+		}
+		run, runE := child.Run, child.RunE
+		child.Run = nil
+		child.RunE = func(current *cobra.Command, args []string) error {
+			if topic := unresolvedHelpTopic(root, args); topic != "" {
+				fmt.Fprintf(current.OutOrStderr(), "Unknown help topic %#q\n", args)
+				return root.Usage()
+			}
+			if runE != nil {
+				return runE(current, args)
+			}
+			run(current, args)
+			return nil
+		}
+		return
+	}
+}
+
+func unresolvedHelpTopic(root *cobra.Command, args []string) string {
+	var topic []string
+	for _, token := range args {
+		if strings.HasPrefix(token, "-") {
+			break
+		}
+		topic = append(topic, token)
+	}
+	if len(topic) == 0 {
+		return ""
+	}
+	target, rest, _ := root.Find(topic)
+	if target == nil {
+		return topic[0]
+	}
+	if len(rest) > 0 {
+		return rest[0]
+	}
+	return ""
+}
+
+func isNoArgs(validator cobra.PositionalArgs) bool {
+	return reflect.ValueOf(validator).Pointer() == reflect.ValueOf(cobra.NoArgs).Pointer()
+}
+
+// UnknownSubcommandError reports a positional that names no subcommand of
+// cmd, with the nearest commands as hints rather than in the message.
+func UnknownSubcommandError(cmd *cobra.Command, name string) error {
+	var leadingHints []string
+	if hasSubcommandNamed(cmd, name) {
+		leadingHints = append(leadingHints, fmt.Sprintf("%s is a command; remove the -- before it", name))
+	} else {
+		switch suggestions := commandSuggestions(cmd, name); len(suggestions) {
+		case 0:
+		case 1:
+			leadingHints = append(leadingHints, "Did you mean "+suggestions[0]+"?")
+		default:
+			leadingHints = append(leadingHints, "Did you mean one of "+strings.Join(suggestions, ", ")+"?")
+		}
+	}
+	err := fmt.Errorf("unknown command %q for %q", name, cmd.CommandPath())
+	err = withCLILeadingHints(flagutil.WithCLIValidation(err), leadingHints)
+	hints := append([]string(nil), leadingHints...)
+	hints = append(hints, helpPointerHint(cmd, "to list available commands"))
+	return cliHintsError{
+		error:         err,
+		hints:         hints,
+		omitTypeHints: true,
+	}
+}
+
+func hasSubcommandNamed(cmd *cobra.Command, name string) bool {
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == name || sub.HasAlias(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func helpPointerHint(cmd *cobra.Command, purpose string) string {
+	return fmt.Sprintf("Run '%s --help' %s, or --usage for the machine-readable surface", cmd.CommandPath(), purpose)
+}
+
+// commandSuggestions applies cobra's own suggestion policy without changing the command.
+func commandSuggestions(cmd *cobra.Command, name string) []string {
+	if cmd.DisableSuggestions {
+		return nil
+	}
+	distance := cmd.SuggestionsMinimumDistance
+	if distance <= 0 {
+		cmd.SuggestionsMinimumDistance = 2
+		defer func() { cmd.SuggestionsMinimumDistance = distance }()
+	}
+	return cmd.SuggestionsFor(name)
 }
 
 func renderingMode(cmd *cobra.Command) (format, jqExpr string) {

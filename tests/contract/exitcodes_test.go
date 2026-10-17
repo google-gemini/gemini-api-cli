@@ -197,3 +197,134 @@ func TestExitCodeHelpFooter(t *testing.T) {
 		}
 	}
 }
+
+// TestCLIValidationHintsFollowOrigin pins the hint policy for usage errors.
+// A validation error the CLI raises itself (a missing argument, a typo in a
+// command name) never suggests --dry-run, because there is no request to
+// preview; a 400 from the API still does. An unknown command is reported as a
+// one-line message whose "Did you mean" suggestion travels as a hint, not as
+// cobra's multi-line block inside the message.
+func TestCLIValidationHintsFollowOrigin(t *testing.T) {
+	plain := []string{"--no-interactive", "--color", "never"}
+	agent := []string{"--no-interactive", "--agent-mode"}
+
+	t.Run("missing argument raised by the CLI has no dry-run hint", func(t *testing.T) {
+		result := runCLI(t, t.TempDir(), nil, append(agent, "generate")...)
+		if got := exitCode(t, result); got != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr: %s", got, result.stderr)
+		}
+		envelope := decodeEnvelope(t, result.stderr)
+		if envelope.ErrorReason != "CLI_VALIDATION" {
+			t.Errorf("error_reason = %q, want CLI_VALIDATION", envelope.ErrorReason)
+		}
+		for _, hint := range envelope.Hints {
+			if strings.Contains(hint, "--dry-run") {
+				t.Errorf("CLI-raised validation error suggests --dry-run: %q", hint)
+			}
+		}
+		if len(envelope.Hints) == 0 {
+			t.Errorf("envelope has no hints: %s", result.stderr)
+		}
+
+		result = runCLI(t, t.TempDir(), nil, append(plain, "generate")...)
+		if got := exitCode(t, result); got != 2 {
+			t.Fatalf("plain exit code = %d, want 2\nstderr: %s", got, result.stderr)
+		}
+		if strings.Contains(result.stderr, "Use --dry-run") {
+			t.Errorf("plain CLI-raised validation error suggests --dry-run:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("API 400 keeps the dry-run hint", func(t *testing.T) {
+		server := taxonomyServer(t, taxonomyCase{
+			status: http.StatusBadRequest,
+			body:   `{"error":{"code":400,"message":"Invalid value at contents[0]","status":"INVALID_ARGUMENT"}}`,
+		})
+		result := runCLI(t, t.TempDir(), nil, append(prettyArgs(server.URL), "--agent-mode", "generate", "hi")...)
+		if got := exitCode(t, result); got != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr: %s", got, result.stderr)
+		}
+		envelope := decodeEnvelope(t, result.stderr)
+		if envelope.StatusCode != http.StatusBadRequest {
+			t.Errorf("status_code = %d, want 400", envelope.StatusCode)
+		}
+		if !hasHintContaining(envelope.Hints, "--dry-run") {
+			t.Errorf("API validation error lost the dry-run hint: %v", envelope.Hints)
+		}
+	})
+
+	unknown := []struct {
+		name     string
+		args     []string
+		wantMsg  string
+		wantHint string
+	}{
+		{
+			name:     "root command typo",
+			args:     []string{"genreate", "hi"},
+			wantMsg:  `unknown command "genreate" for "gemini-api"`,
+			wantHint: "Did you mean generate?",
+		},
+		{
+			name:     "nested command typo",
+			args:     []string{"environments", "files", "lst"},
+			wantMsg:  `unknown command "lst" for "gemini-api environments files"`,
+			wantHint: "Did you mean list?",
+		},
+	}
+	for _, tc := range unknown {
+		t.Run("unknown command/"+tc.name, func(t *testing.T) {
+			result := runCLI(t, t.TempDir(), nil, append(plain, tc.args...)...)
+			if got := exitCode(t, result); got != 2 {
+				t.Fatalf("exit code = %d, want 2\nstderr: %s", got, result.stderr)
+			}
+			lines := strings.Split(strings.TrimSpace(result.stderr), "\n")
+			if want := "Error (validation_error): " + tc.wantMsg; lines[0] != want {
+				t.Errorf("first stderr line = %q, want %q", lines[0], want)
+			}
+			if strings.Contains(result.stderr, "Did you mean this?") {
+				t.Errorf("cobra's suggestion block leaked into stderr:\n%s", result.stderr)
+			}
+			if !strings.Contains(result.stderr, "  - "+tc.wantHint) {
+				t.Errorf("suggestion missing from the fix list:\n%s", result.stderr)
+			}
+			if strings.Contains(result.stderr, "--dry-run") {
+				t.Errorf("unknown command suggests --dry-run:\n%s", result.stderr)
+			}
+
+			result = runCLI(t, t.TempDir(), nil, append(agent, tc.args...)...)
+			if got := exitCode(t, result); got != 2 {
+				t.Fatalf("agent exit code = %d, want 2\nstderr: %s", got, result.stderr)
+			}
+			envelope := decodeEnvelope(t, result.stderr)
+			if envelope.Message != tc.wantMsg {
+				t.Errorf("message = %q, want %q", envelope.Message, tc.wantMsg)
+			}
+			if len(envelope.Hints) == 0 || envelope.Hints[0] != tc.wantHint {
+				t.Errorf("hints = %v, want first hint %q", envelope.Hints, tc.wantHint)
+			}
+			if hasHintContaining(envelope.Hints, "--dry-run") {
+				t.Errorf("unknown command suggests --dry-run: %v", envelope.Hints)
+			}
+		})
+	}
+
+	t.Run("help with an unknown topic still says so", func(t *testing.T) {
+		result := runCLI(t, t.TempDir(), nil, append(plain, "help", "genreate")...)
+		if got := exitCode(t, result); got != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr: %s", got, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "Unknown help topic") {
+			t.Errorf("misspelled help topic went unreported:\nstdout: %s\nstderr: %s", result.stdout, result.stderr)
+		}
+	})
+}
+
+func hasHintContaining(hints []string, substr string) bool {
+	for _, hint := range hints {
+		if strings.Contains(hint, substr) {
+			return true
+		}
+	}
+	return false
+}

@@ -93,6 +93,8 @@ type errorRule struct {
 	Hints []string
 }
 
+const dryRunValidationHint = "Use --dry-run to preview the request and check parameters"
+
 var builtinTypeHints = map[ErrorType][]string{
 	ErrorTypeAuthentication: {
 		"Set GEMINI_API_KEY (or another credential via the GEMINI_* environment variables / the credential flags listed in --help)",
@@ -112,7 +114,7 @@ var builtinTypeHints = map[ErrorType][]string{
 		"Verify the resource identifier is correct",
 	},
 	ErrorTypeValidation: {
-		"Use --dry-run to preview the request and check parameters",
+		dryRunValidationHint,
 		"Run the command with --help for runnable examples, or --usage for the machine-readable surface",
 	},
 	ErrorTypeRateLimit: {
@@ -522,7 +524,7 @@ func assembleHints(cmd *cobra.Command, err error, c Classification, bodyMap, err
 	} else if declared, ok := declaredTypeHints[c.Type]; ok {
 		hints = append(hints, declared...)
 	} else if !omitsTypeHints(err) {
-		hints = append(hints, builtinTypeHints[c.Type]...)
+		hints = append(hints, builtinHints(c)...)
 	}
 	hints = append(hints, errorCLIHints(err)...)
 	if declared := declaredCommandHints(cmd); declared != nil && c.Reason != "" && !c.credentialsMissing {
@@ -538,6 +540,20 @@ func assembleHints(cmd *cobra.Command, err error, c Classification, bodyMap, err
 		deduped = append(deduped, hint)
 	}
 	return deduped
+}
+
+func builtinHints(c Classification) []string {
+	hints := builtinTypeHints[c.Type]
+	if c.Type != ErrorTypeValidation || c.Origin != ErrorOriginCLI {
+		return hints
+	}
+	kept := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		if hint != dryRunValidationHint {
+			kept = append(kept, hint)
+		}
+	}
+	return kept
 }
 
 func serverHints(bodyMap, errorObject map[string]any) []string {
@@ -741,9 +757,24 @@ func (e cliHintsError) CLIHints() []string     { return e.hints }
 func (e cliHintsError) CLIOmitTypeHints() bool { return e.omitTypeHints }
 func (e cliHintsError) Unwrap() error          { return e.error }
 
+type cliLeadingHintsError struct {
+	error
+	hints []string
+}
+
+func (e cliLeadingHintsError) CLILeadingHints() []string { return e.hints }
+func (e cliLeadingHintsError) Unwrap() error             { return e.error }
+
 func withCLIHints(err error, hints []string) error {
 	if err == nil || len(hints) == 0 {
 		return err
 	}
 	return cliHintsError{error: err, hints: hints}
+}
+
+func withCLILeadingHints(err error, hints []string) error {
+	if err == nil || len(hints) == 0 {
+		return err
+	}
+	return cliLeadingHintsError{error: err, hints: hints}
 }
