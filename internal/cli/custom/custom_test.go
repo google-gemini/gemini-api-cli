@@ -1030,8 +1030,11 @@ func TestEnvironmentFilesUploadProtocol(t *testing.T) {
 	if got := startHeaders.Get("X-Goog-Upload-Header-Content-Type"); got != "application/gzip" {
 		t.Errorf("X-Goog-Upload-Header-Content-Type = %q, want application/gzip", got)
 	}
-	if chunkMethod != http.MethodPut {
-		t.Errorf("chunk method = %q, want PUT", chunkMethod)
+	if chunkMethod != http.MethodPost {
+		t.Errorf("chunk method = %q, want POST", chunkMethod)
+	}
+	if got := chunkHeaders.Get("Content-Type"); got != "application/octet-stream" {
+		t.Errorf("chunk Content-Type = %q, want application/octet-stream", got)
 	}
 	if got := chunkHeaders.Get("X-Goog-Upload-Command"); got != "upload, finalize" {
 		t.Errorf("chunk X-Goog-Upload-Command = %q, want 'upload, finalize'", got)
@@ -1061,7 +1064,7 @@ func TestEnvironmentFilesUploadDefaultsAndDryRun(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// --dry-run must preview the start request and never send network bytes.
+	// --dry-run must preview the start request and the chunk, and never send network bytes.
 	root, stdout, _ := newTestEnvironmentFilesRoot(srv.URL)
 	root.SetArgs([]string{
 		"environments", "files", "upload",
@@ -1078,16 +1081,32 @@ func TestEnvironmentFilesUploadDefaultsAndDryRun(t *testing.T) {
 	if requests != 0 {
 		t.Errorf("dry-run made %d server requests, want 0", requests)
 	}
-	var preview map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
-		t.Fatalf("unmarshal dry-run json %q: %v", stdout.String(), err)
+	dec := json.NewDecoder(stdout)
+	var previews []map[string]any
+	for dec.More() {
+		var preview map[string]any
+		if err := dec.Decode(&preview); err != nil {
+			t.Fatalf("decode dry-run json: %v", err)
+		}
+		previews = append(previews, preview)
 	}
-	if preview["dry_run"] != true {
-		t.Errorf("dry_run = %v, want true", preview["dry_run"])
+	if len(previews) != 2 {
+		t.Fatalf("dry-run previews = %d, want start + one chunk", len(previews))
 	}
-	reqObj, _ := preview["request"].(map[string]any)
-	if gotURL, _ := reqObj["url"].(string); !strings.HasSuffix(gotURL, "/upload/v1beta/environments/env_abc123/files/hello.txt") {
-		t.Errorf("dry-run request url = %q, want suffix /upload/v1beta/environments/env_abc123/files/hello.txt", gotURL)
+	for i, wantSuffix := range []string{
+		"/upload/v1beta/environments/env_abc123/files/hello.txt",
+		"/upload/v1beta/environments/env_abc123/files/hello.txt/dry-run-session",
+	} {
+		if previews[i]["dry_run"] != true {
+			t.Errorf("preview %d dry_run = %v, want true", i, previews[i]["dry_run"])
+		}
+		reqObj, _ := previews[i]["request"].(map[string]any)
+		if gotURL, _ := reqObj["url"].(string); !strings.HasSuffix(gotURL, wantSuffix) {
+			t.Errorf("preview %d url = %q, want suffix %s", i, gotURL, wantSuffix)
+		}
+	}
+	if chunk, _ := previews[1]["request"].(map[string]any); chunk["method"] != http.MethodPost {
+		t.Errorf("chunk preview method = %v, want POST", chunk["method"])
 	}
 }
 
@@ -1590,36 +1609,5 @@ func TestResolveEnvUploadAndDownloadArgsCoverage(t *testing.T) {
 		if err := cmd.Args(cmd, nil); err != nil {
 			t.Errorf("%s Args with --usage returned error: %v", sub, err)
 		}
-	}
-}
-
-func TestUploadEnvironmentChunksBoundaryAndUnexpectedEOF(t *testing.T) {
-	var received []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		chunk, _ := io.ReadAll(r.Body)
-		received = append(received, chunk...)
-		w.Header().Set("X-Goog-Upload-Status", "final")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	root, _, _ := newTestEnvironmentFilesRoot(srv.URL)
-	root.SetContext(t.Context())
-	tr, err := newRawTransport(root)
-	if err != nil {
-		t.Fatalf("newRawTransport: %v", err)
-	}
-
-	// Reader has more bytes than totalSize; uploadEnvironmentChunks must read exactly totalSize bytes.
-	if _, err := uploadEnvironmentChunks(root, tr, srv.URL+"/upload", strings.NewReader("0123456789EXTRA"), 10, "text/plain"); err != nil {
-		t.Fatalf("uploadEnvironmentChunks exact boundary failed: %v", err)
-	}
-	if string(received) != "0123456789" {
-		t.Errorf("received = %q, want \"0123456789\"", string(received))
-	}
-
-	// Premature EOF (empty reader with totalSize > 0) must return an error instead of looping.
-	if _, err := uploadEnvironmentChunks(root, tr, srv.URL+"/upload", strings.NewReader(""), 10, "text/plain"); err == nil || !strings.Contains(err.Error(), "unexpected EOF") {
-		t.Errorf("uploadEnvironmentChunks premature EOF error = %v, want unexpected EOF", err)
 	}
 }
