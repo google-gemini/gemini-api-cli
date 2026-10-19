@@ -164,6 +164,25 @@ func TestAnalyzeInputValidation(t *testing.T) {
 		if result.err == nil || !strings.Contains(result.stderr, "--input is required") {
 			t.Fatalf("result = err %v, stderr %q", result.err, result.stderr)
 		}
+		if strings.Contains(result.stderr, "Pass it with -i") {
+			t.Errorf("stderr = %q, want no -i hint for a plain question", result.stderr)
+		}
+	})
+
+	t.Run("positional media without input", func(t *testing.T) {
+		photo := filepath.Join(t.TempDir(), "photo.jpg")
+		if err := os.WriteFile(photo, []byte("jpg"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, positional := range []string{photo, "files/abc123", "https://youtu.be/dQw4w9WgXcQ"} {
+			result := runCLI(t, t.TempDir(), nil, append(plainArgs("https://example.invalid"), "analyze", positional, "What is in this?")...)
+			if code := exitCode(t, result); code != 2 {
+				t.Errorf("%s: exit code = %d, want 2\nstderr: %s", positional, code, result.stderr)
+			}
+			if !strings.Contains(result.stderr, "is media to analyze, not a question") || !strings.Contains(result.stderr, "gemini-api analyze -i "+positional) {
+				t.Errorf("%s: stderr = %q, want the -i hint", positional, result.stderr)
+			}
+		}
 	})
 
 	t.Run("mime override with multiple inputs", func(t *testing.T) {

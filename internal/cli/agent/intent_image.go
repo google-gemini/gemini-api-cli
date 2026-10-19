@@ -33,7 +33,7 @@ func InitIntentImage(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "image [prompt]",
 		Short:   "Generate or edit images (gemini-nano-banana-2.1)",
-		Long:    "Generate an image from a text prompt via the Interactions API (image\nresponse modality) and write it to a file; stdout carries the file path.\nUse --out to choose the file (or directory), or --raw-response for the API\nresponse. To edit an image conversationally, pass the interaction ID of\nthe prior turn (--out <file> --jq .response_id, or --raw-response --jq .id)\nas --previous-interaction-id.\n--aspect-ratio, --image-size and --output-mime-type shape the output image.\n\nArguments:\n  <prompt>  Image prompt",
+		Long:    "Generate an image from a text prompt via the Interactions API (image\nresponse modality) and write it to a file; stdout carries the file path.\nUse --out to choose the file (or directory), or --raw-response for the API\nresponse. To edit an image conversationally, pass the interaction ID of\nthe prior turn (--out <file> --jq .response_id, or --raw-response --jq .id)\nas --previous-interaction-id.\n\nArguments:\n  <prompt>  Image prompt",
 		Example: "  gemini-api image \"make the sky stormy\" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg\n  gemini-api image \"a lighthouse at sunset\"\n  gemini-api image \"product shot, white bg\" --aspect-ratio 16:9 --image-size 2K --out shots/hero.jpg",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentImageCmd,

@@ -1322,7 +1322,7 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 			cmd.Flags().Bool("schema", false, "")
 			return cmd
 		}
-		root.AddCommand(makeIntent("generate"), makeIntent("image"), makeIntent("video"))
+		root.AddCommand(makeIntent("generate"), makeIntent("image"), makeIntent("video"), makeIntent("music"))
 
 		agentGroup := &cobra.Command{Use: "agent"}
 		runCmd := &cobra.Command{

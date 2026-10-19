@@ -83,6 +83,15 @@ func InitIntentGenerate(parent *cobra.Command) error {
 
 		BodySources: []string{"body"},
 	})
+	cmd.Flags().StringP("system", "", "", "System instruction to steer the model")
+	flagutil.MarkRequestInput(cmd, "system")
+	_ = flagutil.AnnotatePromptFlag(cmd, "system", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    3,
+
+		BodySources: []string{"body"},
+	})
 	if err := interactive.Declare(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
 		{
 			Name: "prompt", Summary: "Prompt to send to the model",
@@ -170,8 +179,14 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "system") {
+			v, _ := flagutil.GetStringFlag(cmd, "system")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "system_instruction", "--system", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") && !flagutil.FlagChanged(cmd, "system") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -196,6 +211,10 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		if flagutil.FlagChanged(cmd, "stream") {
 			v, _ := cmd.Flags().GetBool("stream")
 			body["stream"] = v
+		}
+		if flagutil.FlagChanged(cmd, "system") {
+			v, _ := flagutil.GetStringFlag(cmd, "system")
+			body["system_instruction"] = v
 		}
 		if output.JQSelectsCompleteResponse(cmd, "stream") {
 			body["stream"] = false
