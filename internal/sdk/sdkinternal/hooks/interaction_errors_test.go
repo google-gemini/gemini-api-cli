@@ -295,14 +295,19 @@ func TestSanitizeInteractionErrorBody(t *testing.T) {
 		want string
 	}{
 		{
-			name: "fixes malformed Unsupported file URI type punctuation in object response",
+			name: "passes Unsupported file URI type message through unchanged",
 			in:   `{"error":{"code":400,"message":"Unsupported file URI type: files/abc123. File URI must be a File API (e.g. https://generativelanguage.googleapis.com/files/<id>), Youtube (e.g. https://www.youtube.com/watch?v=<id>), or HTTPS (e.g. http://path/to/file).), or a valid gURI (e.g. gs://bucket/object","status":"INVALID_ARGUMENT"}}`,
-			want: `{"error":{"code":400,"message":"Unsupported file URI type: files/abc123. File URI must be a File API (e.g. https://generativelanguage.googleapis.com/files/<id>), Youtube (e.g. https://www.youtube.com/watch?v=<id>), or HTTPS (e.g. http://path/to/file)), or a valid gURI (e.g. gs://bucket/object).","status":"INVALID_ARGUMENT"}}`,
+			want: `{"error":{"code":400,"message":"Unsupported file URI type: files/abc123. File URI must be a File API (e.g. https://generativelanguage.googleapis.com/files/<id>), Youtube (e.g. https://www.youtube.com/watch?v=<id>), or HTTPS (e.g. http://path/to/file).), or a valid gURI (e.g. gs://bucket/object","status":"INVALID_ARGUMENT"}}`,
 		},
 		{
 			name: "redacts leaked internal blobstore URI",
 			in:   `{"error":{"code":400,"message":"Failed to load media from blobstore:///genai-api/blobref/global::abcdef0123456789 for video generation","status":"INVALID_ARGUMENT"}}`,
 			want: `{"error":{"code":400,"message":"Failed to load media from [internal-file-uri] for video generation","status":"INVALID_ARGUMENT"}}`,
+		},
+		{
+			name: "keeps the separator after a redacted blobstore URI",
+			in:   `{"error":{"code":400,"message":"Failed to read blobstore:///genai-api/blobref/global::abcdef0123456789: Unsupported file","status":"INVALID_ARGUMENT"}}`,
+			want: `{"error":{"code":400,"message":"Failed to read [internal-file-uri]: Unsupported file","status":"INVALID_ARGUMENT"}}`,
 		},
 	}
 
