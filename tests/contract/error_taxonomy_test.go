@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -208,6 +210,56 @@ func TestErrorClassificationParityAcrossModes(t *testing.T) {
 			prettyResult := runCLI(t, t.TempDir(), nil, append(prettyArgs(server.URL), "agent", "list")...)
 			if len(jsonEnv.Hints) > 0 && !strings.Contains(prettyResult.stderr, jsonEnv.Hints[0]) {
 				t.Errorf("pretty output lacks the leading hint %q:\n%s", jsonEnv.Hints[0], prettyResult.stderr)
+			}
+		})
+	}
+}
+
+// TestUnauthenticatedForbiddenSteersToCredentials pins BB-13: a 403 without
+// ErrorInfo answered to a request that carried no credential is an
+// authentication error with credential setup hints, on both the generated
+// client and the hand-written raw-HTTP commands. The same 403 answered to a
+// request that did carry a key or access token stays an authorization error.
+func TestUnauthenticatedForbiddenSteersToCredentials(t *testing.T) {
+	const body = `{"error":{"code":403,"message":"Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API.","status":"PERMISSION_DENIED"}}`
+	server := taxonomyServer(t, taxonomyCase{status: http.StatusForbidden, body: body})
+
+	upload := filepath.Join(t.TempDir(), "x.txt")
+	if err := os.WriteFile(upload, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commands := map[string][]string{
+		"models list":                 {"models", "list"},
+		"files upload":                {"files", "upload", upload},
+		"environments files upload":   {"environments", "files", "upload", "env1", upload},
+		"environments files download": {"environments", "files", "download", "env1", "a.txt", "--out", filepath.Join(t.TempDir(), "a.txt")},
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) {
+			args := append(append(baseArgs(server.URL), "--no-keyring"), command...)
+			result := runCLI(t, t.TempDir(), nil, args...)
+			if result.err == nil {
+				t.Fatalf("%s succeeded on HTTP 403\nstdout: %s", name, result.stdout)
+			}
+			envelope := decodeEnvelope(t, result.stderr)
+			if envelope.ErrorType != "authentication_error" {
+				t.Errorf("error_type = %q, want authentication_error (no credential was sent)", envelope.ErrorType)
+			}
+			if len(envelope.Hints) == 0 || !strings.Contains(envelope.Hints[0], "https://aistudio.google.com/apikey") {
+				t.Errorf("hints = %v, want the first to point at https://aistudio.google.com/apikey", envelope.Hints)
+			}
+
+			for _, credArgs := range [][]string{
+				{"--api-key", "test-key"},
+				{"--access-token", "test-token"},
+			} {
+				withCred := runCLI(t, t.TempDir(), nil, append(append(append(baseArgs(server.URL), "--no-keyring"), credArgs...), command...)...)
+				if withCred.err == nil {
+					t.Fatalf("%s %v succeeded on HTTP 403\nstdout: %s", name, credArgs, withCred.stdout)
+				}
+				if got := decodeEnvelope(t, withCred.stderr).ErrorType; got != "authorization_error" {
+					t.Errorf("%v error_type = %q, want authorization_error (a credential was sent)", credArgs, got)
+				}
 			}
 		})
 	}

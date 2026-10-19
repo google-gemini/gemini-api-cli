@@ -1611,3 +1611,58 @@ func TestResolveEnvUploadAndDownloadArgsCoverage(t *testing.T) {
 		}
 	}
 }
+
+func TestRawTransportRecordsCredentialsMissing(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GEMINI_ACCESS_TOKEN", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	cases := []struct {
+		name        string
+		args        []string
+		wantMissing bool
+		wantAPIKey  string
+		wantToken   string
+	}{
+		{
+			name:        "no credentials",
+			args:        []string{"--dry-run"},
+			wantMissing: true,
+		},
+		{
+			name:        "api key present",
+			args:        []string{"--dry-run", "--api-key", "key-123"},
+			wantMissing: false,
+			wantAPIKey:  "key-123",
+		},
+		{
+			name:        "access token present",
+			args:        []string{"--dry-run", "--access-token", "tok-456"},
+			wantMissing: false,
+			wantToken:   "tok-456",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _, _ := newTestEnvironmentFilesRoot("http://127.0.0.1:0")
+			if err := root.PersistentFlags().Parse(tc.args); err != nil {
+				t.Fatalf("Parse(%v): %v", tc.args, err)
+			}
+			tr, err := newRawTransport(root)
+			if err != nil {
+				t.Fatalf("newRawTransport(%v): %v", tc.args, err)
+			}
+			if got := flagutil.CredentialsMissing(root); got != tc.wantMissing {
+				t.Errorf("CredentialsMissing(%v) = %v, want %v", tc.args, got, tc.wantMissing)
+			}
+			if tr.apiKey != tc.wantAPIKey {
+				t.Errorf("apiKey = %q, want %q", tr.apiKey, tc.wantAPIKey)
+			}
+			if tr.accessToken != tc.wantToken {
+				t.Errorf("accessToken = %q, want %q", tr.accessToken, tc.wantToken)
+			}
+		})
+	}
+}
