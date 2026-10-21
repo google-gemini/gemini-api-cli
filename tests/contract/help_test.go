@@ -15,6 +15,8 @@
 package contract_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -234,6 +236,76 @@ func TestPorcelainHelpCopy(t *testing.T) {
 			}
 			if strings.Contains(result.stdout, "must go through") {
 				t.Errorf("%s --help words a CLI limit as a service rule:\n%s", name, result.stdout)
+			}
+		})
+	}
+}
+
+// TestRootHelpMissingCredentialHint pins the API-key pointer on the root help:
+// shown, inside the description block, only when no credential resolves from
+// any source, never on subcommand help, and never under --dry-run (which must
+// not read the OS keychain). Keychain-sourced credentials are covered in
+// internal/cli/custom.
+func TestRootHelpMissingCredentialHint(t *testing.T) {
+	const hint = "No API key found. See https://ai.google.dev/gemini-api/docs/api-key for how to create one in Google AI Studio\n" +
+		"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set"
+	noKeyring := map[string]string{"GEMINI_NO_KEYRING": "true"}
+	withConfig := func(security string) func(*testing.T) string {
+		return func(t *testing.T) string {
+			home := t.TempDir()
+			dir := filepath.Join(home, ".config", "gemini-api")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("security:\n  "+security+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return home
+		}
+	}
+	envKey := map[string]string{"GEMINI_NO_KEYRING": "true", "GEMINI_API_KEY": "test-key"}
+	cases := []struct {
+		name     string
+		home     func(*testing.T) string
+		env      map[string]string
+		args     []string
+		wantHint bool
+	}{
+		{"no credential", nil, noKeyring, []string{"--help"}, true},
+		{"short help flag", nil, noKeyring, []string{"-h"}, true},
+		{"bare root", nil, noKeyring, nil, true},
+		{"help command", nil, noKeyring, []string{"help"}, true},
+		{"no-keyring flag", nil, nil, []string{"--no-keyring", "--help"}, true},
+		{"help-global with help", nil, noKeyring, []string{"--help-global", "--help"}, true},
+		{"env api key", nil, envKey, []string{"--help"}, false},
+		{"env access token", nil, map[string]string{"GEMINI_NO_KEYRING": "true", "GEMINI_ACCESS_TOKEN": "test-token"}, []string{"--help"}, false},
+		{"api key flag", nil, noKeyring, []string{"--api-key", "test-key", "--help"}, false},
+		{"config api key", withConfig("api_key: test-key"), noKeyring, []string{"--help"}, false},
+		{"config access token", withConfig("access_token: test-token"), noKeyring, []string{"--help"}, false},
+		{"help-global with env key", nil, envKey, []string{"--help-global", "--help"}, false},
+		{"usage with env key", nil, envKey, []string{"--usage", "--help"}, false},
+		{"dry-run", nil, noKeyring, []string{"--dry-run", "--help"}, false},
+		{"subcommand", nil, noKeyring, []string{"files", "--help"}, false},
+		{"help subcommand", nil, noKeyring, []string{"help", "files"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if tc.home != nil {
+				home = tc.home(t)
+			}
+			result := runCLI(t, home, tc.env, tc.args...)
+			if result.err != nil {
+				t.Fatalf("%v failed: %v\nstderr: %s", tc.args, result.err, result.stderr)
+			}
+			out := result.stdout
+			if got := strings.Contains(out, hint); got != tc.wantHint {
+				t.Fatalf("hint present = %v, want %v:\n%s", got, tc.wantHint, out)
+			}
+			if tc.wantHint {
+				if h, u := strings.Index(out, hint), strings.Index(out, "Usage:"); h > u {
+					t.Errorf("hint must precede Usage: (hint=%d usage=%d):\n%s", h, u, out)
+				}
 			}
 		})
 	}
