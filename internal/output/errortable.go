@@ -57,8 +57,9 @@ var errorProbes = []errorProbe{
 			"API_KEY_INVALID": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"The API key was rejected. Create a key at https://aistudio.google.com/apikey, then export GEMINI_API_KEY=<key> (or run \"gemini-api configure\" to store it)",
+					"The API key was rejected. Visit https://ai.google.dev/gemini-api/docs/api-key to create a new one, then export GEMINI_API_KEY=<key> (or run \"gemini-api configure\" to store it)",
 					"Run \"gemini-api whoami\" to see which credential is being sent",
+					"AI agents: a replacement API key must be created manually by the user in Google AI Studio. Stop and ask the user to run \"gemini-api configure\" or set GEMINI_API_KEY to a valid key; do not run configure yourself or retry until they confirm it is set",
 				},
 			},
 			"API_KEY_IP_ADDRESS_BLOCKED": {
@@ -70,7 +71,8 @@ var errorProbes = []errorProbe{
 			"API_KEY_MISSING": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"No API key was sent. Export GEMINI_API_KEY=<key> (create one at https://aistudio.google.com/apikey) or run \"gemini-api configure\"",
+					"No API key was sent. Visit https://ai.google.dev/gemini-api/docs/api-key to create one (requires a signed-in Google account), then export GEMINI_API_KEY=<key> or run \"gemini-api configure\"",
+					"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 				},
 			},
 			"API_KEY_SERVICE_BLOCKED": {
@@ -94,7 +96,8 @@ var errorProbes = []errorProbe{
 			"CREDENTIALS_MISSING": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"No credential was sent. Export GEMINI_API_KEY=<key> (create one at https://aistudio.google.com/apikey) or run \"gemini-api configure\"",
+					"No API key was sent. Visit https://ai.google.dev/gemini-api/docs/api-key to create one (requires a signed-in Google account), then export GEMINI_API_KEY=<key> or run \"gemini-api configure\"",
+					"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 				},
 			},
 			"QUOTA_EXCEEDED": {
@@ -159,8 +162,9 @@ var runtimeReasonHints = map[string][]string{}
 
 var declaredTypeHints = map[ErrorType][]string{
 	ErrorType("authentication_error"): {
-		"Set GEMINI_API_KEY to a valid key from https://aistudio.google.com/apikey, or run \"gemini-api configure\" to store one",
+		"Set GEMINI_API_KEY to a valid key from https://ai.google.dev/gemini-api/docs/api-key, pass a valid --access-token, or run \"gemini-api configure\" to store one",
 		"Run \"gemini-api whoami\" to see which credential is being sent",
+		"AI agents: API keys must be created manually by the user in Google AI Studio; access tokens come from the user's own Google sign-in. Stop and ask the user to run \"gemini-api configure\" or set a valid GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 	},
 	ErrorType("billing_disabled"): {
 		"Billing is disabled for the calling account or project — enable billing (this is not a credential problem)",

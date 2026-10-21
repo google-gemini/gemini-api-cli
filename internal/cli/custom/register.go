@@ -129,6 +129,7 @@ func register(root *cobra.Command) error {
 	}
 
 	boundStdinReads(root)
+	attachMissingCredentialHelp(root)
 	return nil
 }
 

@@ -245,8 +245,8 @@ func TestUnauthenticatedForbiddenSteersToCredentials(t *testing.T) {
 			if envelope.ErrorType != "authentication_error" {
 				t.Errorf("error_type = %q, want authentication_error (no credential was sent)", envelope.ErrorType)
 			}
-			if len(envelope.Hints) == 0 || !strings.Contains(envelope.Hints[0], "https://aistudio.google.com/apikey") {
-				t.Errorf("hints = %v, want the first to point at https://aistudio.google.com/apikey", envelope.Hints)
+			if len(envelope.Hints) == 0 || !strings.Contains(envelope.Hints[0], "https://ai.google.dev/gemini-api/docs/api-key") {
+				t.Errorf("hints = %v, want the first to point at https://ai.google.dev/gemini-api/docs/api-key", envelope.Hints)
 			}
 
 			for _, credArgs := range [][]string{

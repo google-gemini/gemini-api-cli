@@ -68,7 +68,7 @@ Download prebuilt archives for macOS, Linux, and Windows from [GitHub Releases](
 
 ### 1. Configure your API key
 
-Get a key from [Google AI Studio](https://aistudio.google.com/apikey) and make it available to your shell or your agent's subprocess environment:
+Get a [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key) and make it available to your shell or your agent's subprocess environment:
 
 ```bash
 export GEMINI_API_KEY="YOUR_API_KEY"
