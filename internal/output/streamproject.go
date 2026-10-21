@@ -28,17 +28,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const streamSelectAnnotation = "speakeasy_stream_select"
+const (
+	streamSelectAnnotation   = "speakeasy_stream_select"
+	streamMetadataAnnotation = "speakeasy_stream_metadata"
+)
+
+type streamMetadataField struct {
+	Label    string   `json:"label"`
+	Pointers []string `json:"pointers"`
+	Complete []string `json:"complete"`
+	When     string   `json:"when"`
+	paths    [][]string
+	value    string
+}
 
 type streamProjector struct {
-	metadataPointer []string
-	metadataLabel   string
-	metadataValue   string
-	pointer         []string
-	select_         string
-	events          int
-	wrote           bool
-	lastByte        byte
+	metadata []*streamMetadataField
+	pointer  []string
+	select_  string
+	events   int
+	wrote    bool
+	lastByte byte
 }
 
 func newStreamProjector(cmd *cobra.Command) *streamProjector {
@@ -63,9 +73,24 @@ func newStreamProjector(cmd *cobra.Command) *streamProjector {
 		return nil
 	}
 	return &streamProjector{pointer: splitJSONPointer(pointer), select_: pointer,
-		metadataPointer: splitJSONPointer(cmd.Annotations["speakeasy_stream_metadata_select"]),
-		metadataLabel:   cmd.Annotations["speakeasy_stream_metadata_label"],
+		metadata: parseStreamMetadata(cmd.Annotations[streamMetadataAnnotation]),
 	}
+}
+
+func parseStreamMetadata(annotation string) []*streamMetadataField {
+	if annotation == "" {
+		return nil
+	}
+	var fields []*streamMetadataField
+	if err := json.Unmarshal([]byte(annotation), &fields); err != nil {
+		return nil
+	}
+	for _, field := range fields {
+		for _, pointer := range field.Pointers {
+			field.paths = append(field.paths, splitJSONPointer(pointer))
+		}
+	}
+	return fields
 }
 
 func splitJSONPointer(pointer string) []string {
@@ -90,10 +115,13 @@ func (p *streamProjector) emit(out io.Writer, item interface{}) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("stream projection: decode event: %w", err)
 	}
-	if len(p.metadataPointer) > 0 {
-		value, _ := walkJSONPointer(decoded, p.metadataPointer)
-		if text, ok := value.(string); ok && text != "" {
-			p.metadataValue = text
+	for _, field := range p.metadata {
+		for _, path := range field.paths {
+			value, _ := walkJSONPointer(decoded, path)
+			if text, ok := value.(string); ok && text != "" {
+				field.value = text
+				break
+			}
 		}
 	}
 	value, found := walkJSONPointer(decoded, p.pointer)
@@ -118,11 +146,35 @@ func (p *streamProjector) finish(out io.Writer) error {
 }
 
 func (p *streamProjector) reportMetadata(cmd *cobra.Command) {
-	if p == nil || p.metadataValue == "" || p.metadataLabel == "" || IsMachineMode(cmd) || cmd.Context().Err() != nil {
+	if p == nil || IsMachineMode(cmd) || cmd.Context().Err() != nil {
 		return
 	}
-	label := strconv.QuoteToASCII(p.metadataLabel)
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", label[1:len(label)-1], strconv.QuoteToASCII(p.metadataValue))
+	incomplete := p.incomplete()
+	for _, field := range p.metadata {
+		if field.value == "" || field.Label == "" {
+			continue
+		}
+		if (field.Complete != nil || field.When == "incomplete") && !incomplete {
+			continue
+		}
+		label := strconv.QuoteToASCII(field.Label)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", label[1:len(label)-1], strconv.QuoteToASCII(field.value))
+	}
+}
+
+func (p *streamProjector) incomplete() bool {
+	for _, field := range p.metadata {
+		if field.Complete == nil || field.value == "" {
+			continue
+		}
+		for _, complete := range field.Complete {
+			if field.value == complete {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (p *streamProjector) reportEmpty(cmd *cobra.Command) {

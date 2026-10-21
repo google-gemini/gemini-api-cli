@@ -45,10 +45,9 @@ func initStatusCmd(parent *cobra.Command) error {
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runStatusCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":              "getInteractionById",
-			"speakeasy_stream_select":          "/data/delta/text",
-			"speakeasy_stream_metadata_select": "/data/interaction/id",
-			"speakeasy_stream_metadata_label":  "Interaction ID",
+			"speakeasy_operation":       "getInteractionById",
+			"speakeasy_stream_select":   "/data/delta/text",
+			"speakeasy_stream_metadata": "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
 		},
 	}
 	flagutil.RegisterFlags(cmd, statusCmdMeta)

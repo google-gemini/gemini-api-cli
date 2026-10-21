@@ -172,13 +172,19 @@ func normalizeForOutput(content interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var parsed interface{}
-	if err := dec.Decode(&parsed); err != nil {
+	parsed, err := decodeWithNumbers(data)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode marshalled response: %w", err)
 	}
 	return parsed, nil
+}
+
+func decodeWithNumbers(data []byte) (interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var parsed interface{}
+	err := dec.Decode(&parsed)
+	return parsed, err
 }
 
 func convertNumbers(v interface{}, conv func(json.Number) interface{}) interface{} {

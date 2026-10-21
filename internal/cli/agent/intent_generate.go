@@ -38,15 +38,14 @@ func InitIntentGenerate(parent *cobra.Command) error {
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentGenerateCmd,
 		Annotations: map[string]string{
-			"speakeasy_operation":              "CreateInteraction",
-			flagutil.AnnotationWholeBodyFlag:   "body",
-			"speakeasy_strict_body_keys":       "true",
-			"speakeasy_help_defaults":          "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
-			"speakeasy_help_learn":             "https://ai.google.dev/gemini-api/docs/text-generation",
-			"speakeasy_help_escalate":          "full request control via gemini-api agent run",
-			"speakeasy_stream_select":          "/data/delta/text",
-			"speakeasy_stream_metadata_select": "/data/interaction/id",
-			"speakeasy_stream_metadata_label":  "Interaction ID",
+			"speakeasy_operation":            "CreateInteraction",
+			flagutil.AnnotationWholeBodyFlag: "body",
+			"speakeasy_strict_body_keys":     "true",
+			"speakeasy_help_defaults":        "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
+			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/text-generation",
+			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
+			"speakeasy_stream_select":        "/data/delta/text",
+			"speakeasy_stream_metadata":      "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")

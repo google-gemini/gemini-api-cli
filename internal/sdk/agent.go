@@ -1238,6 +1238,8 @@ func (s *Agent) DeleteInteraction(ctx context.Context, request operations.Delete
 	case httpRes.StatusCode == 200:
 		if o.SkipDeserialization == nil || !*o.SkipDeserialization {
 			utils.DrainBody(httpRes)
+		} else if _, err := utils.ConsumeRawBody(httpRes); err != nil {
+			return nil, err
 		}
 	case httpRes.StatusCode >= 400 && httpRes.StatusCode < 500:
 		switch {
