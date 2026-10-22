@@ -56,7 +56,7 @@ Install the latest release with Go:
 go install github.com/google-gemini/gemini-api-cli/cmd/gemini-api@latest
 ```
 
-To build the current development version, use `@main` instead of `@latest`. Current `main` requires **Go 1.26.8** or later (Go's automatic toolchain selection downloads the required version if needed).
+To build the current development version, use `@main` instead of `@latest`. Current `main` requires **Go 1.26.10** or later (Go's automatic toolchain selection downloads the required version if needed).
 
 ### Prebuilt binaries
 
