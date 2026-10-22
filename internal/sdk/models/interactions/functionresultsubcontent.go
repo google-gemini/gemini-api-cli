@@ -27,17 +27,41 @@ import (
 type FunctionResultSubcontentType string
 
 const (
-	FunctionResultSubcontentTypeImage   FunctionResultSubcontentType = "image"
-	FunctionResultSubcontentTypeText    FunctionResultSubcontentType = "text"
-	FunctionResultSubcontentTypeUnknown FunctionResultSubcontentType = "UNKNOWN"
+	FunctionResultSubcontentTypeAudio    FunctionResultSubcontentType = "audio"
+	FunctionResultSubcontentTypeDocument FunctionResultSubcontentType = "document"
+	FunctionResultSubcontentTypeImage    FunctionResultSubcontentType = "image"
+	FunctionResultSubcontentTypeText     FunctionResultSubcontentType = "text"
+	FunctionResultSubcontentTypeVideo    FunctionResultSubcontentType = "video"
+	FunctionResultSubcontentTypeUnknown  FunctionResultSubcontentType = "UNKNOWN"
 )
 
 type FunctionResultSubcontent struct {
-	ImageContent *ImageContent   `queryParam:"inline" union:"member"`
-	TextContent  *TextContent    `queryParam:"inline" union:"member"`
-	UnknownRaw   json.RawMessage `json:"-" union:"unknown"`
+	AudioContent    *AudioContent    `queryParam:"inline" union:"member"`
+	DocumentContent *DocumentContent `queryParam:"inline" union:"member"`
+	ImageContent    *ImageContent    `queryParam:"inline" union:"member"`
+	TextContent     *TextContent     `queryParam:"inline" union:"member"`
+	VideoContent    *VideoContent    `queryParam:"inline" union:"member"`
+	UnknownRaw      json.RawMessage  `json:"-" union:"unknown"`
 
 	Type FunctionResultSubcontentType
+}
+
+func CreateFunctionResultSubcontentAudio(audio AudioContent) FunctionResultSubcontent {
+	typ := FunctionResultSubcontentTypeAudio
+
+	return FunctionResultSubcontent{
+		AudioContent: &audio,
+		Type:         typ,
+	}
+}
+
+func CreateFunctionResultSubcontentDocument(document DocumentContent) FunctionResultSubcontent {
+	typ := FunctionResultSubcontentTypeDocument
+
+	return FunctionResultSubcontent{
+		DocumentContent: &document,
+		Type:            typ,
+	}
 }
 
 func CreateFunctionResultSubcontentImage(image ImageContent) FunctionResultSubcontent {
@@ -55,6 +79,15 @@ func CreateFunctionResultSubcontentText(text TextContent) FunctionResultSubconte
 	return FunctionResultSubcontent{
 		TextContent: &text,
 		Type:        typ,
+	}
+}
+
+func CreateFunctionResultSubcontentVideo(video VideoContent) FunctionResultSubcontent {
+	typ := FunctionResultSubcontentTypeVideo
+
+	return FunctionResultSubcontent{
+		VideoContent: &video,
+		Type:         typ,
 	}
 }
 
@@ -103,6 +136,24 @@ func (u *FunctionResultSubcontent) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	switch dis.Type {
+	case "audio":
+		audioContent := new(AudioContent)
+		if err := utils.UnmarshalJSON(data, &audioContent, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == audio) type AudioContent within FunctionResultSubcontent: %w", string(data), err)
+		}
+
+		u.AudioContent = audioContent
+		u.Type = FunctionResultSubcontentTypeAudio
+		return nil
+	case "document":
+		documentContent := new(DocumentContent)
+		if err := utils.UnmarshalJSON(data, &documentContent, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == document) type DocumentContent within FunctionResultSubcontent: %w", string(data), err)
+		}
+
+		u.DocumentContent = documentContent
+		u.Type = FunctionResultSubcontentTypeDocument
+		return nil
 	case "image":
 		imageContent := new(ImageContent)
 		if err := utils.UnmarshalJSON(data, &imageContent, "", true, nil); err != nil {
@@ -121,6 +172,15 @@ func (u *FunctionResultSubcontent) UnmarshalJSON(data []byte) (err error) {
 		u.TextContent = textContent
 		u.Type = FunctionResultSubcontentTypeText
 		return nil
+	case "video":
+		videoContent := new(VideoContent)
+		if err := utils.UnmarshalJSON(data, &videoContent, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == video) type VideoContent within FunctionResultSubcontent: %w", string(data), err)
+		}
+
+		u.VideoContent = videoContent
+		u.Type = FunctionResultSubcontentTypeVideo
+		return nil
 	default:
 		u.UnknownRaw = json.RawMessage(data)
 		u.Type = FunctionResultSubcontentTypeUnknown
@@ -130,12 +190,24 @@ func (u *FunctionResultSubcontent) UnmarshalJSON(data []byte) (err error) {
 }
 
 func (u FunctionResultSubcontent) MarshalJSON() ([]byte, error) {
+	if u.AudioContent != nil {
+		return utils.MarshalJSON(u.AudioContent, "", true)
+	}
+
+	if u.DocumentContent != nil {
+		return utils.MarshalJSON(u.DocumentContent, "", true)
+	}
+
 	if u.ImageContent != nil {
 		return utils.MarshalJSON(u.ImageContent, "", true)
 	}
 
 	if u.TextContent != nil {
 		return utils.MarshalJSON(u.TextContent, "", true)
+	}
+
+	if u.VideoContent != nil {
+		return utils.MarshalJSON(u.VideoContent, "", true)
 	}
 
 	if u.UnknownRaw != nil {
