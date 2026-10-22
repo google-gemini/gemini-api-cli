@@ -193,7 +193,7 @@ func NewRootCommand() (*cobra.Command, error) {
 	rootCmd.PersistentFlags().Bool("no-keyring", false, "Never read or write the OS keychain; store secrets in the config file instead (env: GEMINI_NO_KEYRING)")
 	_ = rootCmd.PersistentFlags().SetAnnotation("no-keyring", "speakeasy:group", []string{"Authentication"})
 	// Global parameter flags
-	rootCmd.PersistentFlags().String("api-version", "v1beta", "Which version of the API to use (env: GEMINI_API_VERSION)")
+	rootCmd.PersistentFlags().String("api-version", "v1", "Which version of the API to use (env: GEMINI_API_VERSION)")
 	_ = rootCmd.PersistentFlags().SetAnnotation("api-version", "speakeasy:group", []string{"API Parameters"})
 	rootCmd.PersistentFlags().String("api-revision", "", "Interactions API revision to request (env: GEMINI_API_REVISION)")
 	_ = rootCmd.PersistentFlags().SetAnnotation("api-revision", "speakeasy:group", []string{"API Parameters"})

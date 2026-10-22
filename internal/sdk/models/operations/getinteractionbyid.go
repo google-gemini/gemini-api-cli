@@ -24,8 +24,8 @@ import (
 )
 
 type GetInteractionByIDGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
 	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
 }
@@ -58,8 +58,8 @@ func (g *GetInteractionByIDGlobals) GetAPIRevision() *string {
 type GetInteractionByIDRequest struct {
 	// Interactions API revision to request. Omitted by default (matching the official SDKs), so the service serves its current revision.
 	APIRevision *string `header:"style=simple,explode=false,name=Api-Revision"`
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// If true, includes the input in the response.
 	IncludeInput *bool `queryParam:"style=form,explode=true,name=include_input"`
 	// Required. The name of the interaction to retrieve.

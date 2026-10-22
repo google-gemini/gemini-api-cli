@@ -23,8 +23,8 @@ import (
 )
 
 type UpdateCredentialGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 }
 
 func (u UpdateCredentialGlobals) MarshalJSON() ([]byte, error) {
@@ -46,8 +46,8 @@ func (u *UpdateCredentialGlobals) GetAPIVersion() *string {
 }
 
 type UpdateCredentialRequest struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Credential ID, as given on create
 	ID string `pathParam:"style=simple,explode=false,name=id"`
 	// Optional. The list of fields to update.
