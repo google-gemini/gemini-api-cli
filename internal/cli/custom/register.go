@@ -107,6 +107,16 @@ func register(root *cobra.Command) error {
 	if environments == nil {
 		return fmt.Errorf("expected the generated environments group to mount porcelain under")
 	}
+	for _, rtCmd := range []*cobra.Command{
+		newEnvironmentsConnectCmd(),
+		newEnvironmentsPollCmd(),
+		newEnvironmentsServeCmd(),
+	} {
+		if findChild(environments, rtCmd.Name()) == nil {
+			usage.MarkDynamic(rtCmd)
+			environments.AddCommand(rtCmd)
+		}
+	}
 	envFiles := findChild(environments, "files")
 	if envFiles == nil {
 		return fmt.Errorf("expected the generated environments files subgroup to mount porcelain under")
