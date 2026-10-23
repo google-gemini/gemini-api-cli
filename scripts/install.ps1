@@ -129,8 +129,13 @@ function Install-CLI {
     }
     finally {
         # Cleanup
-        if (Test-Path $tempDir) {
-            Remove-Item $tempDir -Recurse -Force
+        try {
+            if (Test-Path -LiteralPath $tempDir) {
+                [System.IO.Directory]::Delete($tempDir, $true)
+            }
+        }
+        catch {
+            Write-ColorOutput "Warning: could not remove temporary directory ${tempDir}: $_" -Color Yellow
         }
     }
 }
