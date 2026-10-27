@@ -12,34 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build windows
+//go:build unix
 
-package custom
+package envruntime
 
 import (
+	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"syscall"
 )
 
-func runtimeShutdownSignals() []os.Signal {
+// ShutdownSignals returns the OS signals that trigger graceful runtime shutdown.
+func ShutdownSignals() []os.Signal {
 	return []os.Signal{os.Interrupt, syscall.SIGTERM}
 }
 
-func configureSubprocessGroup(cmd *exec.Cmd) {
-	if len(cmd.Args) == 3 && strings.EqualFold(cmd.Args[1], "/C") {
-		base := strings.ToLower(filepath.Base(cmd.Args[0]))
-		if base == "cmd.exe" || base == "cmd" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{
-				CmdLine: `cmd.exe /d /s /c "` + cmd.Args[2] + `"`,
-			}
-		}
-	}
+// ConfigureSubprocessGroup places cmd in its own process group and configures
+// cmd.Cancel to terminate the entire process group on context cancellation.
+func ConfigureSubprocessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return cmd.Process.Kill()
+		if cmd.Process != nil && cmd.Process.Pid > 0 {
+			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+				if errors.Is(err, syscall.ESRCH) {
+					return os.ErrProcessDone
+				}
+				return err
+			}
 		}
 		return nil
 	}

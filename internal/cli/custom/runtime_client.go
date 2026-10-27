@@ -15,23 +15,19 @@
 package custom
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"regexp"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/cli/custom/envruntime"
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
@@ -41,81 +37,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultHeartbeatInterval = 5 * time.Second
+// LeasedInteraction aliases envruntime.LeasedInteraction for CLI runtime commands.
+type LeasedInteraction = envruntime.LeasedInteraction
 
-// LeasedInteraction represents an active interaction lease returned by LeaseInteractions.
-type LeasedInteraction struct {
-	InteractionID       string          `json:"interaction_id"`
-	EnvironmentID       string          `json:"environment_id,omitempty"`
-	LeaseToken          string          `json:"lease_token"`
-	LeaseGeneration     int64           `json:"lease_generation,omitempty"`
-	LeaseExpirationTime string          `json:"lease_expiration_time,omitempty"`
-	EnvironmentConfig   json.RawMessage `json:"environment_config,omitempty"`
-}
-
-// UnmarshalJSON decodes LeasedInteraction, accepting ProtoJSON string or numeric lease_generation.
-func (l *LeasedInteraction) UnmarshalJSON(data []byte) error {
-	type alias LeasedInteraction
-	var aux struct {
-		alias
-		LeaseGeneration json.RawMessage `json:"lease_generation"`
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	*l = LeasedInteraction(aux.alias)
-	gen, err := parseProtoInt64(aux.LeaseGeneration)
-	if err != nil {
-		return fmt.Errorf("invalid lease_generation: %w", err)
-	}
-	l.LeaseGeneration = gen
-	return nil
-}
-
-func parseProtoInt64(raw json.RawMessage) (int64, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return 0, nil
-	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(trimmed, &s); err != nil {
-			return 0, err
-		}
-		if s == "" {
-			return 0, nil
-		}
-		return strconv.ParseInt(s, 10, 64)
-	}
-	var n int64
-	if err := json.Unmarshal(trimmed, &n); err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
-type activeInteractionLease struct {
-	InteractionID string `json:"interaction_id"`
-	LeaseToken    string `json:"lease_token,omitempty"`
-}
-
-type leaseInteractionsRequest struct {
-	WorkerID           string                   `json:"worker_id,omitempty"`
-	ActiveLeases       []activeInteractionLease `json:"active_leases,omitempty"`
-	MaxNewInteractions *int32                   `json:"max_new_interactions,omitempty"`
-	EnvironmentID      string                   `json:"environment_id,omitempty"`
-}
-
-type leaseInteractionsResponse struct {
-	Leases      []*LeasedInteraction `json:"leases"`
-	PollBackoff string               `json:"poll_backoff,omitempty"`
-}
-
-// HeartbeatResult summarizes the result of a lease renewal request during worker handoff.
-type HeartbeatResult struct {
-	Renewed      bool
-	ShouldCancel bool
-}
+// HeartbeatResult aliases envruntime.HeartbeatResult for CLI runtime commands.
+type HeartbeatResult = envruntime.HeartbeatResult
 
 type runtimeTransport struct {
 	baseURL       string
@@ -132,23 +58,6 @@ type runtimeTransport struct {
 	hasTestClient bool
 	debug         bool
 	errOut        io.Writer
-}
-
-var leaseTokenJSONPattern = regexp.MustCompile(`("lease_token"\s*:\s*)"(?:\\.|[^"\\])*"`)
-
-type leaseTokenRedactor struct {
-	mu    sync.Mutex
-	inner io.Writer
-}
-
-func (r *leaseTokenRedactor) Write(p []byte) (int, error) {
-	redacted := leaseTokenJSONPattern.ReplaceAll(p, []byte(`${1}"[REDACTED]"`))
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, err := r.inner.Write(redacted); err != nil {
-		return 0, err
-	}
-	return len(p), nil
 }
 
 func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtimeTransport, error) {
@@ -205,7 +114,7 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 			if key == "" || strings.ContainsAny(key, " \t\r\n\x00") {
 				return nil, usageError(fmt.Sprintf("invalid header name %q", k))
 			}
-			if err := validateHeaderSecret("--header", val); err != nil {
+			if err := envruntime.ValidateHeaderSecret("--header", val); err != nil {
 				return nil, usageError(err.Error())
 			}
 			rt.headers[http.CanonicalHeaderKey(key)] = val
@@ -225,19 +134,28 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 	}
 
 	if client.IsDebug(cmd) {
-		redactor := &leaseTokenRedactor{inner: cmd.ErrOrStderr()}
+		redactor := envruntime.NewLeaseTokenRedactor(cmd.ErrOrStderr())
 		cmd.SetErr(redactor)
 		rt.debug = true
 		rt.errOut = redactor
 	}
 
-	baseHTTP := &http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport: &http.Transport{
+	var baseTransport *http.Transport
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		baseTransport = dt.Clone()
+		baseTransport.Proxy = http.ProxyFromEnvironment
+		baseTransport.ForceAttemptHTTP2 = true
+		baseTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		baseTransport = &http.Transport{
 			Proxy:             http.ProxyFromEnvironment,
 			ForceAttemptHTTP2: true,
 			TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
-		},
+		}
+	}
+	baseHTTP := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport:     baseTransport,
 	}
 
 	var wrapped client.HTTPClient = baseHTTP
@@ -250,8 +168,10 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 	// Bidirectional gRPC streams stream frames over an open io.Pipe body and must
 	// NOT be wrapped in DebugClient (which calls io.ReadAll on req.Body and blocks).
 	switch {
-	case rt.hasTestClient || isDryRun(cmd):
+	case isDryRun(cmd):
 		rt.streamClient = rt.httpClient
+	case rt.hasTestClient:
+		rt.streamClient = wrapped
 	case rt.scheme == "http":
 		var h2cProtos http.Protocols
 		h2cProtos.SetUnencryptedHTTP2(true)
@@ -287,13 +207,25 @@ func validateRuntimeServerURL(raw string) error {
 	return nil
 }
 
-func validateHeaderSecret(flagName, val string) error {
-	for _, r := range val {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("%s contains control characters", flagName)
-		}
-	}
-	return nil
+func (rt *runtimeTransport) newEnvHTTPClient(envID, envKey string) *envruntime.HTTPClient {
+	return envruntime.NewHTTPClient(envruntime.HTTPClientConfig{
+		BaseURL:                     rt.baseURL,
+		APIVersion:                  rt.apiVersion,
+		APIKey:                      rt.apiKey,
+		AccessToken:                 rt.accessToken,
+		EnvironmentID:               envID,
+		EnvironmentKey:              envKey,
+		UserProject:                 rt.userProject,
+		APIRevision:                 rt.apiRevision,
+		UserAgent:                   rawUserAgent,
+		Headers:                     rt.headers,
+		Timeout:                     rt.timeout,
+		HTTPDoer:                    rt.httpClient,
+		StreamDoer:                  rt.streamClient,
+		Debug:                       rt.debug,
+		DebugOut:                    rt.errOut,
+		ProbePlainHTTPOnStreamError: true,
+	})
 }
 
 func (rt *runtimeTransport) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
@@ -302,410 +234,115 @@ func (rt *runtimeTransport) newRequest(ctx context.Context, method, path string,
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", rawUserAgent)
-	for k, v := range rt.headers {
-		req.Header.Set(k, v)
-	}
-	switch {
-	case rt.apiKey != "":
-		req.Header.Set("x-goog-api-key", rt.apiKey)
-	case rt.accessToken != "":
-		req.Header.Set("Authorization", "Bearer "+rt.accessToken)
-	}
-	if rt.userProject != "" {
-		req.Header.Set("x-goog-user-project", rt.userProject)
-	}
-	if rt.apiRevision != "" {
-		req.Header.Set("Api-Revision", rt.apiRevision)
+	for k, vals := range rt.newEnvHTTPClient("", "").BuildHeaders("", "", "") {
+		for _, v := range vals {
+			req.Header.Add(k, v)
+		}
 	}
 	return req, nil
 }
 
-// HTTPClientOptions configures an environment runtime HTTP/gRPC client.
+// HTTPClientOptions configures a CLI environment runtime HTTP/gRPC client.
 type HTTPClientOptions struct {
 	Transport      *runtimeTransport
 	EnvironmentID  string
 	EnvironmentKey string
 }
 
-// HTTPClient communicates with the Gemini API LeaseInteractions and bidi stream endpoints.
+// HTTPClient adapts envruntime.HTTPClient to surface CLI sdkerrors.SDKDefaultError diagnostics.
 type HTTPClient struct {
-	rt             *runtimeTransport
-	environmentID  string
-	environmentKey string
+	inner *envruntime.HTTPClient
 }
 
 // NewHTTPClient creates an HTTPClient bound to opts.
 func NewHTTPClient(opts HTTPClientOptions) *HTTPClient {
-	return &HTTPClient{
-		rt:             opts.Transport,
-		environmentID:  strings.TrimSpace(opts.EnvironmentID),
-		environmentKey: strings.TrimSpace(opts.EnvironmentKey),
+	var inner *envruntime.HTTPClient
+	if opts.Transport != nil {
+		inner = opts.Transport.newEnvHTTPClient(opts.EnvironmentID, opts.EnvironmentKey)
+	} else {
+		inner = envruntime.NewHTTPClient(envruntime.HTTPClientConfig{
+			EnvironmentID:               opts.EnvironmentID,
+			EnvironmentKey:              opts.EnvironmentKey,
+			ProbePlainHTTPOnStreamError: true,
+		})
 	}
+	return &HTTPClient{inner: inner}
 }
 
 // ServerURL returns the normalized base URL configured on the client.
 func (c *HTTPClient) ServerURL() string {
-	return c.rt.baseURL
+	return c.inner.ServerURL()
 }
 
-func (c *HTTPClient) applyEnvironmentHeaders(req *http.Request, envID, envKey, leaseToken string) {
-	if envKey != "" {
-		req.Header.Set("x-goog-environment-key", envKey)
-	}
-	if envID != "" {
-		req.Header.Set("x-goog-environment-id", envID)
-	}
-	if leaseToken != "" {
-		req.Header.Set("x-goog-lease-token", leaseToken)
-	}
-}
-
-// LeaseInteractions polls POST /<apiVersion>/environments:leaseInteractions for queued work.
-func (c *HTTPClient) LeaseInteractions(ctx context.Context, workerID string, maxNew int32) ([]*LeasedInteraction, error) {
-	parsed, err := c.doLeaseRPC(ctx, c.environmentID, leaseInteractionsRequest{
-		WorkerID:           workerID,
-		MaxNewInteractions: &maxNew,
-		EnvironmentID:      c.environmentID,
-	}, "LeaseInteractions failed")
+// LeaseInteractions implements envruntime.EnvironmentClient, mapping transport errors to SDKDefaultError.
+func (c *HTTPClient) LeaseInteractions(ctx context.Context, req *envruntime.LeaseInteractionsRequest) (*envruntime.LeaseInteractionsResult, error) {
+	res, err := c.inner.LeaseInteractions(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, wrapTransportError(err)
 	}
-	return parsed.Leases, nil
+	return res, nil
+}
+
+// LeaseSimple polls POST /<apiVersion>/environments:leaseInteractions for up to maxNew queued interactions.
+func (c *HTTPClient) LeaseSimple(ctx context.Context, workerID string, maxNew int32) ([]*LeasedInteraction, error) {
+	leases, err := c.inner.LeaseSimple(ctx, workerID, maxNew)
+	if err != nil {
+		return nil, wrapTransportError(err)
+	}
+	return leases, nil
 }
 
 // HeartbeatInteraction renews a lease over HTTP while a poller hands work off to a worker.
 func (c *HTTPClient) HeartbeatInteraction(ctx context.Context, pollerID, interactionID, envID, leaseToken string) (*HeartbeatResult, error) {
-	zero := int32(0)
-	resolvedEnvID := firstNonEmpty(envID, c.environmentID)
-	parsed, err := c.doLeaseRPC(ctx, resolvedEnvID, leaseInteractionsRequest{
-		WorkerID: pollerID,
-		ActiveLeases: []activeInteractionLease{{
-			InteractionID: interactionID,
-			LeaseToken:    leaseToken,
-		}},
-		MaxNewInteractions: &zero,
-		EnvironmentID:      resolvedEnvID,
-	}, "LeaseInteractions heartbeat failed")
+	res, err := c.inner.HeartbeatInteraction(ctx, pollerID, interactionID, envID, leaseToken)
 	if err != nil {
-		var sdkErr *sdkerrors.SDKDefaultError
-		if errors.As(err, &sdkErr) {
-			switch sdkErr.StatusCode {
-			case http.StatusNotFound, http.StatusConflict, http.StatusPreconditionFailed:
-				return &HeartbeatResult{ShouldCancel: true}, nil
-			}
-		}
-		return nil, err
+		return nil, wrapTransportError(err)
 	}
-	for _, l := range parsed.Leases {
-		if l != nil && l.InteractionID == interactionID {
-			return &HeartbeatResult{Renewed: true}, nil
-		}
-	}
-	return &HeartbeatResult{ShouldCancel: true}, nil
-}
-
-func (c *HTTPClient) doLeaseRPC(ctx context.Context, envID string, reqBody leaseInteractionsRequest, errPrefix string) (*leaseInteractionsResponse, error) {
-	payload, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, err
-	}
-	reqCtx := ctx
-	var cancel context.CancelFunc
-	if c.rt.timeout > 0 {
-		reqCtx, cancel = context.WithTimeout(ctx, c.rt.timeout)
-		defer cancel()
-	}
-	req, err := c.rt.newRequest(reqCtx, http.MethodPost, c.rt.apiVersion+"/environments:leaseInteractions", bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.applyEnvironmentHeaders(req, envID, c.environmentKey, "")
-
-	resp, err := c.rt.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, sdkerrors.NewSDKDefaultError(errPrefix, resp.StatusCode, string(body), resp)
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return &leaseInteractionsResponse{}, nil
-	}
-	var parsed leaseInteractionsResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("decoding LeaseInteractions response: %w", err)
-	}
-	return &parsed, nil
-}
-
-type connectStreamRequest struct {
-	InteractionID    string
-	EnvironmentID    string
-	LeaseToken       string
-	NextOutputSeqNum int64
-	AckOutputSeqNum  int64
-}
-
-func (c *HTTPClient) bidiStreamMethodPath() string {
-	return fmt.Sprintf("google.learning.gemini.api.interactions.%s.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey", c.rt.apiVersion)
+	return res, nil
 }
 
 // PreviewConnect emits the dry-run preview for opening an interaction bidi stream without touching the network.
 func (c *HTTPClient) PreviewConnect(ctx context.Context, leaseToken string) error {
-	req, err := c.rt.newRequest(ctx, http.MethodPost, c.bidiStreamMethodPath(), http.NoBody)
+	return wrapTransportError(c.inner.PreviewConnect(ctx, leaseToken))
+}
+
+// ConnectInteraction implements envruntime.EnvironmentClient, wrapping HTTP and gRPC trailer errors into SDKDefaultError.
+func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *envruntime.ConnectInteractionRequest) (envruntime.InteractionStream, error) {
+	stream, err := c.inner.ConnectInteraction(ctx, req)
 	if err != nil {
-		return err
+		return nil, wrapTransportError(err)
 	}
-	req.Header.Set("Content-Type", "application/grpc")
-	req.Header.Set("TE", "trailers")
-	c.applyEnvironmentHeaders(req, c.environmentID, c.environmentKey, leaseToken)
-	resp, err := c.rt.httpClient.Do(req)
+	return &sdkErrorStream{InteractionStream: stream}, nil
+}
+
+type sdkErrorStream struct {
+	envruntime.InteractionStream
+}
+
+func (s *sdkErrorStream) Recv(ctx context.Context) (*envruntime.ServerEventBatch, error) {
+	batch, err := s.InteractionStream.Recv(ctx)
 	if err != nil {
-		return err
+		return nil, wrapTransportError(err)
 	}
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	return nil
+	return batch, nil
 }
 
-type grpcInteractionStream struct {
-	resp   *http.Response
-	pw     *io.PipeWriter
-	sendMu sync.Mutex
-	closed bool
-}
-
-func (s *grpcInteractionStream) Send(batch *clientEventBatch) error {
-	payload := batch.marshalWire()
-	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
-	if s.closed {
-		return io.ErrClosedPipe
-	}
-	return grpcWriteFrame(s.pw, payload)
-}
-
-func (s *grpcInteractionStream) Recv() (*serverEventBatch, error) {
-	frame, err := grpcReadFrame(s.resp.Body)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			if stErr := checkGRPCTrailers(s.resp); stErr != nil {
-				return nil, stErr
-			}
-		}
-		return nil, err
-	}
-	return unmarshalServerEventBatch(frame)
-}
-
-func (s *grpcInteractionStream) CloseSend() error {
-	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
-	if s.closed {
+func wrapTransportError(err error) error {
+	if err == nil {
 		return nil
 	}
-	s.closed = true
-	return s.pw.Close()
-}
-
-func (s *grpcInteractionStream) Close() error {
-	_ = s.CloseSend()
-	if s.resp != nil && s.resp.Body != nil {
-		return s.resp.Body.Close()
+	var te *envruntime.TransportError
+	if errors.As(err, &te) {
+		msg := cmp.Or(te.Op, te.Message)
+		return sdkerrors.NewSDKDefaultError(msg, te.StatusCode, te.Body, te.Resp)
 	}
-	return nil
-}
-
-func (c *HTTPClient) connectStream(ctx context.Context, req connectStreamRequest) (*grpcInteractionStream, error) {
-	pr, pw := io.Pipe()
-	methodPath := c.bidiStreamMethodPath()
-	httpReq, err := c.rt.newRequest(ctx, http.MethodPost, methodPath, pr)
-	if err != nil {
-		_ = pw.Close()
-		_ = pr.Close()
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/grpc")
-	httpReq.Header.Set("TE", "trailers")
-	c.applyEnvironmentHeaders(httpReq, firstNonEmpty(req.EnvironmentID, c.environmentID), c.environmentKey, req.LeaseToken)
-
-	if c.rt.debug && c.rt.errOut != nil {
-		_, _ = fmt.Fprintf(c.rt.errOut, "=== DEBUG STREAM ===\n%s %s\n", httpReq.Method, httpReq.URL.String())
-	}
-
-	handshake := (&clientEventBatch{
-		AckOutputSeqNum: req.AckOutputSeqNum,
-		ReconnectInteraction: &reconnectInteractionEvent{
-			InteractionID:    req.InteractionID,
-			NextOutputSeqNum: req.NextOutputSeqNum,
-			ClientID:         "environment",
-		},
-	}).marshalWire()
-
-	// Write the initial ReconnectInteraction frame immediately once the transport starts reading pr.
-	writeErrCh := make(chan error, 1)
-	go func() {
-		writeErrCh <- grpcWriteFrame(pw, handshake)
-	}()
-
-	resp, err := c.rt.streamClient.Do(httpReq)
-	if err != nil {
-		_ = pw.CloseWithError(err)
-		_ = pr.Close()
-		if c.rt.scheme == "http" && ctx.Err() == nil {
-			if httpErr := c.probePlainHTTPError(ctx, methodPath, req); httpErr != nil {
-				return nil, httpErr
-			}
-		}
-		return nil, err
-	}
-
-	if c.rt.debug && c.rt.errOut != nil {
-		_, _ = fmt.Fprintf(c.rt.errOut, "=== DEBUG STREAM RESPONSE ===\n%s\n", resp.Status)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = pw.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		_ = resp.Body.Close()
-		return nil, sdkerrors.NewSDKDefaultError("ConnectInteraction failed", resp.StatusCode, string(body), resp)
-	}
-	if stErr := checkGRPCHeaders(resp); stErr != nil {
-		_ = pw.Close()
-		_ = resp.Body.Close()
-		return nil, stErr
-	}
-	if werr := <-writeErrCh; werr != nil {
-		_ = pw.Close()
-		_ = resp.Body.Close()
-		return nil, werr
-	}
-
-	return &grpcInteractionStream{
-		resp: resp,
-		pw:   pw,
-	}, nil
-}
-
-func (c *HTTPClient) probePlainHTTPError(ctx context.Context, methodPath string, req connectStreamRequest) error {
-	probeReq, err := c.rt.newRequest(ctx, http.MethodPost, methodPath, http.NoBody)
-	if err != nil {
-		return nil
-	}
-	probeReq.Header.Set("Content-Type", "application/grpc")
-	c.applyEnvironmentHeaders(probeReq, firstNonEmpty(req.EnvironmentID, c.environmentID), c.environmentKey, req.LeaseToken)
-	resp, err := c.rt.httpClient.Do(probeReq)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	return sdkerrors.NewSDKDefaultError("ConnectInteraction failed", resp.StatusCode, string(body), resp)
-}
-
-func checkGRPCHeaders(resp *http.Response) error {
-	return parseGRPCStatus(resp.Header.Get("Grpc-Status"), resp.Header.Get("Grpc-Message"), resp)
-}
-
-func checkGRPCTrailers(resp *http.Response) error {
-	return parseGRPCStatus(resp.Trailer.Get("Grpc-Status"), resp.Trailer.Get("Grpc-Message"), resp)
-}
-
-func parseGRPCStatus(rawCode, rawMsg string, resp *http.Response) error {
-	trimmed := strings.TrimSpace(rawCode)
-	if trimmed == "" || trimmed == "0" {
-		return nil
-	}
-	code, err := strconv.Atoi(trimmed)
-	if err != nil {
-		code = 2
-	}
-	msg := decodeGRPCMessage(rawMsg)
-	if msg == "" {
-		msg = fmt.Sprintf("gRPC status %d", code)
-	}
-	httpStatus := grpcCodeToHTTPStatus(code)
-	errBody, _ := json.Marshal(map[string]any{
-		"error": map[string]any{
-			"code":    httpStatus,
-			"message": msg,
-		},
-	})
-	return sdkerrors.NewSDKDefaultError(msg, httpStatus, string(errBody), resp)
-}
-
-func grpcCodeToHTTPStatus(code int) int {
-	switch code {
-	case 3, 9, 11: // INVALID_ARGUMENT, FAILED_PRECONDITION, OUT_OF_RANGE
-		return http.StatusBadRequest
-	case 4: // DEADLINE_EXCEEDED
-		return http.StatusGatewayTimeout
-	case 5: // NOT_FOUND
-		return http.StatusNotFound
-	case 6, 10: // ALREADY_EXISTS, ABORTED
-		return http.StatusConflict
-	case 7: // PERMISSION_DENIED
-		return http.StatusForbidden
-	case 8: // RESOURCE_EXHAUSTED
-		return http.StatusTooManyRequests
-	case 12: // UNIMPLEMENTED
-		return http.StatusNotImplemented
-	case 14: // UNAVAILABLE
-		return http.StatusServiceUnavailable
-	case 16: // UNAUTHENTICATED
-		return http.StatusUnauthorized
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
+	return err
 }
 
 func isNonRetryableControlPlaneError(err error) bool {
+	if envruntime.IsNonRetryableError(err) {
+		return true
+	}
 	var sdkErr *sdkerrors.SDKDefaultError
-	if errors.As(err, &sdkErr) {
-		switch sdkErr.StatusCode {
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
-			return true
-		}
-	}
-	return false
-}
-
-func retryBackoff(base time.Duration, consecutive int) time.Duration {
-	if base <= 0 {
-		base = time.Second
-	}
-	var shift int
-	if consecutive > 1 {
-		shift = min(consecutive-1, 5)
-	}
-	return min(base*time.Duration(1<<shift), 30*time.Second)
-}
-
-func defaultRuntimeID(prefix string) string {
-	host, _ := os.Hostname()
-	if host == "" {
-		host = "local"
-	}
-	return fmt.Sprintf("%s-%s-%d", prefix, host, os.Getpid())
+	return errors.As(err, &sdkErr) && envruntime.IsNonRetryableStatus(sdkErr.StatusCode)
 }

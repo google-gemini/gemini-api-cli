@@ -15,6 +15,7 @@
 package custom
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/cli/custom/envruntime"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
@@ -56,7 +58,7 @@ func resolveNoRetries(cmd *cobra.Command) bool {
 }
 
 func runtimeSignalContext(parent context.Context) (context.Context, context.CancelFunc) {
-	ctx, stop := signal.NotifyContext(parent, runtimeShutdownSignals()...)
+	ctx, stop := signal.NotifyContext(parent, envruntime.ShutdownSignals()...)
 	go func() {
 		<-ctx.Done()
 		stop()
@@ -88,15 +90,15 @@ func (f *workerCommonFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.workerID, "worker-id", "", "Unique worker identifier (or GEMINI_WORKER_ID; default: worker-<hostname>-<pid>)")
 	cmd.Flags().StringVar(&f.rootDir, "root-dir", ".", "Root directory confining built-in file tools (execute_bash is not sandboxed)")
 	cmd.Flags().StringVar(&f.workDir, "workdir", ".", "Working directory for bash and relative tool paths (must reside within --root-dir)")
-	cmd.Flags().DurationVar(&f.heartbeatInterval, "heartbeat-interval", defaultHeartbeatInterval, "In-band stream heartbeat interval")
-	cmd.Flags().DurationVar(&f.commandTimeout, "command-timeout", 2*time.Minute, "Maximum timeout for execute_bash commands")
+	cmd.Flags().DurationVar(&f.heartbeatInterval, "heartbeat-interval", envruntime.DefaultHeartbeatInterval, "In-band stream heartbeat interval")
+	cmd.Flags().DurationVar(&f.commandTimeout, "command-timeout", envruntime.DefaultCommandTimeout, "Maximum timeout for execute_bash commands")
 	cmd.Flags().Lookup("command-timeout").DefValue = "2m"
 	cmd.Flags().BoolVar(&f.disableBash, "disable-bash", false, "Disable the execute_bash tool completely")
 	cmd.Flags().BoolVar(&f.quiet, "quiet", false, "Suppress operational progress logs on stderr")
 }
 
 func (f *workerCommonFlags) validate() (string, string, error) {
-	if _, _, err := resolveSandboxDirs(f.rootDir, f.workDir, false); err != nil {
+	if _, _, err := envruntime.ResolveSandboxDirs(f.rootDir, f.workDir, false); err != nil {
 		return "", "", usageError(err.Error())
 	}
 	if f.heartbeatInterval <= 0 {
@@ -105,12 +107,38 @@ func (f *workerCommonFlags) validate() (string, string, error) {
 	if f.commandTimeout <= 0 {
 		return "", "", usageError("--command-timeout must be > 0")
 	}
-	resolvedEnvKey := firstNonEmpty(f.envKey, os.Getenv("GEMINI_ENVIRONMENT_KEY"))
-	if err := validateHeaderSecret("--environment-key", resolvedEnvKey); err != nil {
+	resolvedEnvKey := cmp.Or(f.envKey, os.Getenv("GEMINI_ENVIRONMENT_KEY"))
+	if err := envruntime.ValidateHeaderSecret("--environment-key", resolvedEnvKey); err != nil {
 		return "", "", usageError(err.Error())
 	}
-	resolvedWorkerID := firstNonEmpty(f.workerID, os.Getenv("GEMINI_WORKER_ID"))
+	resolvedWorkerID := cmp.Or(f.workerID, os.Getenv("GEMINI_WORKER_ID"))
 	return resolvedEnvKey, resolvedWorkerID, nil
+}
+
+func newCLIPullWorker(cmd *cobra.Command, envClient envruntime.EnvironmentClient, common workerCommonFlags, absRoot, absWork, envKey, workerID string, maxConcurrent int, pollInterval time.Duration) *envruntime.PullWorker {
+	cfg := envruntime.CLIPullWorkerDefaults()
+	cfg.Client = envClient
+	cfg.Tools = envruntime.NewToolDispatcher(envruntime.ToolDispatcherConfig{
+		FS:                          envruntime.NewSandboxFS(absRoot, absWork),
+		Shell:                       envruntime.NewSandboxShell(absWork),
+		DisableBash:                 common.disableBash,
+		CommandTimeout:              common.commandTimeout,
+		DefaultWriteToFileOverwrite: true,
+	})
+	cfg.EnvironmentKey = envKey
+	cfg.WorkerID = workerID
+	if maxConcurrent > 0 {
+		cfg.MaxConcurrent = maxConcurrent
+	}
+	if pollInterval > 0 {
+		cfg.PollInterval = pollInterval
+	}
+	cfg.HeartbeatInterval = common.heartbeatInterval
+	cfg.CommandTimeout = common.commandTimeout
+	cfg.NoRetries = resolveNoRetries(cmd)
+	cfg.NonRetryableCheck = isNonRetryableControlPlaneError
+	cfg.Logger = newRuntimeLogger(cmd, common.quiet)
+	return envruntime.NewPullWorker(cfg)
 }
 
 func newEnvironmentsConnectCmd() *cobra.Command {
@@ -156,7 +184,7 @@ func newEnvironmentsConnectCmd() *cobra.Command {
 			})
 
 			if isDryRun(cmd) {
-				_, err := envClient.LeaseInteractions(cmd.Context(), firstNonEmpty(resolvedWorkerID, "worker-dry-run"), int32(maxConcurrent))
+				_, err := envClient.LeaseSimple(cmd.Context(), cmp.Or(resolvedWorkerID, "worker-dry-run"), int32(maxConcurrent))
 				if err != nil {
 					return output.Error(cmd, err)
 				}
@@ -169,7 +197,7 @@ func newEnvironmentsConnectCmd() *cobra.Command {
 				))
 			}
 
-			absRoot, absWork, err := resolveSandboxDirs(common.rootDir, common.workDir, true)
+			absRoot, absWork, err := envruntime.ResolveSandboxDirs(common.rootDir, common.workDir, true)
 			if err != nil {
 				return usageError(err.Error())
 			}
@@ -177,16 +205,7 @@ func newEnvironmentsConnectCmd() *cobra.Command {
 			ctx, stop := runtimeSignalContext(cmd.Context())
 			defer stop()
 
-			worker := newPullWorker(envClient, newFSServer(absRoot, absWork), newShellServer(absWork), pullWorkerOptions{
-				WorkerID:          resolvedWorkerID,
-				MaxConcurrent:     maxConcurrent,
-				PollInterval:      pollInterval,
-				HeartbeatInterval: common.heartbeatInterval,
-				CommandTimeout:    common.commandTimeout,
-				DisableBash:       common.disableBash,
-				NoRetries:         resolveNoRetries(cmd),
-				Logger:            newRuntimeLogger(cmd, common.quiet),
-			})
+			worker := newCLIPullWorker(cmd, envClient, common, absRoot, absWork, resolvedEnvKey, resolvedWorkerID, maxConcurrent, pollInterval)
 
 			if err := worker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				return output.Error(cmd, err)
@@ -250,11 +269,11 @@ func newEnvironmentsPollCmd() *cobra.Command {
 				return usageError("--handoff-heartbeat-interval must be > 0")
 			}
 
-			resolvedEnvKey := firstNonEmpty(envKey, os.Getenv("GEMINI_ENVIRONMENT_KEY"))
-			if err := validateHeaderSecret("--environment-key", resolvedEnvKey); err != nil {
+			resolvedEnvKey := cmp.Or(envKey, os.Getenv("GEMINI_ENVIRONMENT_KEY"))
+			if err := envruntime.ValidateHeaderSecret("--environment-key", resolvedEnvKey); err != nil {
 				return usageError(err.Error())
 			}
-			rawEnvID := firstNonEmpty(environmentID, os.Getenv("GEMINI_ENVIRONMENT_ID"))
+			rawEnvID := cmp.Or(environmentID, os.Getenv("GEMINI_ENVIRONMENT_ID"))
 			var resolvedEnvID string
 			if rawEnvID != "" {
 				normID, err := normalizeInteractionID(strings.TrimPrefix(strings.TrimSpace(rawEnvID), "environments/"))
@@ -263,7 +282,7 @@ func newEnvironmentsPollCmd() *cobra.Command {
 				}
 				resolvedEnvID = normID
 			}
-			resolvedPollerID := firstNonEmpty(pollerID, os.Getenv("GEMINI_WORKER_ID"))
+			resolvedPollerID := cmp.Or(pollerID, os.Getenv("GEMINI_WORKER_ID"))
 
 			rt, err := newRuntimeTransport(cmd, resolvedEnvKey != "")
 			if err != nil {
@@ -277,7 +296,7 @@ func newEnvironmentsPollCmd() *cobra.Command {
 			})
 
 			if isDryRun(cmd) {
-				_, err := envClient.LeaseInteractions(cmd.Context(), firstNonEmpty(resolvedPollerID, "poller-dry-run"), int32(maxInteractions))
+				_, err := envClient.LeaseSimple(cmd.Context(), cmp.Or(resolvedPollerID, "poller-dry-run"), int32(maxInteractions))
 				if err != nil {
 					return output.Error(cmd, err)
 				}
@@ -296,13 +315,20 @@ func newEnvironmentsPollCmd() *cobra.Command {
 			ctx, stop := runtimeSignalContext(cmd.Context())
 			defer stop()
 
-			poller := NewPollerController(envClient, NewCommandWorkerProvisioner(provisionCmd), PollerOptions{
+			poller := envruntime.NewStatelessPoller(envruntime.StatelessPollerConfig{
+				Client:                   envClient,
+				Heartbeat:                envClient.HeartbeatInteraction,
+				ServerURL:                envClient.ServerURL(),
+				Provisioner:              envruntime.NewShellCommandProvisioner(provisionCmd),
 				PollerID:                 resolvedPollerID,
+				EnvironmentID:            resolvedEnvID,
+				EnvironmentKey:           resolvedEnvKey,
 				MaxInteractions:          maxInteractions,
 				PollInterval:             pollInterval,
 				ProvisionTimeout:         provisionTimeout,
 				HandoffHeartbeatInterval: handoffHeartbeatInterval,
 				NoRetries:                resolveNoRetries(cmd),
+				NonRetryableCheck:        isNonRetryableControlPlaneError,
 				Logger:                   newRuntimeLogger(cmd, quiet),
 			})
 
@@ -328,7 +354,7 @@ func newEnvironmentsPollCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provisionCmd, "provision-cmd", "", "Shell command executed via sh -c to provision a worker and dispatch a leased interaction (receives v1 JSON on stdin)")
 	cmd.Flags().DurationVar(&provisionTimeout, "provision-timeout", 2*time.Minute, "Timeout for --provision-cmd handoff")
 	cmd.Flags().Lookup("provision-timeout").DefValue = "2m"
-	cmd.Flags().DurationVar(&handoffHeartbeatInterval, "handoff-heartbeat-interval", defaultHeartbeatInterval, "Heartbeat interval while provisioning and handing off a lease to a cold-starting worker")
+	cmd.Flags().DurationVar(&handoffHeartbeatInterval, "handoff-heartbeat-interval", envruntime.DefaultHeartbeatInterval, "Heartbeat interval while provisioning and handing off a lease to a cold-starting worker")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress operational progress logs on stderr")
 
 	return cmd
@@ -389,7 +415,7 @@ func newEnvironmentsServeCmd() *cobra.Command {
 				return output.UsageHelpError(cmd, errors.New("missing lease: pass --interaction-id and --lease-token for 'environments serve'"))
 			}
 
-			absRoot, absWork, err := resolveSandboxDirs(common.rootDir, common.workDir, true)
+			absRoot, absWork, err := envruntime.ResolveSandboxDirs(common.rootDir, common.workDir, true)
 			if err != nil {
 				return usageError(err.Error())
 			}
@@ -397,16 +423,9 @@ func newEnvironmentsServeCmd() *cobra.Command {
 			ctx, stop := runtimeSignalContext(cmd.Context())
 			defer stop()
 
-			worker := newPullWorker(envClient, newFSServer(absRoot, absWork), newShellServer(absWork), pullWorkerOptions{
-				WorkerID:          resolvedWorkerID,
-				HeartbeatInterval: common.heartbeatInterval,
-				CommandTimeout:    common.commandTimeout,
-				DisableBash:       common.disableBash,
-				NoRetries:         resolveNoRetries(cmd),
-				Logger:            newRuntimeLogger(cmd, common.quiet),
-			})
+			worker := newCLIPullWorker(cmd, envClient, common, absRoot, absWork, resolvedEnvKey, resolvedWorkerID, 0, 0)
 
-			if err := runStartupLeases(ctx, worker, startupLeases); err != nil && !errors.Is(err, context.Canceled) {
+			if err := worker.ServeLeases(ctx, startupLeases); err != nil && !errors.Is(err, context.Canceled) {
 				return output.Error(cmd, err)
 			}
 			return nil
@@ -441,7 +460,7 @@ func parseStartupLease(interactionID, leaseToken string) ([]*LeasedInteraction, 
 	if err != nil {
 		return nil, err
 	}
-	if err := validateHeaderSecret("--lease-token", tok); err != nil {
+	if err := envruntime.ValidateHeaderSecret("--lease-token", tok); err != nil {
 		return nil, err
 	}
 	return []*LeasedInteraction{{

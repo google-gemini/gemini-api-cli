@@ -12,26 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build unix
-
-package custom
-
-import (
-	"os"
-	"os/exec"
-	"syscall"
-)
-
-func runtimeShutdownSignals() []os.Signal {
-	return []os.Signal{os.Interrupt, syscall.SIGTERM}
-}
-
-func configureSubprocessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil && cmd.Process.Pid > 0 {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-}
+// Package envruntime implements the shared self-hosted environment runtime
+// transport, wire codec, filesystem and shell tool dispatchers, pull worker,
+// and control-plane poller using only the Go standard library.
+package envruntime
