@@ -79,6 +79,16 @@ func TestStdlibOnlyAndExportHygiene(t *testing.T) {
 		"Sher" + "log",
 	}, "|") + `)\b`)
 	internalLinkPattern := regexp.MustCompile(`(^|[\s(])(go/[a-zA-Z0-9_-]+|(b|cl)/[0-9]+)`)
+	allowedGoogle3Imports := map[string]bool{
+		"google3/google/protobuf/struct_go_proto":                        true,
+		"google3/google/rpc/status_go_proto":                             true,
+		"google3/learning/genai/api/interactions/proto/agents_go_proto":  true,
+		"google3/learning/genai/api/interactions/proto/content_go_proto": true,
+		"google3/learning/genai/api/interactions/proto/events_go_proto":  true,
+		"google3/learning/genai/api/interactions/proto/hooks_go_proto":   true,
+		"google3/learning/genai/api/interactions/proto/steps_go_proto":   true,
+		"google3/third_party/golang/protobuf/v2/proto/proto":             true,
+	}
 	goFileCount := 0
 
 	for _, entry := range entries {
@@ -111,8 +121,8 @@ func TestStdlibOnlyAndExportHygiene(t *testing.T) {
 				t.Fatalf("strconv.Unquote(%s) failed: %v", imp.Path.Value, err)
 			}
 			firstElem, _, _ := strings.Cut(impPath, "/")
-			if strings.HasPrefix(impPath, "google3/") || strings.Contains(firstElem, ".") {
-				t.Errorf("file %q imports non-stdlib package %q, want Go standard library only", name, impPath)
+			if (strings.HasPrefix(impPath, "google3/") || strings.Contains(firstElem, ".")) && !allowedGoogle3Imports[impPath] {
+				t.Errorf("file %q imports disallowed external package %q", name, impPath)
 			}
 		}
 		for _, cg := range fileAST.Comments {

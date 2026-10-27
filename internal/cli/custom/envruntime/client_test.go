@@ -580,7 +580,7 @@ func TestHTTPClientLeaseHeartbeatPreviewAndStream(t *testing.T) {
 		t.Fatalf("ConnectInteraction() failed: %v", err)
 	}
 	if err := stream.Send(t.Context(), &ClientEventBatch{
-		ReconnectInteraction: &ReconnectInteractionEvent{InteractionID: "int_live", ClientID: DefaultEnvironmentClientID},
+		ReconnectInteraction: &ReconnectInteractionEvent{InteractionID: "int_live"},
 	}); err != nil {
 		t.Fatalf("stream.Send() failed: %v", err)
 	}

@@ -19,6 +19,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,8 +52,8 @@ const (
 	// WorkerIDHeader is the HTTP header carrying the worker identifier.
 	WorkerIDHeader = "x-goog-worker-id"
 
-	// DefaultEnvironmentClientID is the client_id sent in ReconnectInteraction for environment workers.
-	DefaultEnvironmentClientID = "environment"
+	// MaxGRPCFrameBytes is the maximum length-prefixed gRPC frame size accepted on the wire (32 MiB).
+	MaxGRPCFrameBytes = 32 << 20
 
 	// DefaultHeartbeatInterval is the default in-band stream heartbeat interval (5s = 15s server TTL / 3).
 	DefaultHeartbeatInterval = 5 * time.Second
@@ -297,7 +298,6 @@ type ConnectInteractionRequest struct {
 	EnvironmentKey    string
 	LeaseToken        string
 	WorkerID          string
-	ClientID          string
 	NextOutputSeqNum  int64
 	AckOutputSeqNum   int64
 	HeartbeatInterval time.Duration
@@ -899,7 +899,6 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 	envID := cmp.Or(req.EnvironmentID, c.environmentID)
 	envKey := cmp.Or(req.EnvironmentKey, c.environmentKey)
 	workerID := cmp.Or(req.WorkerID, c.workerID)
-	clientID := cmp.Or(req.ClientID, DefaultEnvironmentClientID)
 	nextOut := req.NextOutputSeqNum
 	if nextOut <= 0 {
 		nextOut = 1
@@ -917,7 +916,6 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 			EnvironmentKey:    envKey,
 			LeaseToken:        req.LeaseToken,
 			WorkerID:          workerID,
-			ClientID:          clientID,
 			NextOutputSeqNum:  nextOut,
 			AckOutputSeqNum:   req.AckOutputSeqNum,
 			HeartbeatInterval: req.HeartbeatInterval,
@@ -954,7 +952,6 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 		ReconnectInteraction: &ReconnectInteractionEvent{
 			InteractionID:    req.InteractionID,
 			NextOutputSeqNum: nextOut,
-			ClientID:         clientID,
 		},
 	})
 
@@ -1325,4 +1322,83 @@ func RetryBackoff(base time.Duration, consecutive int) time.Duration {
 		shift = min(consecutive-1, 5)
 	}
 	return min(base*time.Duration(1<<shift), 30*time.Second)
+}
+
+// GRPCWriteFrame writes an uncompressed length-prefixed gRPC frame (1-byte compression flag + 4-byte big-endian length + payload).
+func GRPCWriteFrame(w io.Writer, msg []byte) error {
+	if uint64(len(msg)) > MaxGRPCFrameBytes {
+		return fmt.Errorf("gRPC outbound frame size %d exceeds limit %d", len(msg), MaxGRPCFrameBytes)
+	}
+	var hdr [5]byte
+	hdr[0] = 0
+	binary.BigEndian.PutUint32(hdr[1:5], uint32(len(msg)))
+	if _, err := w.Write(hdr[:]); err != nil {
+		return err
+	}
+	if len(msg) > 0 {
+		_, err := w.Write(msg)
+		return err
+	}
+	return nil
+}
+
+// GRPCReadFrame reads a single uncompressed length-prefixed gRPC frame from r.
+func GRPCReadFrame(r io.Reader) ([]byte, error) {
+	var hdr [5]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return nil, err
+	}
+	if hdr[0] != 0 {
+		return nil, fmt.Errorf("unsupported gRPC compressed frame flag %d", hdr[0])
+	}
+	length := binary.BigEndian.Uint32(hdr[1:5])
+	if length > MaxGRPCFrameBytes {
+		return nil, fmt.Errorf("gRPC frame size %d exceeds limit %d", length, MaxGRPCFrameBytes)
+	}
+	if length == 0 {
+		return []byte{}, nil
+	}
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return nil, err
+	}
+	return payload, nil
+}
+
+// DecodeGRPCMessage percent-decodes a gRPC status message header according to the gRPC over HTTP/2 spec.
+func DecodeGRPCMessage(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.Contains(raw, "%") {
+		return raw
+	}
+	out := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '%' && i+2 < len(raw) {
+			hi, ok1 := unhex(raw[i+1])
+			lo, ok2 := unhex(raw[i+2])
+			if ok1 && ok2 {
+				out = append(out, (hi<<4)|lo)
+				i += 2
+				continue
+			}
+		}
+		out = append(out, raw[i])
+	}
+	return string(out)
+}
+
+func unhex(c byte) (byte, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
