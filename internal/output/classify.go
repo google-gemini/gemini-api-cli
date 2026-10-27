@@ -465,6 +465,10 @@ func classifyStatuslessError(err error, origin ErrorOrigin) ErrorType {
 	if errors.As(err, &streamErr) {
 		return ErrorTypeAPI
 	}
+	var refused interface{ CLIRedirectRefused() bool }
+	if errors.As(err, &refused) && refused.CLIRedirectRefused() {
+		return ErrorTypeProtocol
+	}
 	if origin == ErrorOriginCLI {
 		if isConnectionError(err) {
 			return ErrorTypeConnection

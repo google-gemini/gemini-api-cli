@@ -17,12 +17,14 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/forms"
 	"github.com/google-gemini/gemini-api-cli/internal/interactive"
+	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +87,7 @@ Use the configure command for both authentication and global parameters.`,
 Sources are shown as:
   [flag]    - Set via command line flag
   [env]     - Set via environment variable (GEMINI_*)
-  [keyring] - Set via OS keychain (stored by login/configure command)
+  [keyring] - Set via OS credential store: macOS Keychain, Windows Credential Manager or Secret Service (stored by login/configure command)
   [config]  - Set via config file (~/.config/gemini-api/config.yaml)
   [unset]   - Not configured
 
@@ -215,6 +217,12 @@ func runAuthLoginCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
+	if output.IsMachineMode(cmd) {
+		return output.LocalResult(cmd, map[string]any{
+			"config_file":     config.GetConfigPath(),
+			"keychain_stored": keychainStored,
+		})
+	}
 	out := cmd.OutOrStdout()
 	if keychainStored {
 		fmt.Fprintln(out, "Secret credentials stored in OS keychain")
@@ -233,19 +241,30 @@ func runAuthLogoutCmd(cmd *cobra.Command, args []string) error {
 		cfg = &config.Config{}
 	}
 
-	if config.KeyringAvailable() {
-		_ = config.DeleteKeyringValue("api-key")
+	var keychainErrs []error
+	if err := config.DeleteStoredSecret("api-key"); err != nil {
+		keychainErrs = append(keychainErrs, fmt.Errorf("--api-key: %w", err))
 	}
 	cfg.Security.ApiKey = ""
-	if config.KeyringAvailable() {
-		_ = config.DeleteKeyringValue("access-token")
+	if err := config.DeleteStoredSecret("access-token"); err != nil {
+		keychainErrs = append(keychainErrs, fmt.Errorf("--access-token: %w", err))
 	}
 	cfg.Security.AccessToken = ""
 
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
+	if err := errors.Join(keychainErrs...); err != nil {
+		return fmt.Errorf("credentials were cleared from the config file, but removing them from the OS keychain failed: %w", err)
+	}
 
+	if output.IsMachineMode(cmd) {
+		return output.LocalResult(cmd, map[string]any{
+			"config_file":      config.GetConfigPath(),
+			"cleared":          true,
+			"keychain_cleared": config.KeyringAvailable(),
+		})
+	}
 	out := cmd.OutOrStdout()
 	if !config.KeyringAvailable() {
 		fmt.Fprintln(out, "Authentication credentials have been cleared from the config file; the OS keychain was skipped, so credentials stored there (if any) were kept.")

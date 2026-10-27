@@ -35,7 +35,17 @@ import (
 // "Object"). The function uses reflection to call Next()/Value()/Err()/Close()
 // on the stream field, handling both EventStream (Value() *T) and JsonLStream
 // (Value() (T, error)) signatures.
-func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) error {
+// stopProgress, when given, runs before anything is written: on the first
+// event, at end of stream, or before falling back to a single JSON result.
+func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string, stopProgress ...func()) error {
+	stop := func() {
+		for _, fn := range stopProgress {
+			if fn != nil {
+				fn()
+			}
+		}
+	}
+	defer stop()
 	if flagutil.DidDryRunRequest(cmd) {
 		return nil
 	}
@@ -57,16 +67,19 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 	}
 	if v.Kind() != reflect.Struct {
 		// Fallback: not a struct envelope — output as regular result
+		stop()
 		return Result(cmd, res)
 	}
 	streamVal := v.FieldByName(streamFieldName)
 	if !streamVal.IsValid() {
 		// Fallback: stream field not found — output as regular result
+		stop()
 		return Result(cmd, res)
 	}
 	// Guard IsNil: only call on nillable kinds. Fall back to Result() for
 	// mixed-content operations where non-stream content may still exist.
 	if isNillable(streamVal) && streamVal.IsNil() {
+		stop()
 		return Result(cmd, res)
 	}
 
@@ -78,6 +91,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 	rawMethod := streamVal.MethodByName("RawValue")
 	if !nextMethod.IsValid() || !valueMethod.IsValid() {
 		// Fallback: not a streaming type — output as regular result
+		stop()
 		return Result(cmd, res)
 	}
 
@@ -119,6 +133,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string) e
 
 		// Call Next() bool
 		nextResults := nextMethod.Call(nil)
+		stop()
 		if !nextResults[0].Bool() {
 			break
 		}

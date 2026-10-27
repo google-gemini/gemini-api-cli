@@ -126,11 +126,13 @@ func executeRunCmd(cmd *cobra.Command, args []string, asyncIntent bool) (*operat
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
 	}
 	if !client.IsDryRun(cmd) && !asyncIntent {
+		stopProgress := output.StartRequestProgress(cmd)
 		res, err := s.Agent.Run(cmd.Context(), *req, sdkOpts...)
 		if err != nil {
+			stopProgress()
 			return nil, output.Error(cmd, err)
 		}
-		if err := output.StreamResult(cmd, res, "InteractionSSEStreamEvent"); err != nil {
+		if err := output.StreamResult(cmd, res, "InteractionSSEStreamEvent", stopProgress); err != nil {
 			return nil, err
 		}
 		return nil, nil

@@ -97,11 +97,13 @@ func runStatusCmd(cmd *cobra.Command, args []string) error {
 	// Streaming response — iterate events and output incrementally.
 	// Skip streaming iteration in dry-run mode (synthetic response has no stream).
 	if !client.IsDryRun(cmd) {
+		stopProgress := output.StartRequestProgress(cmd)
 		res, err := s.Agent.Status(cmd.Context(), *req, sdkOpts...)
 		if err != nil {
+			stopProgress()
 			return output.Error(cmd, err)
 		}
-		return output.StreamResult(cmd, res, "InteractionSSEStreamEvent")
+		return output.StreamResult(cmd, res, "InteractionSSEStreamEvent", stopProgress)
 	}
 	res, err := s.Agent.Status(cmd.Context(), *req, sdkOpts...)
 	if err != nil {

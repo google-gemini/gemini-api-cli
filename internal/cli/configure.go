@@ -53,6 +53,7 @@ Priority: CLI flags > environment variables > OS keychain > config file`,
 	cmd.Annotations["speakeasy_help_settings"] = "api-key,access-token,api-version,api-revision,user-project"
 	cmd.Annotations["speakeasy_help_see_also"] = "whoami,auth logout"
 	cmd.Flags().String("default-output-format", "", "Store the default output format without opening the form. Options: "+strings.Join(output.Formats, ", ")+". Pass an empty value to clear it.")
+	cmd.Flags().StringSlice("clear", nil, "Remove stored values without opening the form (repeatable or comma-separated). Options: api-key, access-token, api-version, api-revision, user-project, default-output-format")
 	parent.AddCommand(cmd)
 	return nil
 }
@@ -65,6 +66,8 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 	if dryRunLocalNoop(cmd, "configure changes local settings only (no API request); nothing was changed.") {
 		return nil
 	}
+	defer output.PinOutputFormat(cmd)()
+	machineOutput := output.IsMachineMode(cmd)
 	cfg := config.GetConfig()
 	if cfg == nil {
 		cfg = &config.Config{}
@@ -72,8 +75,9 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 
 	keychainStored := false
 
-	formMode := interactive.Resolve(cmd).SetupFormMode(flagutil.AnyFlagChanged(cmd, "api-key", "access-token", "api-version", "api-revision", "user-project", "default-output-format"))
-	if cmd.Flags().Changed("default-output-format") {
+	var cleared []string
+	formMode := interactive.Resolve(cmd).SetupFormMode(flagutil.AnyFlagChanged(cmd, "api-key", "access-token", "api-version", "api-revision", "user-project", "default-output-format", "clear"))
+	if cmd.Flags().Changed("default-output-format") || cmd.Flags().Changed("clear") {
 		formMode = interactive.FormOff
 	}
 	if formMode == interactive.FormOff {
@@ -113,6 +117,42 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 		}
 		if f := cmd.Flags().Lookup("user-project"); f != nil && f.Changed {
 			cfg.Globals.UserProject = f.Value.String()
+			changed = true
+		}
+		if f := cmd.Flags().Lookup("clear"); f != nil && f.Changed {
+			names, _ := cmd.Flags().GetStringSlice("clear")
+			keys := make([]string, 0, len(names))
+			for _, name := range names {
+				switch key := strings.TrimPrefix(strings.TrimSpace(name), "--"); key {
+				case "api-key", "access-token", "api-version", "api-revision", "user-project", "default-output-format":
+					keys = append(keys, key)
+				default:
+					return flagutil.WithCLIValidation(fmt.Errorf("invalid --clear %q; options: api-key, access-token, api-version, api-revision, user-project, default-output-format", name))
+				}
+			}
+			for _, key := range keys {
+				switch key {
+				case "api-key":
+					if err := config.DeleteStoredSecret("api-key"); err != nil {
+						return fmt.Errorf("failed to remove --api-key from the OS keychain: %w", err)
+					}
+					cfg.Security.ApiKey = ""
+				case "access-token":
+					if err := config.DeleteStoredSecret("access-token"); err != nil {
+						return fmt.Errorf("failed to remove --access-token from the OS keychain: %w", err)
+					}
+					cfg.Security.AccessToken = ""
+				case "api-version":
+					cfg.Globals.ApiVersion = ""
+				case "api-revision":
+					cfg.Globals.ApiRevision = ""
+				case "user-project":
+					cfg.Globals.UserProject = ""
+				case "default-output-format":
+					cfg.OutputFormat = ""
+				}
+				cleared = append(cleared, key)
+			}
 			changed = true
 		}
 
@@ -218,9 +258,20 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
+	if machineOutput {
+		result := map[string]any{"config_file": config.GetConfigPath()}
+		result["keychain_stored"] = keychainStored
+		if len(cleared) > 0 {
+			result["cleared"] = cleared
+		}
+		return output.LocalResult(cmd, result)
+	}
 	out := cmd.OutOrStdout()
 	if keychainStored {
 		fmt.Fprintln(out, "Secret credentials stored in OS keychain")
+	}
+	for _, name := range cleared {
+		fmt.Fprintf(out, "Cleared --%s\n", name)
 	}
 	fmt.Fprintf(out, "Configuration saved to %s\n", config.GetConfigPath())
 	return nil

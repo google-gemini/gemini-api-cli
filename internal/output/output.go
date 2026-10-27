@@ -130,6 +130,17 @@ func resolveOutputFormat(cmd *cobra.Command) string {
 	return flagutil.ResolveOutputFormat(cmd, config.GetString("output-format"), IsAgentMode())
 }
 
+// PinOutputFormat fixes the output format until the returned func is called,
+// so a command that rewrites the saved default still renders in the format it
+// started with.
+func PinOutputFormat(cmd *cobra.Command) func() {
+	previous := preparsedRendering.outputFormat
+	if previous == "" {
+		preparsedRendering.outputFormat = resolveOutputFormat(cmd)
+	}
+	return func() { preparsedRendering.outputFormat = previous }
+}
+
 // A config file value is a saved default, not a per-invocation choice, so it
 // never counts as explicit even though resolveOutputFormat still honours it.
 func outputFormatExplicit(cmd *cobra.Command) bool {
