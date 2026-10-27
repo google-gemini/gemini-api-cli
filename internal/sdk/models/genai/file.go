@@ -80,7 +80,7 @@ func (e *FileState) IsExact() bool {
 	return false
 }
 
-// File - A file uploaded to the API. Next ID: 15
+// File - A file uploaded to the API.
 type File struct {
 	// Output only. The timestamp of when the `File` was created.
 	CreateTime *time.Time `json:"createTime,omitzero"`
