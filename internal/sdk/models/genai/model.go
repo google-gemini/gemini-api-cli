@@ -32,7 +32,7 @@ type Model struct {
 	InputTokenLimit *int `json:"inputTokenLimit,omitzero"`
 	// The maximum temperature this model can use.
 	MaxTemperature *float32 `json:"maxTemperature,omitzero"`
-	// Required. The resource name of the `Model`. Refer to [Model variants](https://ai.google.dev/gemini-api/docs/models/gemini#model-variations) for all allowed values. Format: `models/{model}` with a `{model}` naming convention of: * "{base_model_id}-{version}" Examples: * `models/gemini-1.5-flash-001`
+	// Required. The resource name of the `Model`. Refer to [Model variants](https://aistudio.google.com/docs/models#model-versions) for all allowed values. Format: `models/{model}` with a `{model}` naming convention of: * "{base_model_id}-{version}" Examples: * `models/gemini-1.5-flash-001`
 	Name *string `json:"name,omitzero"`
 	// Maximum number of output tokens available for this model.
 	OutputTokenLimit *int `json:"outputTokenLimit,omitzero"`
@@ -44,7 +44,7 @@ type Model struct {
 	Thinking *bool `json:"thinking,omitzero"`
 	// For Top-k sampling. Top-k sampling considers the set of `top_k` most probable tokens. This value specifies default to be used by the backend while making the call to the model. If empty, indicates the model doesn't use top-k sampling, and `top_k` isn't allowed as a generation parameter.
 	TopK *int `json:"topK,omitzero"`
-	// For [Nucleus sampling](https://ai.google.dev/gemini-api/docs/prompting-strategies#top-p). Nucleus sampling considers the smallest set of tokens whose probability sum is at least `top_p`. This value specifies default to be used by the backend while making the call to the model.
+	// For [Nucleus sampling](https://aistudio.google.com/docs/prompting-strategies#model-parameters). Nucleus sampling considers the smallest set of tokens whose probability sum is at least `top_p`. This value specifies default to be used by the backend while making the call to the model.
 	TopP *float32 `json:"topP,omitzero"`
 	// Required. The version number of the model. This represents the major version (`1.0` or `1.5`)
 	Version *string `json:"version,omitzero"`
