@@ -494,7 +494,6 @@ func (w *PullWorker) ExecuteLease(ctx context.Context, lease *LeasedInteraction)
 			EnvironmentKey:    envKey,
 			LeaseToken:        leaseToken,
 			WorkerID:          w.workerID,
-			ClientID:          DefaultEnvironmentClientID,
 			NextOutputSeqNum:  ack + 1,
 			AckOutputSeqNum:   ack,
 			HeartbeatInterval: reqHB,

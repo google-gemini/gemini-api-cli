@@ -487,9 +487,6 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 				if err != nil || hsBatch.ReconnectInteraction == nil {
 					return
 				}
-				if hsBatch.ReconnectInteraction.ClientID != envruntime.DefaultEnvironmentClientID {
-					t.Errorf("handshake ClientID = %q, want %q", hsBatch.ReconnectInteraction.ClientID, envruntime.DefaultEnvironmentClientID)
-				}
 				intID := hsBatch.ReconnectInteraction.InteractionID
 				if intID == "int_serve_bash_off" {
 					_ = envruntime.GRPCWriteFrame(w, envruntime.MarshalServerEventBatch(&envruntime.ServerEventBatch{

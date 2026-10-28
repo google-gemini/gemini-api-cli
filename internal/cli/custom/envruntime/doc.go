@@ -13,6 +13,6 @@
 // limitations under the License.
 
 // Package envruntime implements the shared self-hosted environment runtime
-// transport, wire codec, filesystem and shell tool dispatchers, pull worker,
-// and control-plane poller using only the Go standard library.
+// transport, protobuf event codec, filesystem and shell tool dispatchers, pull
+// worker, and control-plane poller.
 package envruntime
