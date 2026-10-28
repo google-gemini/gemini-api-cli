@@ -52,7 +52,7 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
-	cmd.Flags().StringP("agent", "", "", "Managed agent to run (see \"gemini-api agent list\") (e.g. deep-research-pro-preview-12-2025, deep-research-preview-04-2026, deep-research-max-preview-04-2026, antigravity-preview-05-2026)")
+	cmd.Flags().StringP("agent", "", "", "Managed agent to run (see \"gemini-api agent list\") (e.g. deep-research-pro-preview-12-2025, deep-research-preview-04-2026, deep-research-max-preview-04-2026, antigravity-preview-05-2026, ...)")
 	flagutil.MarkRequestInput(cmd, "agent")
 	_ = flagutil.AnnotatePromptFlag(cmd, "agent", flagutil.PromptFlagSpec{
 		Required: false,

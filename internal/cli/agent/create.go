@@ -43,7 +43,7 @@ func initCreateCmd(parent *cobra.Command) error {
 		Use:     "create",
 		Short:   "Create a managed agent definition",
 		Long:    "Creates a managed agent definition that extends a base agent.",
-		Example: "  gemini-api agent create --base-agent antigravity-preview-05-2026 --id research-assistant",
+		Example: "  gemini-api agent create --base-agent antigravity-preview-09-2026 --id research-assistant",
 		Args:    cobra.NoArgs,
 		RunE:    runCreateCmd,
 		Annotations: map[string]string{
