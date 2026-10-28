@@ -167,6 +167,6 @@ func CLIError(cmd *cobra.Command, err error) error {
 		return retainClassification(err, classification)
 	}
 	colorFlag, _ := flagutil.GetStringFlag(cmd, "color")
-	printJSON(cmd.ErrOrStderr(), jsonData, ShouldColorize(colorFlag))
+	printScrubbedJSON(cmd.ErrOrStderr(), jsonData, ShouldColorize(colorFlag))
 	return markRendered(err, classification)
 }

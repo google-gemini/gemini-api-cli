@@ -32,6 +32,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/redact"
 	"github.com/spf13/cobra"
 )
@@ -48,12 +49,18 @@ func IsDryRun(cmd *cobra.Command) bool {
 	return v
 }
 
+// IsJSONDryRun reports whether --dry-run should write NDJSON previews to
+// stdout: in agent mode, with a caller-explicit --jq, or with any machine
+// output format (json, yaml, toon). Command-declared jq presets do not count.
 func IsJSONDryRun(cmd *cobra.Command) bool {
 	if !IsDryRun(cmd) {
 		return false
 	}
-	format := flagutil.ResolveOutputFormat(cmd, config.GetString("output-format"), false)
-	return format == "json" || flagutil.FlagChanged(cmd, "jq")
+	if output.IsAgentMode() || flagutil.FlagChanged(cmd, "jq") {
+		return true
+	}
+	format := output.EffectiveOutputFormat(cmd)
+	return format != "pretty" && format != "table"
 }
 
 // IsDebug returns true when --debug is set and --dry-run is not.
@@ -175,6 +182,174 @@ func isSensitiveName(key string) bool {
 	return false
 }
 
+// isSensitiveJSONKey also matches header names, so header maps carried in a
+// request body (for example tool or proxy headers) are masked. The broad
+// name-substring check used for headers is skipped: it would mask ordinary
+// body fields such as max_tokens.
+func isSensitiveJSONKey(key string) bool {
+	normalized := normalizeSensitiveKey(key)
+	if sensitiveJSONKeys[normalized] {
+		return true
+	}
+	for _, header := range sensitiveHeaderKeys {
+		if normalizeSensitiveKey(header) == normalized {
+			return true
+		}
+	}
+	lower := strings.ToLower(key)
+	for _, suffix := range sensitiveHeaderSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+var jsonSchemaKeywords = map[string]bool{
+	"$comment": true, "$defs": true, "$id": true, "$ref": true, "$schema": true,
+	"additionalProperties": true, "allOf": true, "anyOf": true, "const": true,
+	"contentEncoding": true, "contentMediaType": true, "default": true,
+	"definitions": true, "dependentSchemas": true, "deprecated": true,
+	"contains": true, "description": true, "else": true, "enum": true,
+	"example": true, "examples": true, "exclusiveMaximum": true,
+	"exclusiveMinimum": true, "format": true, "if": true, "items": true,
+	"maxItems": true, "propertyNames": true,
+	"maxLength": true, "maxProperties": true, "maximum": true, "minItems": true,
+	"minLength": true, "minProperties": true, "minimum": true,
+	"multipleOf": true, "not": true, "nullable": true, "oneOf": true,
+	"pattern": true, "patternProperties": true, "prefixItems": true,
+	"properties": true, "readOnly": true, "required": true, "then": true,
+	"title": true, "type": true, "uniqueItems": true, "writeOnly": true,
+}
+
+var jsonSchemaStructuralKeywords = []string{
+	"$defs", "$ref", "allOf", "anyOf", "definitions", "items", "not", "oneOf",
+	"prefixItems", "properties", "type",
+}
+
+var jsonSchemaValueKeywords = map[string]bool{
+	"const": true, "default": true, "enum": true, "example": true, "examples": true,
+}
+
+var jsonSchemaNamedSubschemas = map[string]bool{
+	"$defs": true, "definitions": true, "dependentSchemas": true,
+	"patternProperties": true, "properties": true,
+}
+
+var jsonSchemaSubschemas = map[string]bool{
+	"additionalProperties": true, "contains": true, "else": true, "if": true,
+	"items": true, "not": true, "propertyNames": true, "then": true,
+}
+
+var jsonSchemaSubschemaLists = map[string]bool{
+	"allOf": true, "anyOf": true, "oneOf": true, "prefixItems": true,
+}
+
+// sensitiveSchemaObject reports whether v is a JSON Schema (every key a
+// schema keyword, at least one of them structural) rather than a value, so a
+// property named like a credential keeps its definition in previews.
+func sensitiveSchemaObject(v interface{}) (map[string]interface{}, bool) {
+	obj, ok := v.(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
+	for k := range obj {
+		if !jsonSchemaKeywords[k] {
+			return nil, false
+		}
+	}
+	for _, k := range jsonSchemaStructuralKeywords {
+		if _, present := obj[k]; present {
+			return obj, true
+		}
+	}
+	return nil, false
+}
+
+// maskSchemaValues walks a schema and fails closed: value-bearing keywords
+// are masked, anything in a subschema position that is not itself a schema is
+// masked, and annotation keywords keep only scalar values.
+func maskSchemaValues(v interface{}, depth int) interface{} {
+	if depth > maxRedactDepth {
+		return redactionDepthMarker
+	}
+	switch schema := v.(type) {
+	case bool:
+		return schema
+	case map[string]interface{}:
+		for k := range schema {
+			if !jsonSchemaKeywords[k] {
+				return "[REDACTED]"
+			}
+		}
+		out := make(map[string]interface{}, len(schema))
+		for k, child := range schema {
+			switch {
+			case jsonSchemaValueKeywords[k]:
+				out[k] = "[REDACTED]"
+			case jsonSchemaNamedSubschemas[k]:
+				named, ok := child.(map[string]interface{})
+				if !ok {
+					out[k] = "[REDACTED]"
+					continue
+				}
+				schemas := make(map[string]interface{}, len(named))
+				for name, sub := range named {
+					schemas[name] = maskSchemaValues(sub, depth+1)
+				}
+				out[k] = schemas
+			case jsonSchemaSubschemas[k]:
+				if list, ok := child.([]interface{}); ok {
+					out[k] = maskSchemaList(list, depth+1)
+				} else {
+					out[k] = maskSchemaValues(child, depth+1)
+				}
+			case jsonSchemaSubschemaLists[k]:
+				list, ok := child.([]interface{})
+				if !ok {
+					out[k] = "[REDACTED]"
+					continue
+				}
+				out[k] = maskSchemaList(list, depth+1)
+			default:
+				out[k] = schemaAnnotationValue(child)
+			}
+		}
+		return out
+	default:
+		return "[REDACTED]"
+	}
+}
+
+func maskSchemaList(list []interface{}, depth int) []interface{} {
+	out := make([]interface{}, len(list))
+	for i, sub := range list {
+		out[i] = maskSchemaValues(sub, depth)
+	}
+	return out
+}
+
+func schemaAnnotationValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		return "[REDACTED]"
+	case []interface{}:
+		for _, item := range val {
+			if _, nested := item.(map[string]interface{}); nested {
+				return "[REDACTED]"
+			}
+			if _, nested := item.([]interface{}); nested {
+				return "[REDACTED]"
+			}
+		}
+		return val
+	case string:
+		return redactBase64String(val)
+	default:
+		return v
+	}
+}
+
 // redactJSON recursively redacts sensitive keys in a JSON structure.
 func redactJSON(v interface{}, depth int) interface{} {
 	if depth > maxRedactDepth {
@@ -184,11 +359,16 @@ func redactJSON(v interface{}, depth int) interface{} {
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(val))
 		for k, child := range val {
-			if sensitiveJSONKeys[normalizeSensitiveKey(k)] {
-				out[k] = "[REDACTED]"
-			} else {
+			if !isSensitiveJSONKey(k) {
 				out[k] = redactJSON(child, depth+1)
+				continue
 			}
+			schema, ok := sensitiveSchemaObject(child)
+			if !ok {
+				out[k] = "[REDACTED]"
+				continue
+			}
+			out[k] = maskSchemaValues(schema, depth+1)
 		}
 		return out
 	case []interface{}:
@@ -432,17 +612,23 @@ func encodeJSON(value interface{}, indent string) (string, error) {
 }
 
 func formatBodyPreview(value interface{}, capBytes int) string {
+	return capPreview(renderBodyPreview(value), capBytes)
+}
+
+func renderBodyPreview(value interface{}) string {
 	if value == nil {
 		return "(empty)"
 	}
-	var rendered string
-	if _, ok := value.(string); ok {
-		rendered = value.(string)
-	} else if out, err := encodeJSON(value, "  "); err == nil {
-		rendered = out
-	} else {
-		rendered = fmt.Sprint(value)
+	if s, ok := value.(string); ok {
+		return s
 	}
+	if out, err := encodeJSON(value, "  "); err == nil {
+		return out
+	}
+	return fmt.Sprint(value)
+}
+
+func capPreview(rendered string, capBytes int) string {
 	if capBytes > 0 && len(rendered) > capBytes {
 		return rendered[:capBytes] + "... (truncated)"
 	}
@@ -515,46 +701,58 @@ type HTTPClient interface {
 // Do executes the request, logging diagnostics before and after.
 func (c *DebugClient) Do(req *http.Request) (*http.Response, error) {
 	// Log request
-	fmt.Fprintf(c.Stderr, "[DEBUG] Request: %s %s\n", req.Method, redactURL(req.URL.String()))
-	fmt.Fprintf(c.Stderr, "[DEBUG] Request Headers:\n%s", formatHeaders(redactHeaders(req.Header)))
+	c.logf("[DEBUG] Request: %s %s\n", req.Method, redactURL(req.URL.String()))
+	c.logf("[DEBUG] Request Headers:\n%s", formatHeaders(redactHeaders(req.Header)))
 	if req.Body != nil {
 		bodyData, restored, readErr := readAndRestoreBody(req.Body)
 		req.Body = restored
 		if readErr != nil {
-			fmt.Fprintf(c.Stderr, "[DEBUG] Request Body Read Error: %v\n", readErr)
+			c.logf("[DEBUG] Request Body Read Error: %v\n", readErr)
 		} else {
 			body := previewRequestBody(req, bodyData)
-			fmt.Fprintf(c.Stderr, "[DEBUG] Request Body:\n  %s\n", formatBodyPreview(body, maxBodyPreview))
+			c.logf("[DEBUG] Request Body:\n  %s\n", debugBodyPreview(body))
 		}
 	}
 
 	// Execute
 	resp, err := c.Inner.Do(req)
 	if err != nil {
-		fmt.Fprintf(c.Stderr, "[DEBUG] Transport Error: %v\n", err)
+		c.logf("[DEBUG] Transport Error: %v\n", err)
 		return nil, err
 	}
 
 	// Log response
-	fmt.Fprintf(c.Stderr, "[DEBUG] Response: %d %s\n", resp.StatusCode, resp.Status)
-	fmt.Fprintf(c.Stderr, "[DEBUG] Response Headers:\n%s", formatHeaders(redactHeaders(resp.Header)))
+	c.logf("[DEBUG] Response: %d %s\n", resp.StatusCode, resp.Status)
+	c.logf("[DEBUG] Response Headers:\n%s", formatHeaders(redactHeaders(resp.Header)))
 	if resp.Body != nil {
 		if isStreamingResponse(resp) {
 			// Reading a streaming body here buffers every event until the server closes the stream.
-			fmt.Fprintf(c.Stderr, "[DEBUG] Response Body: <streaming %s; not captured>\n", resp.Header.Get("Content-Type"))
+			c.logf("[DEBUG] Response Body: <streaming %s; not captured>\n", resp.Header.Get("Content-Type"))
 		} else {
 			bodyData, restored, readErr := readAndRestoreBody(resp.Body)
 			resp.Body = restored
 			if readErr != nil {
-				fmt.Fprintf(c.Stderr, "[DEBUG] Response Body Read Error: %v\n", readErr)
+				c.logf("[DEBUG] Response Body Read Error: %v\n", readErr)
 			} else if len(bodyData) > 0 {
 				body := previewResponseBody(req, resp, bodyData)
-				fmt.Fprintf(c.Stderr, "[DEBUG] Response Body:\n  %s\n", formatBodyPreview(body, maxBodyPreview))
+				c.logf("[DEBUG] Response Body:\n  %s\n", debugBodyPreview(body))
 			}
 		}
 	}
 
 	return resp, nil
+}
+
+// logf masks resolved credentials, which a server can echo back, in every
+// debug line.
+func (c *DebugClient) logf(format string, args ...interface{}) {
+	fmt.Fprint(c.Stderr, config.ScrubSecrets(fmt.Sprintf(format, args...)))
+}
+
+// debugBodyPreview scrubs before truncating so a credential cut at the
+// preview limit cannot leave its prefix behind.
+func debugBodyPreview(value interface{}) string {
+	return capPreview(config.ScrubSecrets(renderBodyPreview(value)), maxBodyPreview)
 }
 
 func isStreamingResponse(resp *http.Response) bool {

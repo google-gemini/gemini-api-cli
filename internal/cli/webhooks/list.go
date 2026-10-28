@@ -91,12 +91,13 @@ func runListCmd(cmd *cobra.Command, args []string) error {
 			return output.Error(cmd, err)
 		}
 		return output.PaginatedResult(cmd, res, "WebhookListResponse", "", maxPages, output.PaginationProbe{
-			Type:       "cursor",
-			CursorKind: "string",
-			NextCursor: "$.next_page_token",
-			NextURL:    "",
-			Results:    "",
-			HasLimit:   false,
+			Type:        "cursor",
+			CursorKind:  "string",
+			NextCursor:  "$.next_page_token",
+			NextURL:     "",
+			Results:     "",
+			HasLimit:    false,
+			Transformed: false,
 		})
 	}
 	if output.WantsRawJSON(cmd) {
