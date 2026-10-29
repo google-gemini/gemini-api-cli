@@ -691,7 +691,7 @@ func attachInteractionInputs(root *cobra.Command) error {
 	agentRunCmd.Long = strings.Replace(
 		agentRunCmd.Long,
 		"Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).",
-		"Run one interaction with a Gemini model (--model, default) or a managed agent (--agent).\nStreams text as it arrives (--stream=false for one complete interaction); --body takes exact request JSON.",
+		"Run one interaction with a Gemini model (--model, default) or a managed agent (--agent).\nStreams text as it arrives (--stream=false or --background for one interaction unless --stream is passed); --body takes exact request JSON.",
 		1,
 	)
 	return nil

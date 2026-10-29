@@ -342,5 +342,10 @@ func runIntentAgentRunCmd(cmd *cobra.Command, args []string) error {
 	if _, err := flagutil.Select(cmd, args, intentAgentRunDispatch); err != nil {
 		return err
 	}
+	if err := flagutil.ApplyImpliedBody(cmd, "body", []flagutil.ImpliedBody{
+		{Key: "background", Values: "{\"stream\":false}"},
+	}); err != nil {
+		return err
+	}
 	return runRunCmd(cmd, nil)
 }

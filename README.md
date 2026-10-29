@@ -92,7 +92,7 @@ You have access to gemini-api through the shell.
 Use it to call Gemini models, generate or edit media, analyze files, or launch managed agents.
 1. Inspect --help or --usage to choose a command, and --schema when building a --body JSON payload.
 2. Preview API calls with --dry-run (or --dry-run --output-format json).
-3. For discrete JSON output or --jq filtering on streaming/background commands (generate, agent run, agent status), pass --stream=false --output-format json.
+3. For discrete JSON output or --jq filtering on streaming commands (generate, agent run, agent status --stream), pass --stream=false --output-format json (--background on agent run returns a single interaction without streaming unless --stream is passed).
 4. Capture returned file paths (from media commands) and interaction IDs (from agent/model runs) to continue multi-step tasks.
 ```
 
@@ -208,13 +208,12 @@ gemini-api analyze --input "$FILE_URI" "List the key action items with timestamp
 
 ### 3. Launch and poll a background managed agent
 
-Delegate multi-step research or coding tasks to a Gemini managed agent such as Deep Research. Pass `--background --stream=false` so the CLI returns the interaction ID immediately instead of holding open an SSE stream:
+Delegate multi-step research or coding tasks to a Gemini managed agent such as Deep Research. Pass `--background` so the CLI returns a single interaction (no stream, unless `--stream` is passed) with the interaction ID immediately instead of holding open an SSE stream:
 
 ```bash
 INTERACTION_ID=$(gemini-api agent run "Research battery recycling approaches and cite sources" \
   --agent deep-research-preview-04-2026 \
   --background \
-  --stream=false \
   --jq '.id')
 echo "Started interaction: $INTERACTION_ID"
 ```
