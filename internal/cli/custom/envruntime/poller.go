@@ -1403,19 +1403,25 @@ func (c *Tier2Poller) SweepOnce(ctx context.Context) error {
 	return c.sweepProvisionedWorkers(ctx)
 }
 
+func (c *Tier2Poller) hasInFlightWorkLocked(envID string) bool {
+	if c.provFlights[envID] != nil {
+		return true
+	}
+	for _, lease := range c.handoffLeases {
+		if strings.TrimSpace(lease.EnvironmentID) == envID {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Tier2Poller) sweepProvisionedWorkers(ctx context.Context) error {
 	now := c.now()
 
 	c.mu.Lock()
-	inFlightEnvs := make(map[string]bool, len(c.handoffLeases))
-	for _, lease := range c.handoffLeases {
-		if envID := strings.TrimSpace(lease.EnvironmentID); envID != "" {
-			inFlightEnvs[envID] = true
-		}
-	}
 	workers := make([]provisionedWorkerState, 0, len(c.activeWorkers))
 	for _, w := range c.activeWorkers {
-		if w == nil || inFlightEnvs[w.EnvironmentID] {
+		if w == nil || c.hasInFlightWorkLocked(w.EnvironmentID) {
 			continue
 		}
 		if now.Sub(w.LastActiveAt) < c.cfg.ResumeGracePeriod {
@@ -1453,7 +1459,7 @@ func (c *Tier2Poller) sweepProvisionedWorkers(ctx context.Context) error {
 
 		c.mu.Lock()
 		current, ok := c.activeWorkers[w.EnvironmentID]
-		if !ok || !current.LastActiveAt.Equal(w.LastActiveAt) {
+		if !ok || !current.LastActiveAt.Equal(w.LastActiveAt) || c.hasInFlightWorkLocked(w.EnvironmentID) {
 			c.mu.Unlock()
 			continue
 		}

@@ -1261,4 +1261,31 @@ func TestTier2PollerHandoffCancellationAndTokenRefresh(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("sole waiter cancellation did not abort ProvisionWorker promptly")
 	}
+
+	for _, mode := range []string{"pre_prov_flight", "mid_handoff_lease", "mid_prov_flight"} {
+		tpSharedProv.mu.Lock()
+		tpSharedProv.activeWorkers["env_sf"] = &provisionedWorkerState{
+			EnvironmentID: "env_sf", WorkerID: "w_sf", URI: "http://w_sf",
+			Headers: map[string]string{"X-Worker": "1"}, LastActiveAt: tpSharedProv.now().Add(-time.Hour),
+		}
+		delete(tpSharedProv.handoffLeases, "int_sf_mid")
+		delete(tpSharedProv.provFlights, "env_sf")
+		if mode == "pre_prov_flight" {
+			tpSharedProv.provFlights["env_sf"] = &provFlight{waiters: 1}
+		}
+		tpSharedProv.workerConns["http://w_sf"] = &fakeWorkerRPCClient{idleFn: func(map[string]string) (*IdleStatus, error) {
+			tpSharedProv.mu.Lock()
+			defer tpSharedProv.mu.Unlock()
+			if mode == "mid_handoff_lease" {
+				tpSharedProv.handoffLeases["int_sf_mid"] = ActiveInteractionLease{InteractionID: "int_sf_mid", EnvironmentID: " env_sf "}
+			} else if mode == "mid_prov_flight" {
+				tpSharedProv.provFlights["env_sf"] = &provFlight{waiters: 1}
+			}
+			return &IdleStatus{Running: false, IdleDuration: time.Hour}, nil
+		}}
+		tpSharedProv.mu.Unlock()
+		if err := tpSharedProv.sweepProvisionedWorkers(t.Context()); err != nil || tpSharedProv.activeWorkers["env_sf"] == nil {
+			t.Errorf("sweepProvisionedWorkers(%s) err=%v active=%v, want retained", mode, err, tpSharedProv.activeWorkers["env_sf"])
+		}
+	}
 }
