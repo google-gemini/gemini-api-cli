@@ -39,6 +39,9 @@ func mustSymlink(t *testing.T, target, link string) {
 
 func TestResolveSandboxDirs(t *testing.T) {
 	base := t.TempDir()
+	if evalBase, err := filepath.EvalSymlinks(base); err == nil {
+		base = evalBase
+	}
 	rootDir := filepath.Join(base, "root")
 	workDir := filepath.Join(rootDir, "proj")
 	// create=false validates confinement without mutating disk (used before --dry-run).
@@ -711,6 +714,19 @@ func TestSandboxShellEnvBuffersAndSubprocessKill(t *testing.T) {
 	}
 	if bin, _ := ResolveShellCommand("linux", "ls"); bin != "sh" {
 		t.Errorf("ResolveShellCommand(linux, empty PATH) = %q, want sh", bin)
+	}
+	if bin, args := resolveShellCommand("windows", func(name string) (string, error) {
+		if name == "bash" {
+			return `C:\Windows\System32\bash.exe`, nil
+		}
+		return `C:\Program Files\Git\bin\sh.exe`, nil
+	}, "echo hi"); bin != `C:\Program Files\Git\bin\sh.exe` || len(args) != 2 || args[0] != "-c" {
+		t.Errorf("resolveShellCommand(windows WSL bash fallback to sh) = (%q, %v)", bin, args)
+	}
+	if bin, _ := resolveShellCommand("windows", func(name string) (string, error) {
+		return `C:\Program Files\Git\bin\bash.exe`, nil
+	}, "echo hi"); bin != `C:\Program Files\Git\bin\bash.exe` {
+		t.Errorf("resolveShellCommand(windows Git bash) = %q", bin)
 	}
 	t.Setenv("PATH", origPath)
 	if len(ShutdownSignals()) == 0 {

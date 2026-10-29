@@ -161,10 +161,14 @@ func isWindowsWSLStubBash(goos, p string) bool {
 
 // ResolveShellCommand selects bash, sh, or cmd.exe to execute command on goos.
 func ResolveShellCommand(goos, command string) (string, []string) {
-	if p, err := exec.LookPath("bash"); err == nil && !isWindowsWSLStubBash(goos, p) {
+	return resolveShellCommand(goos, exec.LookPath, command)
+}
+
+func resolveShellCommand(goos string, lookPath func(string) (string, error), command string) (string, []string) {
+	if p, err := lookPath("bash"); err == nil && !isWindowsWSLStubBash(goos, p) {
 		return p, []string{"-c", command}
 	}
-	if p, err := exec.LookPath("sh"); err == nil {
+	if p, err := lookPath("sh"); err == nil {
 		return p, []string{"-c", command}
 	}
 	if goos == "windows" {

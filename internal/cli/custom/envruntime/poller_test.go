@@ -31,7 +31,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -115,10 +114,15 @@ func TestSingleflightDoAndDoChan(t *testing.T) {
 }
 
 func TestShellCommandProvisionerAndStatelessPoller(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	tempBin := t.TempDir()
+	for _, shName := range []string{"sh", "sh.exe"} {
+		_ = os.WriteFile(filepath.Join(tempBin, shName), []byte("#!/bin/sh\n"), 0o755)
+	}
+	t.Setenv("PATH", tempBin)
 	if bin, args := ResolveProvisionShell("windows", "echo ok"); !strings.Contains(bin, "sh") || len(args) != 2 || args[0] != "-c" {
 		t.Errorf("ResolveProvisionShell(windows with PATH sh) = (%q, %v), want sh -c", bin, args)
 	}
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", "")
 	if bin, args := ResolveProvisionShell("windows", "echo ok"); bin != "cmd.exe" || len(args) != 2 || args[0] != "/C" {
 		t.Errorf("ResolveProvisionShell(windows without PATH sh) = (%q, %v), want cmd.exe /C", bin, args)
@@ -159,8 +163,8 @@ func TestShellCommandProvisionerAndStatelessPoller(t *testing.T) {
 		if idx := strings.LastIndexByte(string(statBytes), ')'); idx >= 0 {
 			fields := strings.Fields(string(statBytes[idx+1:]))
 			if len(fields) >= 3 {
-				if childPgid, err := strconv.Atoi(fields[2]); err == nil && childPgid == syscall.Getpgrp() {
-					t.Errorf("childPgid = %d, want != parent pgid %d (ConfigureSubprocessGroup must set new process group)", childPgid, syscall.Getpgrp())
+				if childPgid, err := strconv.Atoi(fields[2]); err == nil && childPgid == os.Getpid() {
+					t.Errorf("childPgid = %d, want != parent pid %d (ConfigureSubprocessGroup must set new process group)", childPgid, os.Getpid())
 				}
 			}
 		}
