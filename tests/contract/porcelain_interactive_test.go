@@ -122,7 +122,7 @@ func TestPorcelainInteractivePrompts(t *testing.T) {
 			command:    []string{"transcribe"},
 			answers:    map[string][]string{"flag:input": {audio}},
 			wantFields: []string{"flag:input"},
-			wantStderr: []string{`"data"`, "<bytes:5>", "Transcribe the speech"},
+			wantStderr: []string{`"data"`, "<bytes:5>", `"transcription_config"`},
 		},
 		{
 			name:       "tts",

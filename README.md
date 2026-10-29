@@ -120,7 +120,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | | `gemini-api music` | `-m`, `-f/--file`, `--stdin`, `--out`, `--body` | Music generation (`lyria-3.5`) |
 | | `gemini-api video` | `-m`, `-i/--input`, `--stdin`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.1-flash`) |
 | **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `--stdin`, `--system`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-3.8-flash`) |
-| | `gemini-api transcribe` | `-i/--input` *(repeatable)*, `--format` (`md`, `text`, `json`, `srt`), `--out` | Transcribe audio or video to Markdown (`md`), plain text (`text`), JSON (`json`), or SRT captions (`srt`) (`gemini-3.8-flash`) |
+| | `gemini-api transcribe` | `-i/--input` *(repeatable)*, `--format` (`md`, `text`, `json`, `srt`), `--out` | Transcribe audio or video to Markdown (`md`), plain text (`text`), JSON (`json`), or SRT captions (`srt`) (`gemini-3.5-transcribe`) |
 | **Manage** | `gemini-api agent` | `run`, `status`, `cancel`, `delete-interaction`, `create`, `list`, `get`, `delete` | Run interactions with models or managed agents (`run`, `status`, `cancel`) and manage agent definitions |
 | | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
 | | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |

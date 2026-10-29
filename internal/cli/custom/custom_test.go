@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,9 @@ func TestParseTimestamp(t *testing.T) {
 		"125.5":        125500,
 		"90:15":        5415000,
 		"01:02:03,250": 3723250,
+		"0.100s":       100,
+		"12.345s":      12345,
+		"90s":          90000,
 	}
 	for in, want := range valid {
 		got, err := parseTimestamp(in)
@@ -58,9 +62,238 @@ func TestParseTimestamp(t *testing.T) {
 		}
 	}
 	for _, in := range []string{"", "soon", "1:2:3:4", "-1", "00:-5", "1::2",
-		"00:99", "00:60", "1.5:00", "00:00:61", "0:75:00", "1e3", "Inf", "0x10", "00: 05", "5."} {
+		"00:99", "00:60", "1.5:00", "00:00:61", "0:75:00", "1e3", "Inf", "0x10", "00: 05", "5.", "s", "00:05s", "5ss"} {
 		if got, err := parseTimestamp(in); err == nil {
 			t.Errorf("parseTimestamp(%q) = %d, want an error", in, got)
+		}
+	}
+}
+
+func TestFormatTimestamp(t *testing.T) {
+	for ms, want := range map[int64]string{
+		0:       "00:00",
+		1000:    "00:01",
+		3500:    "00:03.5",
+		61250:   "01:01.25",
+		3723004: "01:02:03.004",
+		-5:      "00:00",
+	} {
+		if got := formatTimestamp(ms); got != want {
+			t.Errorf("formatTimestamp(%d) = %q, want %q", ms, got, want)
+		}
+		if ms >= 0 {
+			if back, err := parseTimestamp(formatTimestamp(ms)); err != nil || back != ms {
+				t.Errorf("parseTimestamp(formatTimestamp(%d)) = %d, %v; want a round trip", ms, back, err)
+			}
+		}
+	}
+}
+
+func TestSpeakerLabels(t *testing.T) {
+	// Speakers are numbered by first appearance whatever the raw scheme: the
+	// live API's zero-based "spk:0", the documented "spk_1", or anything else.
+	labels := speakerLabels{}
+	for _, tc := range []struct{ raw, want string }{
+		{"spk:1", "Speaker 1"}, {"spk:0", "Speaker 2"}, {"spk:1", "Speaker 1"},
+		{"spk_7", "Speaker 3"}, {"", "Speaker"}, {"spk:0", "Speaker 2"},
+	} {
+		if got := labels.label(tc.raw); got != tc.want {
+			t.Errorf("label(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestSegmentsFromWords(t *testing.T) {
+	str := func(s string) *string { return &s }
+	idx := func(i int) *int { return &i }
+	word := func(text, speaker, start, end string, si, ei int) *interactions.WordInfo {
+		w := &interactions.WordInfo{Text: str(text), Speaker: str(speaker), StartOffset: str(start), EndOffset: str(end)}
+		if si >= 0 {
+			w.StartIndex, w.EndIndex = idx(si), idx(ei)
+		}
+		return w
+	}
+	all := segmentOptions{speakers: true, timestamps: true}
+	tests := []struct {
+		name  string
+		block wordBlock
+		opts  segmentOptions
+		want  []transcriptSegment
+	}{
+		{
+			name: "segment text keeps the response punctuation",
+			block: wordBlock{text: "Hello, world. Hi!", words: []*interactions.WordInfo{
+				word("Hello", "spk:0", "0s", "0.5s", 0, 5),
+				word("world", "spk:0", "0.6s", "1s", 7, 12),
+				word("Hi", "spk:1", "1.2s", "1.4s", 14, 16),
+			}},
+			opts: all,
+			want: []transcriptSegment{
+				{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:01", Content: "Hello, world."},
+				{Speaker: "Speaker 2", StartTime: "00:01.2", EndTime: "00:01.4", Content: "Hi!"},
+			},
+		},
+		{
+			name: "languages without spaces are not split apart",
+			block: wordBlock{text: "こんにちは世界。", words: []*interactions.WordInfo{
+				word("こんにちは", "spk:0", "0s", "1s", 0, 15),
+				word("世界", "spk:0", "1s", "2s", 15, 21),
+			}},
+			opts: all,
+			want: []transcriptSegment{{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:02", Content: "こんにちは世界。"}},
+		},
+		{
+			name: "missing indices fall back to joining words",
+			block: wordBlock{text: "Hello world", words: []*interactions.WordInfo{
+				word("Hello", "spk:0", "0s", "0.5s", -1, -1),
+				word("world", "spk:0", "0.6s", "1s", -1, -1),
+			}},
+			opts: all,
+			want: []transcriptSegment{{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:01", Content: "Hello world"}},
+		},
+		{
+			name: "out-of-range indices fall back to joining words",
+			block: wordBlock{text: "Hi", words: []*interactions.WordInfo{
+				word("Hi", "spk:0", "0s", "0.5s", 0, 99),
+			}},
+			opts: all,
+			want: []transcriptSegment{{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:00.5", Content: "Hi"}},
+		},
+		{
+			name: "a long pause splits one speaker's turn",
+			block: wordBlock{text: "one two", words: []*interactions.WordInfo{
+				word("one", "spk:0", "0s", "1s", 0, 3),
+				word("two", "spk:0", "3s", "4s", 4, 7),
+			}},
+			opts: all,
+			want: []transcriptSegment{
+				{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:01", Content: "one"},
+				{Speaker: "Speaker 1", StartTime: "00:03", EndTime: "00:04", Content: "two"},
+			},
+		},
+		{
+			name: "without speakers every sentence is a segment",
+			block: wordBlock{text: "A. B.", words: []*interactions.WordInfo{
+				word("A", "spk:0", "0s", "0.1s", 0, 1),
+				word("B", "spk:0", "0.2s", "0.3s", 3, 4),
+			}},
+			opts: segmentOptions{timestamps: true},
+			want: []transcriptSegment{
+				{StartTime: "00:00", EndTime: "00:00.1", Content: "A."},
+				{StartTime: "00:00.2", EndTime: "00:00.3", Content: "B."},
+			},
+		},
+		{
+			name: "captions are capped in duration",
+			block: wordBlock{text: "a b c", words: []*interactions.WordInfo{
+				word("a", "spk:0", "0s", "1s", 0, 1),
+				word("b", "spk:0", "1s", "6s", 2, 3),
+				word("c", "spk:0", "6s", "8s", 4, 5),
+			}},
+			opts: segmentOptions{speakers: true, timestamps: true, captions: true},
+			want: []transcriptSegment{
+				{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:06", Content: "a b"},
+				{Speaker: "Speaker 1", StartTime: "00:06", EndTime: "00:08", Content: "c"},
+			},
+		},
+		{
+			name: "caption width counts the speaker prefix",
+			block: wordBlock{text: strings.Repeat("a", 40) + " " + strings.Repeat("b", 40), words: []*interactions.WordInfo{
+				word(strings.Repeat("a", 40), "spk:0", "0s", "1s", 0, 40),
+				word(strings.Repeat("b", 40), "spk:0", "1s", "2s", 41, 81),
+			}},
+			opts: segmentOptions{speakers: true, timestamps: true, captions: true},
+			want: []transcriptSegment{
+				{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:01", Content: strings.Repeat("a", 40)},
+				{Speaker: "Speaker 1", StartTime: "00:01", EndTime: "00:02", Content: strings.Repeat("b", 40)},
+			},
+		},
+		{
+			name: "a sentence's last word is not stranded in its own cue",
+			block: wordBlock{text: strings.Repeat("x", 70) + " morning.", words: []*interactions.WordInfo{
+				word(strings.Repeat("x", 70), "spk:0", "0s", "6s", 0, 70),
+				word("morning", "spk:0", "6s", "7.5s", 71, 78),
+			}},
+			opts: segmentOptions{speakers: true, timestamps: true, captions: true},
+			want: []transcriptSegment{
+				{Speaker: "Speaker 1", StartTime: "00:00", EndTime: "00:07.5", Content: strings.Repeat("x", 70) + " morning."},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := segmentsFromWords([]wordBlock{tt.block}, tt.opts)
+			if err != nil {
+				t.Fatalf("segmentsFromWords: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("segmentsFromWords =\n%+v\nwant\n%+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// captionWords builds word_info annotations for text, one word per
+// space-separated token (trailing punctuation stays in the text only, as the
+// live API returns it), stepMs apart with no pauses.
+func captionWords(text, speaker string, stepMs int) []*interactions.WordInfo {
+	var words []*interactions.WordInfo
+	offset := 0
+	for i, token := range strings.Fields(text) {
+		start := strings.Index(text[offset:], token) + offset
+		bare := strings.TrimRight(token, ".,!?")
+		w := &interactions.WordInfo{
+			Text:        &bare,
+			Speaker:     &speaker,
+			StartOffset: stringPtr(fmt.Sprintf("%.3fs", float64(i*stepMs)/1000)),
+			EndOffset:   stringPtr(fmt.Sprintf("%.3fs", float64(i*stepMs+stepMs-50)/1000)),
+			StartIndex:  &start,
+		}
+		end := start + len(bare)
+		w.EndIndex = &end
+		words = append(words, w)
+		offset = start + len(token)
+	}
+	return words
+}
+
+// TestCaptionCuesStayWithinWidth pins the caption width rules: cues split at
+// sentence ends (so a sentence-final word can't drag a cue that already
+// crossed a sentence boundary past the cap), and the sentence-final overflow
+// is bounded.
+func TestCaptionCuesStayWithinWidth(t *testing.T) {
+	opts := segmentOptions{speakers: true, timestamps: true, captions: true}
+	cueWidth := func(seg transcriptSegment) int { return len(seg.Speaker) + len(": ") + len(seg.Content) }
+
+	// From a live clip: this used to render as one 89-byte cue.
+	text := "budget is tight this quarter. We may need to delay the migration by two weeks."
+	got, err := segmentsFromWords([]wordBlock{{text: text, words: captionWords(text, "spk:1", 300)}}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contents []string
+	for _, seg := range got {
+		contents = append(contents, seg.Content)
+		if w := cueWidth(seg); w > captionMaxBytes {
+			t.Errorf("cue %q is %d bytes, want <= %d", seg.Content, w, captionMaxBytes)
+		}
+	}
+	if want := []string{"budget is tight this quarter.", "We may need to delay the migration by two weeks."}; !reflect.DeepEqual(contents, want) {
+		t.Errorf("cues = %q, want %q", contents, want)
+	}
+
+	// A sentence-final word may overflow by at most captionSentenceSlackBytes.
+	long := strings.Repeat("x", 70) + " verylongsentencefinalword."
+	got, err = segmentsFromWords([]wordBlock{{text: long, words: captionWords(long, "spk:0", 300)}}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1].Content != "verylongsentencefinalword." {
+		t.Errorf("segments = %+v, want the oversized final word in its own cue", got)
+	}
+	for _, seg := range got {
+		if w := cueWidth(seg); w > captionMaxBytes+captionSentenceSlackBytes {
+			t.Errorf("cue %q is %d bytes, want <= %d", seg.Content, w, captionMaxBytes+captionSentenceSlackBytes)
 		}
 	}
 }

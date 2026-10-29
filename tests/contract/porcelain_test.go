@@ -129,7 +129,8 @@ func TestAnalyzeRemoteFilePorcelain(t *testing.T) {
 	}
 }
 
-// TestTranscribeSRTPorcelain: structured segments rendered to an SRT artifact.
+// TestTranscribeSRTPorcelain: a general model's structured segments rendered
+// to an SRT artifact.
 func TestTranscribeSRTPorcelain(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -143,7 +144,7 @@ func TestTranscribeSRTPorcelain(t *testing.T) {
 	os.WriteFile(audioPath, []byte("not really audio"), 0o644)
 	outPath := filepath.Join(dir, "out.srt")
 
-	args := append(plainArgs(server.URL), "transcribe", "--input", audioPath, "--format", "srt", "--out", outPath)
+	args := append(plainArgs(server.URL), "transcribe", "-m", "gemini-3.8-flash", "--input", audioPath, "--format", "srt", "--out", outPath)
 	result := runCLI(t, dir, nil, args...)
 	if result.err != nil {
 		t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)

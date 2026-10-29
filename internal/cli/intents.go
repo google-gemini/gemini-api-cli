@@ -72,7 +72,7 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		owner.GroupID = "understand"
 	}
 	if owner := findOwningCommand(rootCmd, "transcribe"); owner == nil {
-		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions) (gemini-3.8-flash)", "", "understand"))
+		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions) (gemini-3.5-transcribe)", "", "understand"))
 	} else {
 		owner.GroupID = "understand"
 	}

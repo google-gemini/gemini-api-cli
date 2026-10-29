@@ -223,7 +223,7 @@ func TestPorcelainHelpCopy(t *testing.T) {
 	// worded as this CLI's behavior rather than a service rule.
 	for name, wants := range map[string][]string{
 		"analyze":      {"this CLI keeps each request under 20 MB", "gemini-api files upload"},
-		"transcribe":   {"this CLI keeps each request under 20 MB", "alias: captions", "one input only"},
+		"transcribe":   {"this CLI keeps each request under 20 MB", "alias: captions", "one input only", "(video: gemini-3.8-flash)"},
 		"tts":          {"--out foo.mp3 is written as foo.wav", "An existing file is replaced", "gemini-tts-<unix-ms>-<random>"},
 		"files upload": {"2 GB per file", "(default 5m)", "<path>"},
 	} {

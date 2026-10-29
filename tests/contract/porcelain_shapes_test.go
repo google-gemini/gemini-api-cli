@@ -234,10 +234,445 @@ func TestAnalyzeRequestBody(t *testing.T) {
 	}
 }
 
+// annotatedTranscript is a gemini-3.5-transcribe response: the transcript text
+// plus word_info annotations whose byte indices point into it. The word texts
+// carry no punctuation, so the artifact only has it if segments are cut from
+// the response text.
+const annotatedTranscript = `{
+	"id": "interactions/tx-1",
+	"status": "completed",
+	"steps": [{
+		"type": "model_output",
+		"content": [{
+			"type": "text",
+			"text": "Hello world. Hi there!",
+			"annotations": [
+				{"type": "word_info", "text": "Hello", "speaker": "spk:0", "start_offset": "1s", "end_offset": "1.4s", "start_index": 0, "end_index": 5},
+				{"type": "word_info", "text": "world", "speaker": "spk:0", "start_offset": "1.5s", "end_offset": "3.5s", "start_index": 6, "end_index": 11},
+				{"type": "word_info", "text": "Hi", "speaker": "spk:1", "start_offset": "4s", "end_offset": "4.3s", "start_index": 13, "end_index": 15},
+				{"type": "word_info", "text": "there", "speaker": "spk:1", "start_offset": "4.4s", "end_offset": "5s", "start_index": 16, "end_index": 21}
+			]
+		}]
+	}]
+}`
+
+// wordInfoInteraction builds a completed transcription response from raw
+// word_info annotation JSON objects.
+func wordInfoInteraction(text string, words ...string) string {
+	return fmt.Sprintf(`{"id":"interactions/tx","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":%q,"annotations":[%s]}]}]}`,
+		text, strings.Join(words, ","))
+}
+
+// TestTranscribeDedicatedModelRequestAndArtifact pins the default
+// gemini-3.5-transcribe path: audio-only input block (no text prompt),
+// generation_config.transcription_config, word_info annotation formatting across
+// md/text/json/srt, and automatic fallback to gemini-3.8-flash for video inputs.
+func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
+	tests := []struct {
+		name              string
+		flags             []string
+		response          string
+		wantExt           string
+		wantDiarization   string
+		wantGranularities string // fmt.Sprint of the request field
+		wantArtifact      []string
+		rejectInFile      []string
+		wantExactArtifact string
+	}{
+		{
+			name:              "md default",
+			response:          annotatedTranscript,
+			wantExt:           ".md",
+			wantDiarization:   "speaker",
+			wantGranularities: "[word]",
+			wantExactArtifact: "**[00:01 - 00:03.5] Speaker 1:** Hello world.\n\n**[00:04 - 00:05] Speaker 2:** Hi there!\n",
+		},
+		{
+			name:              "md without timestamps",
+			flags:             []string{"--no-timestamps"},
+			response:          annotatedTranscript,
+			wantExt:           ".md",
+			wantDiarization:   "speaker",
+			wantGranularities: "<nil>",
+			wantExactArtifact: "**Speaker 1:** Hello world.\n\n**Speaker 2:** Hi there!\n",
+		},
+		{
+			name:              "text with speakers and timestamps",
+			flags:             []string{"--format", "text"},
+			response:          annotatedTranscript,
+			wantExt:           ".txt",
+			wantDiarization:   "speaker",
+			wantGranularities: "[word]",
+			wantExactArtifact: "[00:01 - 00:03.5] Speaker 1: Hello world.\n[00:04 - 00:05] Speaker 2: Hi there!\n",
+		},
+		{
+			name:              "text without speakers",
+			flags:             []string{"--format", "text", "--no-speakers"},
+			response:          annotatedTranscript,
+			wantExt:           ".txt",
+			wantGranularities: "[word]",
+			wantExactArtifact: "[00:01 - 00:03.5] Hello world.\n[00:04 - 00:05] Hi there!\n",
+		},
+		{
+			name:              "text without speakers or timestamps",
+			flags:             []string{"--format", "text", "--no-speakers", "--no-timestamps"},
+			response:          completedInteraction("Hello.", ""),
+			wantExt:           ".txt",
+			wantGranularities: "<nil>",
+			wantExactArtifact: "Hello.\n",
+		},
+		{
+			name:              "json",
+			flags:             []string{"--format", "json"},
+			response:          annotatedTranscript,
+			wantExt:           ".json",
+			wantDiarization:   "speaker",
+			wantGranularities: "[word]",
+			wantArtifact:      []string{`"speaker": "Speaker 1"`, `"start_time": "00:01"`, `"end_time": "00:03.5"`, `"content": "Hello world."`},
+		},
+		{
+			name:              "json without speakers or timestamps",
+			flags:             []string{"--format", "json", "--no-speakers", "--no-timestamps"},
+			response:          completedInteraction("Hello.", ""),
+			wantExt:           ".json",
+			wantGranularities: "<nil>",
+			wantArtifact:      []string{`"content": "Hello."`},
+			rejectInFile:      []string{"speaker", "start_time"},
+		},
+		{
+			name:              "srt forces timestamps and respects no-speakers",
+			flags:             []string{"--format", "srt", "--no-timestamps", "--no-speakers"},
+			response:          annotatedTranscript,
+			wantExt:           ".srt",
+			wantGranularities: "[word]",
+			wantExactArtifact: "1\n00:00:01,000 --> 00:00:03,500\nHello world.\n\n2\n00:00:04,000 --> 00:00:05,000\nHi there!\n\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := newInteractionStub(t, tt.response)
+			audio := writeTempFile(t, "clip.mp3", "audio")
+			out := filepath.Join(t.TempDir(), "out"+tt.wantExt)
+
+			args := append(plainArgs(stub.URL), "transcribe", "-i", audio, "--out", out)
+			result := runCLI(t, t.TempDir(), nil, append(args, tt.flags...)...)
+			if result.err != nil {
+				t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
+			}
+			if stub.body["model"] != "gemini-3.5-transcribe" {
+				t.Errorf("model = %v, want gemini-3.5-transcribe", stub.body["model"])
+			}
+			assertNotStored(t, stub.body)
+			if _, hasFormat := stub.body["response_format"]; hasFormat {
+				t.Errorf("dedicated transcribe model sent response_format: %v", stub.body["response_format"])
+			}
+			parts := stub.inputParts(t)
+			if len(parts) != 1 || parts[0]["type"] != "audio" || parts[0]["mime_type"] != "audio/mp3" {
+				t.Errorf("input parts = %v, want a single audio/mp3 block", parts)
+			}
+			genCfg, _ := stub.body["generation_config"].(map[string]any)
+			txCfg, _ := genCfg["transcription_config"].(map[string]any)
+			mode, _ := txCfg["mode"].(map[string]any)
+			if mode["type"] != "verbatim" {
+				t.Fatalf("transcription_config.mode = %v, want a verbatim mode object", mode)
+			}
+			if got, _ := mode["diarization_mode"].(string); got != tt.wantDiarization {
+				t.Errorf("diarization_mode = %q, want %q", got, tt.wantDiarization)
+			}
+			if got := fmt.Sprint(mode["timestamp_granularities"]); got != tt.wantGranularities {
+				t.Errorf("timestamp_granularities = %s, want %s", got, tt.wantGranularities)
+			}
+
+			artifact, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantExactArtifact != "" && string(artifact) != tt.wantExactArtifact {
+				t.Errorf("artifact = %q, want %q", artifact, tt.wantExactArtifact)
+			}
+			for _, want := range tt.wantArtifact {
+				if !strings.Contains(string(artifact), want) {
+					t.Errorf("artifact missing %q:\n%s", want, artifact)
+				}
+			}
+			for _, reject := range tt.rejectInFile {
+				if strings.Contains(string(artifact), reject) {
+					t.Errorf("artifact unexpectedly contains %q:\n%s", reject, artifact)
+				}
+			}
+		})
+	}
+
+	t.Run("video input falls back to gemini-3.8-flash when model is not explicitly set", func(t *testing.T) {
+		stub := newInteractionStub(t, completedInteraction("# Video transcript", ""))
+		video := writeTempFile(t, "clip.mp4", "video")
+		out := filepath.Join(t.TempDir(), "out.md")
+
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "--output-format", "json", "transcribe", "-i", video, "--out", out)...)
+		if result.err != nil {
+			t.Fatalf("transcribe video failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if stub.body["model"] != "gemini-3.8-flash" {
+			t.Errorf("model = %v, want the gemini-3.8-flash fallback for video", stub.body["model"])
+		}
+		parts := stub.inputParts(t)
+		if len(parts) != 2 || parts[0]["type"] != "video" || parts[1]["type"] != "text" {
+			t.Errorf("input parts = %v, want video + text prompt", parts)
+		}
+		var envelope struct {
+			Model   string `json:"model"`
+			Results []struct {
+				Model string `json:"model"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
+			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
+		}
+		if envelope.Model != "gemini-3.8-flash" || len(envelope.Results) != 1 || envelope.Results[0].Model != "gemini-3.8-flash" {
+			t.Errorf("envelope = %+v, want gemini-3.8-flash at the top level and per result", envelope)
+		}
+	})
+
+	t.Run("mixed audio and video report the model per input", func(t *testing.T) {
+		var models []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &body)
+			model, _ := body["model"].(string)
+			models = append(models, model)
+			w.Header().Set("Content-Type", "application/json")
+			if model == "gemini-3.5-transcribe" {
+				fmt.Fprint(w, annotatedTranscript)
+				return
+			}
+			fmt.Fprint(w, completedInteraction("# Video transcript", ""))
+		}))
+		defer server.Close()
+		audio := writeTempFile(t, "a.mp3", "audio")
+		video := writeTempFile(t, "b.mp4", "video")
+		out := t.TempDir()
+
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(server.URL), "--output-format", "json", "transcribe", "-i", audio, "-i", video, "--out", out+"/")...)
+		if result.err != nil {
+			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if got := fmt.Sprint(models); got != "[gemini-3.5-transcribe gemini-3.8-flash]" {
+			t.Errorf("request models = %s, want [gemini-3.5-transcribe gemini-3.8-flash]", got)
+		}
+		var envelope struct {
+			Model   string `json:"model"`
+			Results []struct {
+				Model string `json:"model"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
+			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
+		}
+		if envelope.Model != "gemini-3.5-transcribe" || len(envelope.Results) != 2 ||
+			envelope.Results[0].Model != "gemini-3.5-transcribe" || envelope.Results[1].Model != "gemini-3.8-flash" {
+			t.Errorf("envelope = %+v, want per-result models [gemini-3.5-transcribe gemini-3.8-flash]", envelope)
+		}
+	})
+
+	t.Run("explicit transcribe model rejects video input before sending a request", func(t *testing.T) {
+		stub := newInteractionStub(t, completedInteraction("unreachable", ""))
+		video := writeTempFile(t, "clip.mp4", "video")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.5-transcribe", "-i", video)...)
+		if code := exitCode(t, result); code != 2 {
+			t.Errorf("exit code = %d, want 2\nstderr: %s", code, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "only accepts audio inputs") {
+			t.Errorf("stderr = %q, want it to explain the audio-only restriction", result.stderr)
+		}
+		if stub.requests.Load() != 0 {
+			t.Errorf("sent %d requests, want 0", stub.requests.Load())
+		}
+	})
+}
+
+// TestTranscribeDedicatedModelRejectsUnusableAnnotations pins that word_info
+// the CLI cannot render is a runtime error that leaves no artifact behind.
+func TestTranscribeDedicatedModelRejectsUnusableAnnotations(t *testing.T) {
+	tests := []struct {
+		name, format, response, wantStderr string
+	}{
+		{name: "no word_info for srt", format: "srt", response: completedInteraction("Hello there.", ""),
+			wantStderr: "returned no word-level annotations"},
+		{name: "no word_info for json", format: "json", response: completedInteraction("Hello there.", ""),
+			wantStderr: "returned no word-level annotations"},
+		{name: "missing end_offset", format: "srt",
+			response:   wordInfoInteraction("hi", `{"type":"word_info","text":"hi","speaker":"spk:0","start_offset":"1s"}`),
+			wantStderr: "word 1 is missing start_offset/end_offset"},
+		{name: "bad offset", format: "json",
+			response:   wordInfoInteraction("hi", `{"type":"word_info","text":"hi","speaker":"spk:0","start_offset":"soon","end_offset":"2s"}`),
+			wantStderr: `word 1: bad start_offset "soon"`},
+		{name: "backward cue start", format: "srt",
+			response: wordInfoInteraction("a b",
+				`{"type":"word_info","text":"a","speaker":"spk:0","start_offset":"5s","end_offset":"6s"}`,
+				`{"type":"word_info","text":"b","speaker":"spk:1","start_offset":"4s","end_offset":"7s"}`),
+			wantStderr: "Re-run with --format json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := newInteractionStub(t, tt.response)
+			audio := writeTempFile(t, "clip.mp3", "audio")
+			out := filepath.Join(t.TempDir(), "out."+tt.format)
+			result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", audio, "--format", tt.format, "--out", out)...)
+			if code := exitCode(t, result); code != 1 {
+				t.Errorf("exit code = %d, want 1\nstderr: %s", code, result.stderr)
+			}
+			if !strings.Contains(result.stderr, tt.wantStderr) {
+				t.Errorf("stderr = %q, want it to contain %q", result.stderr, tt.wantStderr)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Errorf("artifact exists after a failed transcription (stat err = %v)", err)
+			}
+		})
+	}
+}
+
+// TestTranscribeDedicatedModelEdgeCases pins the transcribe-model behaviors
+// around a usable response: non-completed interactions, missing word_info for
+// md, the 30-minute hint on a rejected request, the WebM hint on the video
+// fallback, and the video fallback for structured formats.
+func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
+	t.Run("non-completed interaction is a runtime error", func(t *testing.T) {
+		response := strings.Replace(annotatedTranscript, `"status": "completed"`, `"status": "incomplete"`, 1)
+		stub := newInteractionStub(t, response)
+		audio := writeTempFile(t, "clip.mp3", "audio")
+		out := filepath.Join(t.TempDir(), "out.md")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", audio, "--out", out)...)
+		if code := exitCode(t, result); code != 1 {
+			t.Errorf("exit code = %d, want 1\nstderr: %s", code, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "status: incomplete") {
+			t.Errorf("stderr = %q, want it to name the incomplete status", result.stderr)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Errorf("artifact exists after an incomplete interaction (stat err = %v)", err)
+		}
+	})
+
+	t.Run("md without word_info warns that speakers and timestamps are missing", func(t *testing.T) {
+		stub := newInteractionStub(t, completedInteraction("Hello there.", ""))
+		audio := writeTempFile(t, "clip.mp3", "audio")
+		out := filepath.Join(t.TempDir(), "out.md")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", audio, "--out", out)...)
+		if result.err != nil {
+			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "returned no word-level annotations") {
+			t.Errorf("stderr = %q, want a warning about the missing annotations", result.stderr)
+		}
+		if artifact, _ := os.ReadFile(out); string(artifact) != "Hello there.\n" {
+			t.Errorf("artifact = %q, want the plain transcript", artifact)
+		}
+	})
+
+	t.Run("a rejected request with speakers or timestamps hints at the 30-minute cap", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}`)
+		}))
+		defer server.Close()
+		audio := writeTempFile(t, "long.mp3", "audio")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(server.URL), "transcribe", "-i", audio)...)
+		if code := exitCode(t, result); code == 0 {
+			t.Fatalf("transcribe unexpectedly succeeded\nstderr: %s", result.stderr)
+		}
+		if !strings.Contains(result.stderr, "--no-speakers --no-timestamps") {
+			t.Errorf("stderr = %q, want the 30-minute remediation hint", result.stderr)
+		}
+	})
+
+	t.Run("audio-only WebM is pointed at --mime-type audio/webm", func(t *testing.T) {
+		stub := newInteractionStub(t, completedInteraction("# Transcript", ""))
+		webm := writeTempFile(t, "voice.webm", "webm")
+		out := filepath.Join(t.TempDir(), "out.md")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", webm, "--out", out)...)
+		if result.err != nil {
+			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if stub.body["model"] != "gemini-3.8-flash" || !strings.Contains(result.stderr, "--mime-type audio/webm") {
+			t.Errorf("model = %v, stderr = %q; want the gemini-3.8-flash fallback with the WebM hint", stub.body["model"], result.stderr)
+		}
+
+		explicit := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.5-transcribe", "-i", webm)...)
+		if code := exitCode(t, explicit); code != 2 || !strings.Contains(explicit.stderr, "--mime-type audio/webm") {
+			t.Errorf("explicit model on .webm: exit %d, stderr %q; want a usage error with the WebM hint", code, explicit.stderr)
+		}
+
+		override := newInteractionStub(t, annotatedTranscript)
+		result = runCLI(t, t.TempDir(), nil, append(plainArgs(override.URL), "transcribe", "-i", webm, "--mime-type", "audio/webm", "--out", out)...)
+		if result.err != nil {
+			t.Fatalf("transcribe with --mime-type audio/webm failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		parts := override.inputParts(t)
+		if override.body["model"] != "gemini-3.5-transcribe" || parts[0]["type"] != "audio" || parts[0]["mime_type"] != "audio/webm" {
+			t.Errorf("model = %v, parts = %v; want gemini-3.5-transcribe with an audio/webm block", override.body["model"], parts)
+		}
+	})
+
+	t.Run("dry-run notes that a files/<id> video would use gemini-3.8-flash", func(t *testing.T) {
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs("https://example.invalid"), "--dry-run", "transcribe", "-i", "files/abc123")...)
+		if result.err != nil {
+			t.Fatalf("dry-run failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "if this file is a video, the live run uses gemini-3.8-flash") {
+			t.Errorf("stderr = %q, want the dry-run routing note", result.stderr)
+		}
+	})
+
+	t.Run("video fallback keeps the structured srt path", func(t *testing.T) {
+		const segments = `{"segments":[{"speaker":"Speaker 1","start_time":"00:00","end_time":"00:02","content":"Hello."}]}`
+		stub := newInteractionStub(t, completedInteraction(segments, ""))
+		video := writeTempFile(t, "clip.mp4", "video")
+		out := filepath.Join(t.TempDir(), "out.srt")
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", video, "--format", "srt", "--out", out)...)
+		if result.err != nil {
+			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		format, _ := stub.body["response_format"].(map[string]any)
+		if stub.body["model"] != "gemini-3.8-flash" || format["mime_type"] != "application/json" {
+			t.Errorf("model = %v, response_format = %v; want gemini-3.8-flash with the JSON schema", stub.body["model"], format)
+		}
+		if artifact, _ := os.ReadFile(out); !strings.Contains(string(artifact), "1\n00:00:00,000 --> 00:00:02,000\nSpeaker 1: Hello.") {
+			t.Errorf("artifact = %q, want an SRT cue from the structured segments", artifact)
+		}
+	})
+}
+
+// TestModelsCatalogListsTranscribe pins gemini-3.5-transcribe in the offline
+// model catalog, under Speech.
+func TestModelsCatalogListsTranscribe(t *testing.T) {
+	human := runCLI(t, t.TempDir(), nil, "models")
+	if human.err != nil {
+		t.Fatalf("models failed: %v\nstderr: %s", human.err, human.stderr)
+	}
+	speech := human.stdout[strings.Index(human.stdout, "Speech:"):]
+	if i := strings.Index(speech, "\n\n"); i >= 0 {
+		speech = speech[:i]
+	}
+	if !strings.Contains(speech, "gemini-3.5-transcribe") {
+		t.Errorf("Speech group does not list gemini-3.5-transcribe:\n%s", human.stdout)
+	}
+
+	machine := runCLI(t, t.TempDir(), nil, "models", "--output-format", "json")
+	if machine.err != nil {
+		t.Fatalf("models --output-format json failed: %v\nstderr: %s", machine.err, machine.stderr)
+	}
+	if !strings.Contains(machine.stdout, `"gemini-3.5-transcribe"`) || !strings.Contains(machine.stdout, `"Speech"`) {
+		t.Errorf("JSON catalog is missing gemini-3.5-transcribe in Speech:\n%s", machine.stdout)
+	}
+}
+
 // TestTranscribeRequestAndArtifact pins, per --format and the speaker/timestamp
-// switches: whether the request enforces the transcript JSON schema through
-// response_format, which segment keys the schema requires, what the prompt
-// asks for, and the artifact written.
+// switches on non-transcribe multimodal models: whether the request enforces
+// the transcript JSON schema through response_format, which segment keys the
+// schema requires, what the prompt asks for, and the artifact written.
 func TestTranscribeRequestAndArtifact(t *testing.T) {
 	const segments = `{"segments":[{"speaker":"Speaker 1","start_time":"00:01","end_time":"00:03.5","content":"Hello."}]}`
 	const bareSegments = `{"segments":[{"content":"Hello."}]}`
@@ -298,7 +733,7 @@ func TestTranscribeRequestAndArtifact(t *testing.T) {
 			audio := writeTempFile(t, "clip.mp3", "audio")
 			out := filepath.Join(t.TempDir(), "out"+tt.wantExt)
 
-			args := append(plainArgs(stub.URL), "transcribe", "-i", audio, "--out", out)
+			args := append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.8-flash", "-i", audio, "--out", out)
 			result := runCLI(t, t.TempDir(), nil, append(args, tt.flags...)...)
 			if result.err != nil {
 				t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
@@ -364,8 +799,9 @@ func TestTranscribeRequestAndArtifact(t *testing.T) {
 	}
 }
 
-// TestTranscribeRejectsUnusableTranscript pins that a structured transcript the
-// CLI cannot render is a runtime error and leaves no artifact behind.
+// TestTranscribeRejectsUnusableTranscript pins that a structured transcript a
+// general model returns which the CLI cannot render is a runtime error and
+// leaves no artifact behind.
 func TestTranscribeRejectsUnusableTranscript(t *testing.T) {
 	tests := []struct {
 		name, response, wantStderr string
@@ -383,7 +819,7 @@ func TestTranscribeRejectsUnusableTranscript(t *testing.T) {
 			stub := newInteractionStub(t, completedInteraction(tt.response, ""))
 			audio := writeTempFile(t, "clip.mp3", "audio")
 			out := filepath.Join(t.TempDir(), "out.srt")
-			result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-i", audio, "--format", "srt", "--out", out)...)
+			result := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.8-flash", "-i", audio, "--format", "srt", "--out", out)...)
 			if code := exitCode(t, result); code != 1 {
 				t.Errorf("exit code = %d, want 1", code)
 			}
