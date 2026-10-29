@@ -724,7 +724,10 @@ func (p *DirectCommandProvisioner) ProvisionWorker(ctx context.Context, req Work
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("worker provision command failed (%v): %s", err, truncateCommandOutput(stderr.buf.String()))
+		if msg := truncateCommandOutput(stderr.buf.String()); msg != "" {
+			return nil, fmt.Errorf("worker provision command failed (%w): %s", err, msg)
+		}
+		return nil, fmt.Errorf("worker provision command failed: %w", err)
 	}
 	if stdout.truncated {
 		return nil, &PathError{Kind: PathErrInternal, Message: "worker provision command output exceeded maximum size"}
@@ -773,7 +776,10 @@ func (p *DirectCommandProvisioner) SuspendWorker(ctx context.Context, req Worker
 	stderr := &CappedBuffer{MaxBytes: MaxBashOutputBytes}
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("worker suspend command failed (%v): %s", err, truncateCommandOutput(stderr.buf.String()))
+		if msg := truncateCommandOutput(stderr.buf.String()); msg != "" {
+			return fmt.Errorf("worker suspend command failed (%w): %s", err, msg)
+		}
+		return fmt.Errorf("worker suspend command failed: %w", err)
 	}
 	return nil
 }

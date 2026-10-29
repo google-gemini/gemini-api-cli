@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -403,6 +404,7 @@ func TestDirectCommandProvisionerAndConfigConversion(t *testing.T) {
 		"if [ \"$1\" != \"--prov-arg\" ] || [ -n \"$GEMINI_API_KEY\" ]; then echo \"bad prov env or arg\" >&2; exit 8; fi\n" +
 		"cat > " + provStdin + "\n" +
 		"if grep -q '\"env_fail\"' " + provStdin + "; then echo \"prov_stderr_detail\" >&2; exit 2; fi\n" +
+		"if grep -q '\"env_fail_quiet\"' " + provStdin + "; then exit 3; fi\n" +
 		"echo '{\"uri\":\"  http://127.0.0.1:9001  \",\"worker_id\":\"w-99\",\"headers\":{\"X-Auth\":\"ok\"}}'\n"
 	if err := os.WriteFile(provScript, []byte(provBody), 0o755); err != nil {
 		t.Fatalf("WriteFile(provScript) failed: %v", err)
@@ -411,7 +413,8 @@ func TestDirectCommandProvisionerAndConfigConversion(t *testing.T) {
 	suspBody := "#!/bin/sh\n" +
 		"if [ \"$1\" != \"--susp-arg\" ] || [ -n \"$GEMINI_API_KEY\" ]; then echo \"bad susp env or arg\" >&2; exit 8; fi\n" +
 		"cat > " + suspLog + "\n" +
-		"if grep -q '\"env_susp_fail\"' " + suspLog + "; then echo \"susp_stderr_detail\" >&2; exit 2; fi\n"
+		"if grep -q '\"env_susp_fail\"' " + suspLog + "; then echo \"susp_stderr_detail\" >&2; exit 2; fi\n" +
+		"if grep -q '\"env_susp_quiet\"' " + suspLog + "; then exit 4; fi\n"
 	if err := os.WriteFile(suspScript, []byte(suspBody), 0o755); err != nil {
 		t.Fatalf("WriteFile(suspScript) failed: %v", err)
 	}
@@ -438,8 +441,12 @@ func TestDirectCommandProvisionerAndConfigConversion(t *testing.T) {
 	if err := json.Unmarshal(rawProvIn, &gotProvReq); err != nil || gotProvReq.SchemaVersion != WorkerProvisionSchemaVersionV1 || gotProvReq.EnvironmentID != "env_d1" || gotProvReq.InteractionID != "int_d1" {
 		t.Errorf("ProvisionWorker stdin = (%+v, %v)", gotProvReq, err)
 	}
-	if _, err := dcp.ProvisionWorker(t.Context(), WorkerProvisionRequest{EnvironmentID: "env_fail"}); err == nil || !strings.Contains(err.Error(), "prov_stderr_detail") {
-		t.Errorf("ProvisionWorker(env_fail) = %v, want prov_stderr_detail", err)
+	var exitErr *exec.ExitError
+	if _, err := dcp.ProvisionWorker(t.Context(), WorkerProvisionRequest{EnvironmentID: "env_fail"}); err == nil || !strings.Contains(err.Error(), "prov_stderr_detail") || !errors.As(err, &exitErr) {
+		t.Errorf("ProvisionWorker(env_fail) = %v, want prov_stderr_detail & ExitError", err)
+	}
+	if _, err := dcp.ProvisionWorker(t.Context(), WorkerProvisionRequest{EnvironmentID: "env_fail_quiet"}); err == nil || !errors.As(err, &exitErr) || strings.Contains(err.Error(), "()") {
+		t.Errorf("ProvisionWorker(env_fail_quiet) = %v, want wrapped ExitError without ()", err)
 	}
 
 	if err := dcp.SuspendWorker(t.Context(), WorkerSuspendRequest{}); err == nil {
@@ -467,8 +474,11 @@ func TestDirectCommandProvisionerAndConfigConversion(t *testing.T) {
 	if err := dcp.SuspendWorker(t.Context(), WorkerSuspendRequest{WorkerID: "w-only"}); err != nil {
 		t.Errorf("SuspendWorker(WorkerID only) = %v, want nil", err)
 	}
-	if err := dcp.SuspendWorker(t.Context(), WorkerSuspendRequest{EnvironmentID: "env_susp_fail", WorkerID: "w-99"}); err == nil || !strings.Contains(err.Error(), "susp_stderr_detail") {
-		t.Errorf("SuspendWorker(env_susp_fail) = %v, want susp_stderr_detail", err)
+	if err := dcp.SuspendWorker(t.Context(), WorkerSuspendRequest{EnvironmentID: "env_susp_fail", WorkerID: "w-99"}); err == nil || !strings.Contains(err.Error(), "susp_stderr_detail") || !errors.As(err, &exitErr) {
+		t.Errorf("SuspendWorker(env_susp_fail) = %v, want susp_stderr_detail & ExitError", err)
+	}
+	if err := dcp.SuspendWorker(t.Context(), WorkerSuspendRequest{EnvironmentID: "env_susp_quiet", WorkerID: "w-99"}); err == nil || !errors.As(err, &exitErr) || strings.Contains(err.Error(), "()") {
+		t.Errorf("SuspendWorker(env_susp_quiet) = %v, want wrapped ExitError without ()", err)
 	}
 
 	if ConvertToProvisionEnvironmentConfig(nil) != nil {
