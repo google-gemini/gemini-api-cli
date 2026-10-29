@@ -586,6 +586,65 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 		t.Errorf("wRecvCustomNonRetry.ExecuteLease() = %v, connectCalls=%d, want error after 2 attempts (attempt 1 retryable, attempt 2 non-retryable)", err, connectCalls.Load())
 	}
 
+	// Verify forward progress (advancing ackSeq) resets the reconnect attempt budget when MaxReconnectAttempts > 0,
+	// and stalls still fail once consecutive unproductive reconnects exceed MaxReconnectAttempts.
+	var progressAttempt atomic.Int64
+	progressClient := &fakeEnvClient{
+		connectFn: func(_ context.Context, req *ConnectInteractionRequest) (InteractionStream, error) {
+			n := progressAttempt.Add(1)
+			return &scriptedStream{
+				recvFn: func(call int) (*ServerEventBatch, error) {
+					if call > 1 {
+						return nil, io.EOF
+					}
+					if req.InteractionID == "int_progress_complete" {
+						if n <= 5 {
+							return &ServerEventBatch{
+								Events:               []*ServerEvent{{SeqNum: n}},
+								ReconnectionRequired: &ReconnectionRequiredEvent{},
+							}, nil
+						}
+						return &ServerEventBatch{
+							Events:               []*ServerEvent{{SeqNum: n}},
+							InteractionCompleted: &InteractionCompletedEvent{},
+						}, nil
+					}
+					// For "int_progress_then_stall", advance on attempt 1, then stall (no new SeqNum) on subsequent reconnects.
+					if n == 1 {
+						return &ServerEventBatch{
+							Events:               []*ServerEvent{{SeqNum: 1}},
+							ReconnectionRequired: &ReconnectionRequiredEvent{},
+						}, nil
+					}
+					return &ServerEventBatch{
+						ReconnectionRequired: &ReconnectionRequiredEvent{},
+					}, nil
+				},
+			}, nil
+		},
+	}
+	wProgress := NewPullWorker(PullWorkerConfig{
+		Client:               progressClient,
+		MaxReconnectAttempts: 2,
+		Logger:               log.New(io.Discard, "", 0),
+	})
+	if err := wProgress.ExecuteLease(t.Context(), &LeasedInteraction{InteractionID: "int_progress_complete", EnvironmentKey: "ek"}); err != nil || progressAttempt.Load() != 6 {
+		t.Errorf("wProgress.ExecuteLease(int_progress_complete) = %v, attempts=%d, want nil after 6 productive streams", err, progressAttempt.Load())
+	}
+	progressAttempt.Store(0)
+	if err := wProgress.ExecuteLease(t.Context(), &LeasedInteraction{InteractionID: "int_progress_then_stall", EnvironmentKey: "ek"}); err == nil || !strings.Contains(err.Error(), "exceeded max stream reconnect attempts (2)") || progressAttempt.Load() != 4 {
+		t.Errorf("wProgress.ExecuteLease(int_progress_then_stall) = %v, attempts=%d, want exceeded max stream reconnect attempts (2) after 1 productive + 3 unproductive streams", err, progressAttempt.Load())
+	}
+	progressAttempt.Store(0)
+	wProgressNoRetries := NewPullWorker(PullWorkerConfig{
+		Client:    progressClient,
+		NoRetries: true,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+	if err := wProgressNoRetries.ExecuteLease(t.Context(), &LeasedInteraction{InteractionID: "int_progress_complete", EnvironmentKey: "ek"}); err == nil || progressAttempt.Load() != 1 {
+		t.Errorf("wProgressNoRetries.ExecuteLease() = %v, attempts=%d, want error after 1 stream when NoRetries=true", err, progressAttempt.Load())
+	}
+
 	// 3. TrackActiveLeases=true mode: RegisterEnvironment + active lease renewal + rotated token on reconnect + lost-lease cancellation!
 	streamStarted := make(chan struct{})
 	streamCanceled := make(chan struct{})

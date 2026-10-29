@@ -516,6 +516,9 @@ func (w *PullWorker) ExecuteLease(ctx context.Context, lease *LeasedInteraction)
 
 		reconnect, runErr := w.consumeStream(ctx, stream, state)
 		_ = stream.Close()
+		if w.maxReconnects > 0 && state.ackSeq() > ack {
+			attempt = -1
+		}
 		if runErr != nil {
 			if !w.cfg.RetryConnectErrors || w.isNonRetryable(runErr) || attempt >= w.maxReconnects {
 				return runErr
@@ -523,7 +526,7 @@ func (w *PullWorker) ExecuteLease(ctx context.Context, lease *LeasedInteraction)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(RetryBackoff(200*time.Millisecond, attempt+1)):
+			case <-time.After(RetryBackoff(200*time.Millisecond, max(attempt+1, 1))):
 				continue
 			}
 		}
