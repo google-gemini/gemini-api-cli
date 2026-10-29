@@ -28,12 +28,75 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
 type tableTestRow struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+}
+
+type transformedPageItem struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+}
+
+type transformedPageContent struct {
+	Data []transformedPageItem `json:"data"`
+}
+
+type transformedPage struct {
+	HTTPMeta struct{ Response *http.Response }
+	Object   *transformedPageContent
+}
+
+func TestPaginatedResultKeepsTransformedItems(t *testing.T) {
+	newPage := func() *transformedPage {
+		item := transformedPageItem{Name: "widget", DisplayName: "Widget"}
+		page := &transformedPage{Object: &transformedPageContent{Data: []transformedPageItem{item}}}
+		page.HTTPMeta.Response = &http.Response{Body: io.NopCloser(strings.NewReader(`{"data":[{"name":"widget"}]}`))}
+		return page
+	}
+
+	for name, tc := range map[string]struct {
+		flag, value string
+		transformed bool
+		want        string
+	}{
+		"json transformed":   {flag: "output-format", value: "json", transformed: true, want: `"display_name":"Widget"`},
+		"jq transformed":     {flag: "jq", value: ".display_name", transformed: true, want: `"Widget"`},
+		"json untransformed": {flag: "output-format", value: "json", want: `{"name":"widget"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			cmd.Flags().String("output-format", "", "")
+			cmd.Flags().String("jq", "", "")
+			cmd.Flags().String("color", "never", "")
+			if err := cmd.Flags().Set(tc.flag, tc.value); err != nil {
+				t.Fatal(err)
+			}
+			cmd.SetContext(context.Background())
+			var stdout bytes.Buffer
+			cmd.SetOut(&stdout)
+
+			page := newPage()
+			if err := PaginatedResult(cmd, page, "Object", "Data", 0, PaginationProbe{Results: "$.data", Transformed: tc.transformed}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Fatalf("expected %s in output, got:\n%s", tc.want, stdout.String())
+			}
+			if tc.transformed {
+				rest, _ := io.ReadAll(page.HTTPMeta.Response.Body)
+				if string(rest) != `{"data":[{"name":"widget"}]}` {
+					t.Fatalf("raw body must stay readable for continuation, got %q", rest)
+				}
+			} else if strings.Contains(stdout.String(), "Widget") {
+				t.Fatalf("untransformed pages should print the response bytes, got:\n%s", stdout.String())
+			}
+		})
+	}
 }
 
 func TestPrintTableDerivesColumnsFromFirstStructElement(t *testing.T) {
@@ -637,6 +700,50 @@ func TestUnclassifiedRenderersKeepPollHandle(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAsyncFailureScrubsResolvedCredentials(t *testing.T) {
+	t.Cleanup(config.Reset)
+	config.RegisterSecret("example-secret")
+	cmd := &cobra.Command{}
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+
+	runtimeErr := &asyncRuntimeError{reason: ReasonCLIAsyncFailed, message: `job reached failure state "failed": invalid key example-secret`, id: "handle", resume: "wait handle"}
+	if err := renderAsyncError(cmd, runtimeErr); !IsRendered(err) {
+		t.Fatalf("expected the async error to be rendered, got %v", err)
+	}
+	if strings.Contains(stderr.String(), "example-secret") || !strings.Contains(stderr.String(), "invalid key [REDACTED]") {
+		t.Fatalf("expected the credential to be masked, got:\n%s", stderr.String())
+	}
+}
+
+func TestScrubJSONDocumentMasksDecodedValues(t *testing.T) {
+	t.Cleanup(config.Reset)
+	config.RegisterSecret(`example"secret`)
+	config.RegisterSecret("123456")
+	data, err := json.MarshalIndent(map[string]interface{}{
+		"error":    `401: "invalid key example\"secret"`,
+		"echo":     json.Number("123456"),
+		"decimal":  json.Number("123456.0"),
+		"exponent": json.Number("1.23456e5"),
+		"other":    json.Number("1234567"),
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scrubbed := scrubJSONDocument(data)
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(scrubbed, &decoded); err != nil {
+		t.Fatalf("scrubbed document is not valid JSON: %v\n%s", err, scrubbed)
+	}
+	if strings.Contains(string(scrubbed), "secret") {
+		t.Fatalf("nested escaped credential leaked:\n%s", scrubbed)
+	}
+	if decoded["echo"] != "[REDACTED]" || decoded["decimal"] != "[REDACTED]" || decoded["exponent"] != "[REDACTED]" || decoded["other"] != float64(1234567) {
+		t.Fatalf("unexpected numeric masking:\n%s", scrubbed)
 	}
 }
 
