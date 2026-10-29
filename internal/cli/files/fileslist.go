@@ -91,12 +91,13 @@ func runFilesListCmd(cmd *cobra.Command, args []string) error {
 			return output.Error(cmd, err)
 		}
 		return output.PaginatedResult(cmd, res, "ListFilesResponse", "", maxPages, output.PaginationProbe{
-			Type:       "cursor",
-			CursorKind: "string",
-			NextCursor: "$.nextPageToken",
-			NextURL:    "",
-			Results:    "",
-			HasLimit:   false,
+			Type:        "cursor",
+			CursorKind:  "string",
+			NextCursor:  "$.nextPageToken",
+			NextURL:     "",
+			Results:     "",
+			HasLimit:    false,
+			Transformed: false,
 		})
 	}
 	if output.WantsRawJSON(cmd) {

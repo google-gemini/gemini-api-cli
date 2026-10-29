@@ -19,7 +19,10 @@
 package output
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -37,6 +40,9 @@ type PaginationProbe struct {
 	NextURL    string
 	Results    string
 	HasLimit   bool
+	// Transformed marks operations whose response is transformed after
+	// decoding, so pages must render from the typed value, not the wire bytes.
+	Transformed bool
 }
 
 type paginationContinuation struct {
@@ -63,6 +69,7 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 	colorize := ShouldColorize(colorFlag)
 	jqExpr, _ := flagutil.GetStringFlag(cmd, "jq")
 	jqRaw := jqRawOutput(cmd)
+	rawJSON := WantsRawJSON(cmd) && !probe.Transformed
 
 	first := true
 	pageCount := 0
@@ -95,8 +102,19 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 			}
 			v = v.Elem()
 		}
+		handledRaw := false
+		if rawJSON {
+			var err error
+			handledRaw, err = outputRawPage(out, page, resultsFieldName != "", probe.Results, jqExpr, colorize, jqRaw)
+			if err != nil {
+				return err
+			}
+			if handledRaw {
+				first = false
+			}
+		}
 		content := extractResultContent(page)
-		if content != nil {
+		if content != nil && !handledRaw {
 			if resultsFieldName != "" {
 				// Stream individual items from the results array
 				contentVal := v.FieldByName(contentFieldName)
@@ -157,6 +175,70 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 		}
 	}
 	return flushRows(false)
+}
+
+// outputRawPage prints a page from its response bytes so fields the SDK does
+// not model survive. It returns false when the page cannot be read that way
+// and the typed path should render it instead.
+func outputRawPage(out io.Writer, page interface{}, itemsOnly bool, resultsPath, jqExpr string, colorize, jqRaw bool) (bool, error) {
+	rawBody := peekRawBody(page)
+	if len(rawBody) == 0 || !json.Valid(rawBody) {
+		return false, nil
+	}
+	if !itemsOnly {
+		return true, outputRawItem(out, rawBody, jqExpr, colorize, jqRaw)
+	}
+	if resultsPath == "" {
+		return false, nil
+	}
+	root, err := ajson.Unmarshal(rawBody)
+	if err != nil {
+		return false, nil
+	}
+	results, err := ajson.Eval(root, resultsPath)
+	if err != nil {
+		return false, nil
+	}
+	if results.IsNull() {
+		return true, nil
+	}
+	if !results.IsArray() {
+		return false, nil
+	}
+	items, err := results.GetArray()
+	if err != nil {
+		return false, nil
+	}
+	sources := make([][]byte, 0, len(items))
+	for _, item := range items {
+		source := item.Source()
+		if source == nil {
+			return false, nil
+		}
+		sources = append(sources, source)
+	}
+	for _, source := range sources {
+		if err := outputRawItem(out, source, jqExpr, colorize, jqRaw); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
+func outputRawItem(out io.Writer, raw []byte, jqExpr string, colorize, jqRaw bool) error {
+	if jqExpr != "" {
+		var data interface{}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return fmt.Errorf("failed to parse response JSON for jq: %w", err)
+		}
+		return outputOneItem(out, data, "json", jqExpr, colorize, jqRaw, false)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, raw); err != nil {
+		return fmt.Errorf("failed to parse response JSON: %w", err)
+	}
+	printJSON(out, compacted.Bytes(), colorize)
+	return nil
 }
 
 func extractPaginationContinuation(res interface{}, probe PaginationProbe) (paginationContinuation, bool) {
