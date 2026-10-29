@@ -105,12 +105,13 @@ func runListExecutionsCmd(cmd *cobra.Command, args []string) error {
 			return output.Error(cmd, err)
 		}
 		return output.PaginatedResult(cmd, res, "ListTriggerExecutionsResponse", "", maxPages, output.PaginationProbe{
-			Type:       "cursor",
-			CursorKind: "string",
-			NextCursor: "$.next_page_token",
-			NextURL:    "",
-			Results:    "",
-			HasLimit:   false,
+			Type:        "cursor",
+			CursorKind:  "string",
+			NextCursor:  "$.next_page_token",
+			NextURL:     "",
+			Results:     "",
+			HasLimit:    false,
+			Transformed: false,
 		})
 	}
 	if output.WantsRawJSON(cmd) {

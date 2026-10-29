@@ -23,11 +23,16 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/spf13/cobra"
@@ -137,6 +142,10 @@ func Reset() {
 	envPrefix = ""
 	initErr = nil
 	initialized = false
+
+	secretsMu.Lock()
+	secretValues = nil
+	secretsMu.Unlock()
 }
 
 // GetString returns a configuration value with priority: env var > config file.
@@ -192,6 +201,105 @@ func GetConfigValue(key string) string {
 	return ""
 }
 
+// Shorter values are not scrubbed: masking them would mangle ordinary text.
+const minScrubbedSecretLength = 6
+
+var (
+	secretsMu    sync.RWMutex
+	secretValues []string
+)
+
+// RegisterSecret records a resolved credential, including its JSON-escaped and
+// query-escaped forms, so ScrubSecrets can mask it in diagnostics.
+func RegisterSecret(value string) {
+	if utf8.RuneCountInString(value) < minScrubbedSecretLength {
+		return
+	}
+	forms := []string{value}
+	for _, escapeHTML := range []bool{true, false} {
+		var buf strings.Builder
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(escapeHTML)
+		if enc.Encode(value) == nil {
+			escaped := strings.TrimSuffix(buf.String(), "\n")
+			forms = append(forms, escaped[1:len(escaped)-1])
+		}
+	}
+	forms = append(forms, url.QueryEscape(value), url.PathEscape(value))
+
+	secretsMu.Lock()
+	defer secretsMu.Unlock()
+	for _, form := range forms {
+		known := false
+		for _, existing := range secretValues {
+			if existing == form {
+				known = true
+				break
+			}
+		}
+		if !known {
+			secretValues = append(secretValues, form)
+		}
+	}
+	sort.SliceStable(secretValues, func(i, j int) bool {
+		return len(secretValues[i]) > len(secretValues[j])
+	})
+}
+
+// ScrubSecrets replaces every registered credential in s with [REDACTED].
+func ScrubSecrets(s string) string {
+	secretsMu.RLock()
+	defer secretsMu.RUnlock()
+	for _, secret := range secretValues {
+		s = strings.ReplaceAll(s, secret, "[REDACTED]")
+	}
+	return s
+}
+
+// ScrubSecretValues masks registered credentials inside a decoded JSON value.
+// A number equal to a credential becomes the string [REDACTED], so the value
+// still marshals to valid JSON.
+func ScrubSecretValues(v interface{}) interface{} {
+	switch val := v.(type) {
+	case string:
+		return ScrubSecrets(val)
+	case json.Number:
+		if n, ok := new(big.Rat).SetString(val.String()); ok && isRegisteredNumber(n) {
+			return "[REDACTED]"
+		}
+	case float64:
+		if n := new(big.Rat); n.SetFloat64(val) != nil && isRegisteredNumber(n) {
+			return "[REDACTED]"
+		}
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, child := range val {
+			out[ScrubSecrets(k)] = ScrubSecretValues(child)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, child := range val {
+			out[i] = ScrubSecretValues(child)
+		}
+		return out
+	}
+	return v
+}
+
+// isRegisteredNumber compares numerically, so 123456.0 and 1.23456e5 match a
+// registered 123456.
+func isRegisteredNumber(n *big.Rat) bool {
+	secretsMu.RLock()
+	defer secretsMu.RUnlock()
+	for _, secret := range secretValues {
+		if s, ok := new(big.Rat).SetString(secret); ok && s.Cmp(n) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ResolveCredential resolves a credential value using the priority chain:
 // flag > env var > config file > flag default. Returns the value and its source
 // ("flag", "env", "config", "default", or "unset").
@@ -213,6 +321,16 @@ func ResolveCredential(cmd *cobra.Command, flagName string, hasSchemaDefault boo
 	}
 	return "", "unset"
 }
+func registeredSecret(value, source string) (string, string) {
+	RegisterSecret(value)
+	return value, source
+}
+
+// ResolveTokenCredential resolves a string token variant of a union
+// credential like ResolveCredential, recording it for ScrubSecrets.
+func ResolveTokenCredential(cmd *cobra.Command, flagName string) (value, source string) {
+	return registeredSecret(ResolveCredential(cmd, flagName, false))
+}
 
 // ResolveSecurityCredential resolves a security credential using the priority chain:
 // flag > env var > OS keychain > config file.
@@ -224,10 +342,10 @@ func ResolveSecurityCredential(cmd *cobra.Command, flagName string) (value, sour
 		return val, source
 	}
 	if val := GetKeyringValue(flagName); val != "" {
-		return val, "keyring"
+		return registeredSecret(val, "keyring")
 	}
 	if val := GetConfigValue(flagName); val != "" {
-		return val, "config"
+		return registeredSecret(val, "config")
 	}
 	return "", "unset"
 }
@@ -236,10 +354,10 @@ func ResolveSecurityCredential(cmd *cobra.Command, flagName string) (value, sour
 // flag or env var only, without touching the OS keychain or the config file.
 func ResolveExplicitSecurityCredential(cmd *cobra.Command, flagName string) (value, source string) {
 	if val, changed := flagutil.GetStringFlag(cmd, flagName); changed && val != "" {
-		return val, "flag"
+		return registeredSecret(val, "flag")
 	}
 	if val := GetEnvValue(flagName); val != "" {
-		return val, "env"
+		return registeredSecret(val, "env")
 	}
 	return "", "unset"
 }
@@ -252,11 +370,11 @@ func ResolveRequestSecurityCredential(cmd *cobra.Command, flagName string) (valu
 	dryRun, _ := flagutil.GetBoolFlag(cmd, "dry-run")
 	if !dryRun {
 		if val := GetKeyringValue(flagName); val != "" {
-			return val, "keyring"
+			return registeredSecret(val, "keyring")
 		}
 	}
 	if val := GetConfigValue(flagName); val != "" {
-		return val, "config"
+		return registeredSecret(val, "config")
 	}
 	return "", "unset"
 }
