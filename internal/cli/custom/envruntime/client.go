@@ -1134,6 +1134,7 @@ type HeartbeatStream struct {
 	hbCancel  context.CancelFunc
 	sendMu    sync.Mutex
 	ackSeq    atomic.Int64
+	closing   atomic.Bool
 	stoppedWg sync.WaitGroup
 }
 
@@ -1160,6 +1161,10 @@ func NewHeartbeatStream(ctx context.Context, inner InteractionStream, interval t
 				return
 			case <-ticker.C:
 				hs.sendMu.Lock()
+				if hs.closing.Load() {
+					hs.sendMu.Unlock()
+					return
+				}
 				err := SendHeartbeat(hbCtx, hs.inner, hs.ackSeq.Load())
 				hs.sendMu.Unlock()
 				if err != nil {
@@ -1197,15 +1202,18 @@ func (s *HeartbeatStream) Recv(ctx context.Context) (*ServerEventBatch, error) {
 
 // CloseSend stops the background heartbeat ticker and half-closes the underlying stream.
 func (s *HeartbeatStream) CloseSend() error {
-	s.hbCancel()
-	s.stoppedWg.Wait()
+	s.closing.Store(true)
 	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
-	return s.inner.CloseSend()
+	s.hbCancel()
+	err := s.inner.CloseSend()
+	s.sendMu.Unlock()
+	s.stoppedWg.Wait()
+	return err
 }
 
 // Close stops the background heartbeat ticker and closes the underlying stream.
 func (s *HeartbeatStream) Close() error {
+	s.closing.Store(true)
 	s.hbCancel()
 	err := s.inner.Close()
 	s.stoppedWg.Wait()

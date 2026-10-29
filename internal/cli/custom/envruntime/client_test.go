@@ -666,6 +666,27 @@ func TestHTTPClientLeaseHeartbeatPreviewAndStream(t *testing.T) {
 			t.Errorf("HeartbeatStream (useClose=%v) continued sending after stop: before=%d after=%d", useClose, afterStopCount, sendCalls.Load())
 		}
 	}
+	reqPr, reqPw := io.Pipe()
+	respPr, respPw := io.Pipe()
+	hbHalf := NewHeartbeatStream(t.Context(), &grpcInteractionStream{resp: &http.Response{Body: respPr}, pw: reqPw}, 5*time.Millisecond, 7)
+	closeSendErr := make(chan error, 1)
+	go func() {
+		_, _ = reqPr.Read(make([]byte, 1))
+		time.Sleep(12 * time.Millisecond)
+		closeSendErr <- hbHalf.CloseSend()
+	}()
+	for !hbHalf.closing.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if _, err := io.ReadFull(reqPr, make([]byte, 6)); err != nil {
+		t.Fatalf("ReadFull(in-flight heartbeat remainder) = %v", err)
+	}
+	if n, err := reqPr.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) || <-closeSendErr != nil {
+		t.Errorf("reqPr.Read after CloseSend() = (%d, %v), want (0, io.EOF)", n, err)
+	}
+	_ = respPw.Close()
+	_ = hbHalf.Close()
 
 	var noDebugBuf bytes.Buffer
 	noDebugClient := NewHTTPClient(HTTPClientConfig{
