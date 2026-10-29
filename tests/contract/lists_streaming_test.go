@@ -382,6 +382,22 @@ func listCommandPaginationCases() []listCommandPaginationCase {
 			},
 		},
 		{
+			name:          "voices list",
+			commandPath:   "gemini-api voices list",
+			args:          []string{"voices", "list"},
+			wantPath:      "/v1beta/voices",
+			pageSizeParam: "page_size",
+			tokenParam:    "page_token",
+			nextTokenKey:  "next_page_token",
+			itemsKey:      "voices",
+			item: func(page int) map[string]any {
+				return map[string]any{
+					"id":   fmt.Sprintf("voice_%d", page),
+					"type": "prompted",
+				}
+			},
+		},
+		{
 			name:          "webhooks list",
 			commandPath:   "gemini-api webhooks list",
 			args:          []string{"webhooks", "list"},

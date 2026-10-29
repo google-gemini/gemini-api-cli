@@ -103,6 +103,10 @@ func register(root *cobra.Command) error {
 		return fmt.Errorf("models get: %w", err)
 	}
 
+	if findChild(root, "voices") == nil {
+		root.AddCommand(newVoicesCmd())
+	}
+
 	environments := findChild(root, "environments")
 	if environments == nil {
 		return fmt.Errorf("expected the generated environments group to mount porcelain under")
