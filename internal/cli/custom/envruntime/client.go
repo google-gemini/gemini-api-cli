@@ -1191,9 +1191,21 @@ func (s *HeartbeatStream) Send(ctx context.Context, batch *ClientEventBatch) err
 	return s.inner.Send(ctx, batch)
 }
 
-// Recv reads the next ServerEventBatch from the underlying stream.
+// Recv reads the next ServerEventBatch from the underlying stream and advances the tracked AckOutputSeqNum.
 func (s *HeartbeatStream) Recv(ctx context.Context) (*ServerEventBatch, error) {
 	batch, err := s.inner.Recv(ctx)
+	if batch != nil {
+		for _, ev := range batch.Events {
+			if ev != nil && ev.SeqNum > 0 {
+				for {
+					cur := s.ackSeq.Load()
+					if ev.SeqNum <= cur || s.ackSeq.CompareAndSwap(cur, ev.SeqNum) {
+						break
+					}
+				}
+			}
+		}
+	}
 	if err != nil {
 		s.hbCancel()
 	}

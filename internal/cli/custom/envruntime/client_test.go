@@ -666,6 +666,35 @@ func TestHTTPClientLeaseHeartbeatPreviewAndStream(t *testing.T) {
 			t.Errorf("HeartbeatStream (useClose=%v) continued sending after stop: before=%d after=%d", useClose, afterStopCount, sendCalls.Load())
 		}
 	}
+	var recvAckCh = make(chan int64, 8)
+	hsRecv := NewHeartbeatStream(t.Context(), &scriptedStream{
+		recvFn: func(_ int) (*ServerEventBatch, error) {
+			return &ServerEventBatch{Events: []*ServerEvent{{SeqNum: 15}, {SeqNum: 12}}}, nil
+		},
+		sendFn: func(_ int, b *ClientEventBatch) error {
+			select {
+			case recvAckCh <- b.AckOutputSeqNum:
+			default:
+			}
+			return nil
+		},
+	}, 10*time.Millisecond, 2)
+	if _, err := hsRecv.Recv(t.Context()); err != nil {
+		t.Fatalf("hsRecv.Recv() = %v", err)
+	}
+	foundUpdatedAck := false
+	for !foundUpdatedAck {
+		select {
+		case ack := <-recvAckCh:
+			if ack == 15 {
+				foundUpdatedAck = true
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for HeartbeatStream to advance AckOutputSeqNum to 15 after Recv")
+		}
+	}
+	_ = hsRecv.Close()
+
 	reqPr, reqPw := io.Pipe()
 	respPr, respPw := io.Pipe()
 	hbHalf := NewHeartbeatStream(t.Context(), &grpcInteractionStream{resp: &http.Response{Body: respPr}, pw: reqPw}, 5*time.Millisecond, 7)
