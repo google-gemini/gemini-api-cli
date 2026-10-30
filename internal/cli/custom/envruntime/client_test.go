@@ -217,6 +217,15 @@ func TestIdentifiersSecretsRedactorAndParsers(t *testing.T) {
 	if domainCfg == nil || len(domainCfg.NetworkAllowlist) != 1 || domainCfg.NetworkAllowlist[0].Domain != "example.com" {
 		t.Errorf("ParseEnvironmentConfig(domains) = %+v", domainCfg)
 	}
+	wantCustom := `{"atespace":"tenant-acme"}`
+	customCfg := ParseEnvironmentConfig(json.RawMessage(`{"custom_config":{"atespace":"tenant-acme"}}`))
+	if customCfg == nil || string(customCfg.CustomConfig) != wantCustom {
+		t.Errorf("ParseEnvironmentConfig(custom_config) = %v, want %s", customCfg, wantCustom)
+	}
+	nullCustomCfg := ParseEnvironmentConfig(json.RawMessage(`{"custom_config":null}`))
+	if nullCustomCfg == nil || nullCustomCfg.CustomConfig != nil {
+		t.Errorf("ParseEnvironmentConfig(null custom_config) = %+v, want nil CustomConfig", nullCustomCfg)
+	}
 
 	// Status & retry helpers.
 	for _, code := range []int{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 99} {

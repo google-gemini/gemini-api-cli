@@ -514,6 +514,17 @@ func TestDirectCommandProvisionerAndConfigConversion(t *testing.T) {
 	if srcOnly := ConvertToProvisionEnvironmentConfig(&EnvironmentConfig{Sources: []EnvironmentSource{{Type: "inline", Target: "main.py"}}}); srcOnly == nil || len(srcOnly.Sources) != 1 {
 		t.Errorf("ConvertToProvisionEnvironmentConfig(Sources only) = %+v", srcOnly)
 	}
+	wantCustomAcme := `{"atespace":"tenant-acme"}`
+	if customOnly := ConvertToProvisionEnvironmentConfig(&EnvironmentConfig{CustomConfig: json.RawMessage(wantCustomAcme)}); customOnly == nil || string(customOnly.CustomConfig) != wantCustomAcme {
+		t.Errorf("ConvertToProvisionEnvironmentConfig(CustomConfig only) = %+v, want %s", customOnly, wantCustomAcme)
+	}
+	wantCustomRaw := `{"atespace":"tenant-raw"}`
+	if customRawOnly := ConvertToProvisionEnvironmentConfig(&EnvironmentConfig{RawJSON: json.RawMessage(`{"custom_config":{"atespace":"tenant-raw"}}`)}); customRawOnly == nil || string(customRawOnly.CustomConfig) != wantCustomRaw {
+		t.Errorf("ConvertToProvisionEnvironmentConfig(RawJSON custom_config only) = %+v, want %s", customRawOnly, wantCustomRaw)
+	}
+	if customNullOnly := ConvertToProvisionEnvironmentConfig(&EnvironmentConfig{CustomConfig: json.RawMessage(`null`)}); customNullOnly != nil {
+		t.Errorf("ConvertToProvisionEnvironmentConfig(CustomConfig null) = %+v, want nil", customNullOnly)
+	}
 	parsed := ParseEnvironmentConfig(json.RawMessage(`{
 		"network_mode": "ALLOWLIST",
 		"allowlist_domains": ["a.example.com"],

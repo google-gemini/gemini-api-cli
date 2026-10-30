@@ -623,6 +623,7 @@ type WorkerProvisionEnvironmentConfig struct {
 	DenylistDomains  []string            `json:"denylist_domains,omitempty"`
 	Env              map[string]string   `json:"env,omitempty"`
 	Sources          []EnvironmentSource `json:"sources,omitempty"`
+	CustomConfig     json.RawMessage     `json:"custom_config,omitempty"`
 }
 
 // WorkerProvisionRequest is the v1 JSON request sent on stdin to a Tier-2 worker provisioner.
@@ -842,6 +843,10 @@ func ConvertToProvisionEnvironmentConfig(cfg *EnvironmentConfig) *WorkerProvisio
 	}
 
 	networkMode := strings.TrimSpace(cfg.NetworkMode)
+	var customCfg json.RawMessage
+	if len(bytes.TrimSpace(cfg.CustomConfig)) > 0 && string(bytes.TrimSpace(cfg.CustomConfig)) != "null" {
+		customCfg = append(json.RawMessage(nil), bytes.TrimSpace(cfg.CustomConfig)...)
+	}
 	if len(bytes.TrimSpace(cfg.RawJSON)) > 0 {
 		var raw rawEnvironmentConfigWire
 		if err := json.Unmarshal(cfg.RawJSON, &raw); err == nil {
@@ -855,6 +860,9 @@ func ConvertToProvisionEnvironmentConfig(cfg *EnvironmentConfig) *WorkerProvisio
 				addDeny(rule.Domain)
 			}
 			networkMode = cmp.Or(networkMode, strings.TrimSpace(raw.NetworkMode))
+			if len(customCfg) == 0 && len(bytes.TrimSpace(raw.CustomConfig)) > 0 && string(bytes.TrimSpace(raw.CustomConfig)) != "null" {
+				customCfg = append(json.RawMessage(nil), bytes.TrimSpace(raw.CustomConfig)...)
+			}
 		}
 	}
 
@@ -863,7 +871,7 @@ func ConvertToProvisionEnvironmentConfig(cfg *EnvironmentConfig) *WorkerProvisio
 		sources = append([]EnvironmentSource(nil), cfg.Sources...)
 	}
 
-	if len(envMap) == 0 && len(allowlist) == 0 && len(denylist) == 0 && networkMode == "" && len(sources) == 0 {
+	if len(envMap) == 0 && len(allowlist) == 0 && len(denylist) == 0 && networkMode == "" && len(sources) == 0 && len(customCfg) == 0 {
 		return nil
 	}
 	return &WorkerProvisionEnvironmentConfig{
@@ -872,6 +880,7 @@ func ConvertToProvisionEnvironmentConfig(cfg *EnvironmentConfig) *WorkerProvisio
 		DenylistDomains:  denylist,
 		Env:              envMap,
 		Sources:          sources,
+		CustomConfig:     customCfg,
 	}
 }
 

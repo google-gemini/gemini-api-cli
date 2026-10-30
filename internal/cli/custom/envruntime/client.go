@@ -192,6 +192,7 @@ type EnvironmentConfig struct {
 	Sources          []EnvironmentSource          `json:"sources,omitempty"`
 	Env              map[string]string            `json:"env,omitempty"`
 	EnvVars          map[string]EnvironmentEnvVar `json:"env_vars,omitempty"`
+	CustomConfig     json.RawMessage              `json:"custom_config,omitempty"`
 	RawJSON          json.RawMessage              `json:"-"`
 }
 
@@ -384,6 +385,7 @@ type rawEnvironmentConfigWire struct {
 	Sources          []EnvironmentSource        `json:"sources"`
 	Env              map[string]json.RawMessage `json:"env"`
 	EnvVars          map[string]json.RawMessage `json:"env_vars"`
+	CustomConfig     json.RawMessage            `json:"custom_config"`
 }
 
 // ParseEnvironmentConfig parses rawCfg into an *EnvironmentConfig while retaining RawJSON.
@@ -400,6 +402,10 @@ func ParseEnvironmentConfig(rawCfg json.RawMessage) *EnvironmentConfig {
 	}
 	allowlist := parseNetworkAllowlist(parsed.NetworkAllowlist)
 	envMap, envVars := parseEnvironmentEnvVars(parsed.Env, parsed.EnvVars)
+	var customCfg json.RawMessage
+	if trimmed := bytes.TrimSpace(parsed.CustomConfig); len(trimmed) > 0 && string(trimmed) != "null" {
+		customCfg = append(json.RawMessage(nil), trimmed...)
+	}
 	return &EnvironmentConfig{
 		NetworkMode:      parsed.NetworkMode,
 		NetworkAllowlist: allowlist,
@@ -408,6 +414,7 @@ func ParseEnvironmentConfig(rawCfg json.RawMessage) *EnvironmentConfig {
 		Sources:          parsed.Sources,
 		Env:              envMap,
 		EnvVars:          envVars,
+		CustomConfig:     customCfg,
 		RawJSON:          append(json.RawMessage(nil), raw...),
 	}
 }
