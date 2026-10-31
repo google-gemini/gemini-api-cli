@@ -772,6 +772,15 @@ func TestSpeakerTurns(t *testing.T) {
 		// A label with nothing to say is dropped, whether or not space follows.
 		{"Alice: Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
 		{"Alice:Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+		// Per-turn style annotations in square brackets or parentheses.
+		{"Alice [whispered urgently]: hi. Bob (excited): yo.", []string{"Alice", "Bob"}, []speakerTurn{
+			{speaker: "Alice", style: "whispered urgently", text: "hi."},
+			{speaker: "Bob", style: "excited", text: "yo."},
+		}},
+		{"- Alice [calm]: hi.\n- Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{
+			{speaker: "Alice", style: "calm", text: "hi."},
+			bob,
+		}},
 	}
 	for _, tt := range valid {
 		if got, err := speakerTurns(tt.text, tt.speakers); err != nil || !reflect.DeepEqual(got, tt.want) {
@@ -848,6 +857,92 @@ func TestTTSInput(t *testing.T) {
 	} {
 		if _, absent, err := ttsInput(tt.model, tt.text, tt.speech); err != nil || !slices.Equal(absent, tt.want) {
 			t.Errorf("ttsInput(%s, %q) absent = %q, %v; want %q", tt.model, tt.text, absent, err, tt.want)
+		}
+	}
+
+	// Single-speaker with --style attaches SpeechAnnotation{Style}.
+	gotSingleStyle, _, warnSingle, err := ttsInputWithStyle(defaultTTSModel, "Hello there.", "whispered urgently", single)
+	wantSingleStyle := []interactions.Content{interactions.CreateContentText(interactions.TextContent{
+		Text: "Hello there.",
+		Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+			interactions.SpeechAnnotation{Style: stringPtr("whispered urgently")})},
+	})}
+	if err != nil || len(warnSingle) != 0 || !reflect.DeepEqual(gotSingleStyle, wantSingleStyle) {
+		t.Errorf("ttsInputWithStyle(single) = %+v, %v, %v; want %+v", gotSingleStyle, warnSingle, err, wantSingleStyle)
+	}
+
+	// Multi-speaker with per-turn style and fallback --style.
+	gotMultiStyle, _, _, err := ttsInputWithStyle(defaultTTSModel, "Alice [excited]: hi! Bob: yo.", "calm", multi)
+	wantMultiStyle := []interactions.Content{
+		interactions.CreateContentText(interactions.TextContent{
+			Text: "hi!",
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Speaker: stringPtr("Alice"), Style: stringPtr("excited")})},
+		}),
+		interactions.CreateContentText(interactions.TextContent{
+			Text: "yo.",
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Speaker: stringPtr("Bob"), Style: stringPtr("calm")})},
+		}),
+	}
+	if err != nil || !reflect.DeepEqual(gotMultiStyle, wantMultiStyle) {
+		t.Errorf("ttsInputWithStyle(multi) = %+v, %v; want %+v", gotMultiStyle, err, wantMultiStyle)
+	}
+
+	// Legacy models reject --style.
+	if _, _, _, err := ttsInputWithStyle("gemini-2.5-flash-preview-tts", "Hello", "whispered", single); err == nil || !strings.Contains(err.Error(), "--style is not supported") {
+		t.Errorf("ttsInputWithStyle(legacy) err = %v, want unsupported --style error", err)
+	}
+}
+
+func TestDetectDirectionWarnings(t *testing.T) {
+	for _, text := range []string{
+		"DIRECTOR'S NOTES: Speak softly.\nTRANSCRIPT: Hello.",
+		"### TRANSCRIPT\nWelcome to the show.",
+		"Style: warm and friendly\nHello world.",
+		"Say cheerfully: Welcome to the show!",
+		"Read in a warm voice: Hello there.",
+	} {
+		warnings := detectDirectionWarnings([]string{text})
+		if len(warnings) == 0 || !strings.Contains(warnings[0], "stage direction") {
+			t.Errorf("detectDirectionWarnings(%q) = %v, want stage-direction warning", text, warnings)
+		}
+	}
+	for _, text := range []string{
+		"Well [sigh] that was a long day.",
+		"Wait for me [short pause] okay?",
+		"Haha [laughs] that is great.",
+	} {
+		warnings := detectDirectionWarnings([]string{text})
+		if len(warnings) == 0 || !strings.Contains(warnings[0], "square-bracket") {
+			t.Errorf("detectDirectionWarnings(%q) = %v, want square-bracket warning", text, warnings)
+		}
+	}
+	for _, text := range []string{
+		"Welcome to the show! <short pause> <sigh> Let's begin.",
+		"Reference [1] shows the results for 2026.",
+		"Normal conversational sentence with no stage notes.",
+	} {
+		if warnings := detectDirectionWarnings([]string{text}); len(warnings) != 0 {
+			t.Errorf("detectDirectionWarnings(%q) = %v, want no warnings", text, warnings)
+		}
+	}
+}
+
+func TestNormalizeVoiceID(t *testing.T) {
+	for raw, want := range map[string]string{
+		"voice_abc123":          "voice_abc123",
+		"voices/voice_abc123":   "voice_abc123",
+		"  voices/voice_1.2-a ": "voice_1.2-a",
+		"Puck":                  "Puck",
+	} {
+		if got, err := normalizeVoiceID(raw); err != nil || got != want {
+			t.Errorf("normalizeVoiceID(%q) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "  ", "voices/", ".", "..", "voices/..", "a/b", "voices/a/b"} {
+		if got, err := normalizeVoiceID(bad); err == nil {
+			t.Errorf("normalizeVoiceID(%q) = %q, want error", bad, got)
 		}
 	}
 }

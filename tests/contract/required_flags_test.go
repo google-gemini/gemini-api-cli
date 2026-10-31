@@ -55,6 +55,8 @@ func TestBodylessOperationsRequireTheirIdentifier(t *testing.T) {
 		{[]string{"environments", "delete"}, "--id"},
 		{[]string{"webhooks", "get"}, "--id"},
 		{[]string{"webhooks", "delete"}, "--id"},
+		{[]string{"voices", "get"}, "--id"},
+		{[]string{"voices", "delete"}, "--id"},
 	}
 	for _, tc := range commands {
 		name := strings.Join(tc.path, " ")

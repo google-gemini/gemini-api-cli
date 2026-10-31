@@ -41,17 +41,24 @@ import (
 func attachTTS(cmd *cobra.Command) {
 	cmd.Use = "tts [text]"
 	cmd.Short = "Text to speech (" + defaultTTSModel + ")"
-	cmd.Long = "Convert text to speech.\n\nGenerated audio is written to a local file as WAV (24 kHz mono). The extension\nfollows the audio: --out foo.mp3 is written as foo.wav, and --out naming a\ndirectory places a default-named file inside it. An existing file is replaced.\nBy default, stdout prints the absolute artifact path. The request is not stored\nserver-side.\n\nArguments:\n  <text>  Text to speak (or use -f / --stdin)"
+	cmd.Long = "Convert text to speech. Text is spoken verbatim: put delivery direction in --style\n" +
+		"(or inline tags like <short pause>, <sigh>) and custom voice descriptions in\n" +
+		"--voice-prompt or gemini-api voices create. Writes 24 kHz mono WAV (--out foo.mp3 is written as foo.wav;\n" +
+		"An existing file is replaced). By default, stdout prints the artifact path.\n\n" +
+		"Arguments:\n" +
+		"  <text>  Verbatim text to speak (or use -f / --stdin)"
 	cmd.Example = "  gemini-api tts \"Welcome to the show\"                    # → ./gemini-tts-<unix-ms>-<random>.wav\n" +
-		"  gemini-api tts -f script.txt --voice Puck --out out.wav\n" +
-		"  echo \"hello\" | gemini-api tts --stdin\n" +
-		"  gemini-api tts \"Alice: hi. Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
+		"  gemini-api tts \"Look out!\" --style \"whispered urgently\" --voice Puck --out out.wav\n" +
+		"  gemini-api tts \"Hello there\" --voice-prompt \"Warm, gravelly radio host\"\n" +
+		"  gemini-api tts \"Alice [excited]: hi! Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
 	helpMeta(cmd, "model "+defaultTTSModel+" · voice "+defaultTTSVoice+" · 24kHz mono WAV",
 		"https://ai.google.dev/gemini-api/docs/speech-generation",
 		"full request control via gemini-api agent run")
 	cmd.Args = cobra.ArbitraryArgs
-	cmd.Flags().StringP("voice", "v", defaultTTSVoice, "Voice for single-speaker audio (e.g. Kore, Puck, Zephyr, Charon, Fenrir, Aoede)")
-	cmd.Flags().String("multi-speaker", "", "Speaker→voice map for two-speaker scripts, e.g. \"Alice=Kore,Bob=Puck\"; start each turn with its speaker label (\"Alice: …\")")
+	cmd.Flags().StringP("voice", "v", defaultTTSVoice, "Voice name or custom voice_<id> for single-speaker audio (e.g. Kore, Puck, Zephyr, voice_abc123)")
+	cmd.Flags().String("voice-prompt", "", "Design a custom voice from a text description before synthesizing (creates a reusable voice_<id>)")
+	cmd.Flags().String("style", "", "Delivery style or acting direction (e.g. \"whispered urgently\"); text is spoken verbatim")
+	cmd.Flags().String("multi-speaker", "", "Speaker→voice map for two-speaker scripts, e.g. \"Alice=Kore,Bob=Puck\"; start each turn with \"Speaker:\" or \"Speaker [style]:\"")
 	cmd.Flags().StringP("file", "f", "", "Read the input text from a file")
 	cmd.Flags().Bool("stdin", false, "Read the input text from stdin")
 	cmd.Flags().String("out", "", "Output file or directory; the extension follows the audio (default: ./gemini-tts-<unix-ms>-<random>.wav)")
@@ -80,14 +87,57 @@ func runTTS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	style, _ := flagutil.GetStringFlag(cmd, "style")
+	style = strings.TrimSpace(style)
+	voicePrompt, _ := flagutil.GetStringFlag(cmd, "voice-prompt")
+	voicePrompt = strings.TrimSpace(voicePrompt)
+	if flagutil.FlagChanged(cmd, "voice-prompt") && voicePrompt == "" {
+		return usageError("--voice-prompt cannot be empty")
+	}
+	if voicePrompt != "" {
+		if flagutil.FlagChanged(cmd, "voice") {
+			return usageError("--voice and --voice-prompt are mutually exclusive",
+				"Use \"gemini-api voices create --base-voice <voice>\" to remix an existing voice")
+		}
+		if spec, _ := flagutil.GetStringFlag(cmd, "multi-speaker"); strings.TrimSpace(spec) != "" {
+			return usageError("--voice-prompt and --multi-speaker are mutually exclusive",
+				"Create custom voices with \"gemini-api voices create\" and pass their voice_<id> in --multi-speaker")
+		}
+		if isLegacyMultiSpeakerModel(model) {
+			return usageError(fmt.Sprintf("--voice-prompt is not supported by %s (custom voice design requires %s)", model, defaultTTSModel))
+		}
+	}
+
 	speech, voiceLabel, err := buildSpeechConfig(cmd)
 	if err != nil {
 		return err
 	}
-	input, absent, err := ttsInput(model, text, speech)
+	input, absent, dirWarnings, err := ttsInputWithStyle(model, text, style, speech)
 	if err != nil {
 		return err
 	}
+	s, err := client.NewClient(cmd)
+	if err != nil {
+		return err
+	}
+	opts, err := callOpts(cmd)
+	if err != nil {
+		return err
+	}
+
+	var designedVoiceID string
+	if voicePrompt != "" {
+		lang, _ := flagutil.GetStringFlag(cmd, "language")
+		designedVoiceID, err = designVoiceForTTS(cmd, model, voicePrompt, strings.TrimSpace(lang))
+		if err != nil {
+			return err
+		}
+		if len(speech.ArrayOfSpeechConfig) > 0 {
+			speech.ArrayOfSpeechConfig[0].Voice = stringPtr(designedVoiceID)
+		}
+		voiceLabel = designedVoiceID
+	}
+
 	// The format stays bare: the TTS models reject every explicit mime_type
 	// and delivery ("not supported for models/…"), and answer with 24 kHz L16.
 	responseFormat := interactions.CreateCreateModelInteractionResponseFormatResponseFormat(
@@ -100,6 +150,7 @@ func runTTS(cmd *cobra.Command, args []string) error {
 	for _, speaker := range absent {
 		warnings = append(warnings, fmt.Sprintf("speaker %q does not appear in the text", speaker))
 	}
+	warnings = append(warnings, dirWarnings...)
 	for _, warning := range warnings {
 		progress(cmd, "warning: %s", warning)
 	}
@@ -110,14 +161,6 @@ func runTTS(cmd *cobra.Command, args []string) error {
 		Body: operations.CreateCreateInteractionRequestBodyCreateModelInteraction(body),
 	}
 
-	s, err := client.NewClient(cmd)
-	if err != nil {
-		return err
-	}
-	opts, err := callOpts(cmd)
-	if err != nil {
-		return err
-	}
 	if isDryRun(cmd) {
 		_, err := s.Agent.Run(cmd.Context(), req, opts...)
 		return err
@@ -171,6 +214,9 @@ func runTTS(cmd *cobra.Command, args []string) error {
 		"mime_type":  mimeType,
 		"size_bytes": len(data),
 	}
+	if designedVoiceID != "" {
+		envelope["voice_id"] = designedVoiceID
+	}
 	if format.isPCM {
 		envelope["sample_rate"] = sampleRate
 		envelope["channels"] = channels
@@ -204,8 +250,28 @@ func isLegacyMultiSpeakerModel(model string) bool {
 // with its speaker. It also returns the declared speakers the script never
 // voices.
 func ttsInput(model, text string, speech *interactions.SpeechConfigUnion) ([]interactions.Content, []string, error) {
+	input, absent, _, err := ttsInputWithStyle(model, text, "", speech)
+	return input, absent, err
+}
+
+func ttsInputWithStyle(model, text, style string, speech *interactions.SpeechConfigUnion) ([]interactions.Content, []string, []string, error) {
+	style = strings.TrimSpace(style)
+	if style != "" && isLegacyMultiSpeakerModel(model) {
+		return nil, nil, nil, usageError(fmt.Sprintf("--style is not supported by %s (speech_metadata requires %s)", model, defaultTTSModel))
+	}
 	if speech.SpeakerConfig == nil {
-		return []interactions.Content{textContentBlock(text)}, nil, nil
+		var dirWarnings []string
+		if !isLegacyMultiSpeakerModel(model) {
+			dirWarnings = detectDirectionWarnings([]string{text})
+		}
+		if style == "" {
+			return []interactions.Content{textContentBlock(text)}, nil, dirWarnings, nil
+		}
+		return []interactions.Content{interactions.CreateContentText(interactions.TextContent{
+			Text: text,
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Style: stringPtr(style)})},
+		})}, nil, dirWarnings, nil
 	}
 	speakers := make([]string, 0, len(speech.SpeakerConfig.Speakers))
 	for _, sp := range speech.SpeakerConfig.Speakers {
@@ -218,20 +284,25 @@ func ttsInput(model, text string, speech *interactions.SpeechConfigUnion) ([]int
 				absent = append(absent, speaker)
 			}
 		}
-		return []interactions.Content{textContentBlock(text)}, absent, nil
+		return []interactions.Content{textContentBlock(text)}, absent, nil, nil
 	}
 	turns, err := speakerTurns(text, speakers)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	voiced := map[string]bool{}
 	input := make([]interactions.Content, 0, len(turns))
+	spokenTexts := make([]string, 0, len(turns))
 	for _, turn := range turns {
 		voiced[turn.speaker] = true
+		spokenTexts = append(spokenTexts, turn.text)
+		ann := interactions.SpeechAnnotation{Speaker: stringPtr(turn.speaker)}
+		if turnStyle := cmp.Or(turn.style, style); turnStyle != "" {
+			ann.Style = stringPtr(turnStyle)
+		}
 		input = append(input, interactions.CreateContentText(interactions.TextContent{
-			Text: turn.text,
-			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
-				interactions.SpeechAnnotation{Speaker: stringPtr(turn.speaker)})},
+			Text:        turn.text,
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(ann)},
 		}))
 	}
 	for _, speaker := range speakers {
@@ -239,7 +310,35 @@ func ttsInput(model, text string, speech *interactions.SpeechConfigUnion) ([]int
 			absent = append(absent, speaker)
 		}
 	}
-	return input, absent, nil
+	return input, absent, detectDirectionWarnings(spokenTexts), nil
+}
+
+var (
+	stageDirectionHeaderRe = regexp.MustCompile(`(?im)(\b(director'?s\s+notes|audio\s+profile|scene\s+description|voice\s+design|voice\s+prompt)\b|^\s*#{1,6}\s+(director|transcript|audio|voice|scene|style|script)\b|^\s*(style|tone|delivery|voice|pacing|accent|emotion|persona|direction)\s*:|^\s*(say|read|speak|narrate)\s+(this\s+)?(in\s+a\b|with\s+a\b|[a-z]+ly\b)[^:\n]{0,60}:)`)
+	bracketStageTagRe      = regexp.MustCompile(`(?i)\[(sighs?|laughs?|chuckles?|giggles?|gasps?|panting|yawns?|coughs?|clears\s+throat|sniffs?|groans?|whispers?|whispering|shouts?|shouting|yells?|yelling|crying|sobs?|applause|laughter|music|pause|short\s+pause|long\s+pause|beat|excited|sadly|angrily|softly|slowly|quickly|cheerfully|sarcastically|dramatically)\]`)
+)
+
+// detectDirectionWarnings checks spoken text on non-legacy TTS models for
+// stage-direction headers or bracketed vocal tags that Gemini 3.8 TTS reads
+// aloud instead of interpreting as acting instructions.
+func detectDirectionWarnings(texts []string) []string {
+	var hasHeader, hasBracketTag bool
+	for _, t := range texts {
+		if !hasHeader && stageDirectionHeaderRe.MatchString(t) {
+			hasHeader = true
+		}
+		if !hasBracketTag && bracketStageTagRe.MatchString(t) {
+			hasBracketTag = true
+		}
+	}
+	var warnings []string
+	if hasHeader {
+		warnings = append(warnings, "input text looks like stage direction that Gemini 3.8 TTS speaks verbatim; pass delivery style via --style and voice descriptions via --voice-prompt")
+	}
+	if hasBracketTag {
+		warnings = append(warnings, "square-bracket stage tags like [...] may be spoken aloud; use angle-bracket vocal tags (e.g. <sigh>, <laugh>, <short pause>) or --style")
+	}
+	return warnings
 }
 
 // isWordRune reports whether r belongs to a word. Combining marks count: in
@@ -288,6 +387,7 @@ func lineMarkerStart(text string, floor, start int) int {
 
 type speakerTurn struct {
 	speaker string
+	style   string
 	text    string
 }
 
@@ -295,13 +395,13 @@ type speakerTurn struct {
 // with the --multi-speaker name it was declared as ("Dr\u00a0Who:" is "Dr Who").
 const labelSpace = `[\s\v\x{85}\p{Z}]`
 
-// speakerTurns splits a script at each "<speaker>:" label that names one of
-// speakers and strips the label from the turn text (Gemini 3.8 TTS treats text
-// as a verbatim transcript and takes the speaker via speech_metadata). A label
-// may sit at the start of a line (optionally after a list or quote marker:
-// "-", "•", ">", "“", "1.")
-// or mid-line after punctuation ("Alice: hi. Bob: hello.", "Alice:Bob:"), but
-// not inside a longer word ("MaryAnn:") or after a word on the same line
+// speakerTurns splits a script at each "<speaker>:" (or "<speaker> [style]:" /
+// "<speaker> (style):") label that names one of speakers and strips the label
+// from the turn text (Gemini 3.8 TTS treats text as a verbatim transcript and
+// takes the speaker and style via speech_metadata). A label may sit at the
+// start of a line (optionally after a list or quote marker: "-", "•", ">", "“",
+// "1.") or mid-line after punctuation ("Alice: hi. Bob: hello.", "Alice:Bob:"),
+// but not inside a longer word ("MaryAnn:") or after a word on the same line
 // ("I told Bob: wait."). Labels for undeclared speakers are not split on, and
 // turns with nothing to say are dropped. Every block must name a speaker, so
 // text before the first label is an error.
@@ -317,13 +417,14 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		}
 		names[i] = strings.Join(words, labelSpace+`+`)
 	}
-	label := regexp.MustCompile(`(` + strings.Join(names, "|") + `)` + labelSpace + `*:`)
+	styleMod := `(?:` + labelSpace + `*(?:\[([^\]\r\n]+)\]|\(([^\)\r\n]+)\)))?`
+	label := regexp.MustCompile(`(` + strings.Join(names, "|") + `)` + styleMod + labelSpace + `*:`)
 	hint := `Start each turn with its speaker label, e.g. "Alice: hi. Bob: hello."`
 
 	// RE2 has no lookbehind: matches inside a longer word ("MaryAnn:") or after
 	// a word on the same line ("I told Bob:") are skipped by hand, resuming one
 	// rune later so they cannot hide a real label.
-	type labelSpan struct{ start, nameStart, nameEnd, end int }
+	type labelSpan struct{ start, nameStart, nameEnd, styleStart, styleEnd, end int }
 	var labels []labelSpan
 	for pos := 0; pos < len(text); {
 		m := label.FindStringSubmatchIndex(text[pos:])
@@ -341,7 +442,13 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		if len(labels) > 0 {
 			floor = labels[len(labels)-1].end
 		}
-		labels = append(labels, labelSpan{lineMarkerStart(text, floor, start), pos + m[0], pos + m[3], pos + m[1]})
+		styleStart, styleEnd := 0, 0
+		if m[4] >= 0 {
+			styleStart, styleEnd = pos+m[4], pos+m[5]
+		} else if m[6] >= 0 {
+			styleStart, styleEnd = pos+m[6], pos+m[7]
+		}
+		labels = append(labels, labelSpan{lineMarkerStart(text, floor, start), pos + m[2], pos + m[3], styleStart, styleEnd, pos + m[1]})
 		pos += m[1]
 	}
 	if len(labels) == 0 {
@@ -364,8 +471,13 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		if turnText == "" {
 			continue
 		}
+		var turnStyle string
+		if l.styleEnd > l.styleStart {
+			turnStyle = strings.TrimSpace(text[l.styleStart:l.styleEnd])
+		}
 		turns = append(turns, speakerTurn{
 			speaker: strings.Join(strings.Fields(text[l.nameStart:l.nameEnd]), " "),
+			style:   turnStyle,
 			text:    turnText,
 		})
 	}

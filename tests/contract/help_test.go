@@ -46,6 +46,7 @@ func TestHelpBudgetAndFooter(t *testing.T) {
 		{"tts"}, {"analyze"}, {"transcribe"},
 		{"agent"}, {"agent", "run"}, {"agent", "status"},
 		{"models"}, {"models", "list"}, {"files"}, {"files", "upload"},
+		{"voices"}, {"voices", "create"}, {"voices", "list"}, {"voices", "get"}, {"voices", "delete"},
 	}
 	for _, args := range commands {
 		name := strings.Join(args, " ")
