@@ -23,8 +23,8 @@ import (
 )
 
 type ModelsListGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 }
 
 func (m ModelsListGlobals) MarshalJSON() ([]byte, error) {
@@ -46,8 +46,8 @@ func (m *ModelsListGlobals) GetAPIVersion() *string {
 }
 
 type ModelsListRequest struct {
-	// Which version of the API to use. Defaults to v1beta.
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Maximum number of models to return per page (default 1000, maximum 1000)
 	PageSize *int `default:"1000" queryParam:"style=form,explode=true,name=pageSize"`
 	// Page token from a previous models list call
