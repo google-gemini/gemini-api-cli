@@ -166,15 +166,18 @@ func TestImageArtifactOutput(t *testing.T) {
 		t.Errorf("request presets = %+v, want image model + image response format", sent)
 	}
 
-	// --out file: extension follows the returned MIME type; overwrite is silent.
+	// --out file: explicit path with a recognized media extension is kept as given,
+	// with a mismatch note when the returned MIME type differs; overwrite is silent.
 	target := filepath.Join(dir, "shots", "hero.jpg")
 	result = pretty(dir, "--out", target)
 	if result.err != nil {
 		t.Fatalf("image --out failed: %v\nstderr: %s", result.err, result.stderr)
 	}
-	wantPath := filepath.Join(dir, "shots", "hero.png")
-	if strings.TrimSpace(result.stdout) != wantPath {
-		t.Errorf("--out path = %q, want %q (extension follows image/png)", strings.TrimSpace(result.stdout), wantPath)
+	if strings.TrimSpace(result.stdout) != target {
+		t.Errorf("--out path = %q, want %q (explicit path kept as given)", strings.TrimSpace(result.stdout), target)
+	}
+	if !strings.Contains(result.stderr, "Note: hero.jpg contains image/png content; its extension does not match") {
+		t.Errorf("mismatch note missing from stderr:\n%s", result.stderr)
 	}
 	<-requests
 	if result = pretty(dir, "--out", target); result.err != nil {
@@ -508,16 +511,17 @@ func TestVideoConversationalEditingAndOutputFormat(t *testing.T) {
 	}
 }
 
-// TestImageArtifactMissingContent pins the failure contract: no image content
-// (or URI-only delivery) is a hard error with an empty stdout and no file.
+// TestImageArtifactMissingContent pins the failure contract: missing image
+// content or an undownloadable URI scheme is a hard error with an empty stdout
+// and no file, whereas a downloadable same-origin URI writes the artifact.
 func TestImageArtifactMissingContent(t *testing.T) {
 	cases := map[string]struct {
 		body string
 		want string
 	}{
-		"in-progress": {`{"id":"int-1","status":"in_progress"}`, `no image content to write (status "in_progress", id "int-1"`},
-		"text-only":   {`{"id":"int-2","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"hi"}]}]}`, "no image content to write"},
-		"uri-only":    {`{"id":"int-3","status":"completed","steps":[{"type":"model_output","content":[{"type":"image","uri":"https://media.example.test/a.png"}]}]}`, "delivered by URI"},
+		"in-progress":            {`{"id":"int-1","status":"in_progress"}`, `no image content to write (status "in_progress", id "int-1"`},
+		"text-only":              {`{"id":"int-2","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"hi"}]}]}`, "no image content to write"},
+		"unsupported-uri-scheme": {`{"id":"int-3","status":"completed","steps":[{"type":"model_output","content":[{"type":"image","uri":"gs://media-bucket/a.png"}]}]}`, "delivered as a gs: URI, which this CLI cannot download"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -543,6 +547,30 @@ func TestImageArtifactMissingContent(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("uri-download", func(t *testing.T) {
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/asset.png" {
+				w.Header().Set("Content-Type", "image/png")
+				_, _ = w.Write([]byte("\x89PNG\r\n\x1a\npayload"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"int-4","status":"completed","steps":[{"type":"model_output","content":[{"type":"image","uri":"%s/asset.png"}]}]}`, server.URL)
+		}))
+		defer server.Close()
+		dir := t.TempDir()
+		args := []string{"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test", "image", "a lighthouse"}
+		result := runCLIInDir(t, t.TempDir(), dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("URI-delivered image failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		printed := strings.TrimSpace(result.stdout)
+		if data, err := os.ReadFile(printed); err != nil || string(data) != "\x89PNG\r\n\x1a\npayload" {
+			t.Errorf("downloaded file %q = %q (err=%v), want PNG payload", printed, string(data), err)
+		}
+	})
 }
 
 func runCLIWithStdin(t *testing.T, home string, env map[string]string, stdin string, args ...string) commandResult {
@@ -1226,22 +1254,25 @@ func TestJQRawOutputDefaultsTrue(t *testing.T) {
 }
 
 // TestBodySchemaFlag pins the --schema surface: body-bearing commands print
-// the exact, self-contained JSON Schema of their request body.
+// the exact, self-contained JSON Schema of their request body (multi-route
+// commands emit the union; variant-pinned intents emit that variant's schema).
 func TestBodySchemaFlag(t *testing.T) {
-	for _, args := range [][]string{
-		{"agent", "run", "--schema"},
-		{"generate", "--schema"},
-	} {
+	t.Run("agent run union schema", func(t *testing.T) {
+		args := []string{"agent", "run", "--schema"}
 		result := runCLI(t, t.TempDir(), nil, args...)
 		if result.err != nil {
 			t.Fatalf("%v failed: %v\nstderr: %s", args, result.err, result.stderr)
 		}
 		var schema struct {
-			Defs  map[string]json.RawMessage `json:"$defs"`
-			OneOf []json.RawMessage          `json:"oneOf"`
+			Schema string                     `json:"$schema"`
+			Defs   map[string]json.RawMessage `json:"$defs"`
+			OneOf  []json.RawMessage          `json:"oneOf"`
 		}
 		if err := json.Unmarshal([]byte(result.stdout), &schema); err != nil {
 			t.Fatalf("%v output is not JSON: %v", args, err)
+		}
+		if schema.Schema != "https://json-schema.org/draft/2020-12/schema" {
+			t.Errorf("%v: $schema = %q, want draft 2020-12", args, schema.Schema)
 		}
 		if len(schema.OneOf) != 2 {
 			t.Errorf("%v: oneOf variants = %d, want 2", args, len(schema.OneOf))
@@ -1249,7 +1280,39 @@ func TestBodySchemaFlag(t *testing.T) {
 		if len(schema.Defs) == 0 {
 			t.Errorf("%v: schema has no bundled $defs", args)
 		}
-	}
+	})
+
+	t.Run("generate pinned variant schema", func(t *testing.T) {
+		args := []string{"generate", "--schema"}
+		result := runCLI(t, t.TempDir(), nil, args...)
+		if result.err != nil {
+			t.Fatalf("%v failed: %v\nstderr: %s", args, result.err, result.stderr)
+		}
+		var schema struct {
+			Schema string                     `json:"$schema"`
+			Ref    string                     `json:"$ref"`
+			Defs   map[string]json.RawMessage `json:"$defs"`
+			OneOf  []json.RawMessage          `json:"oneOf"`
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &schema); err != nil {
+			t.Fatalf("%v output is not JSON: %v", args, err)
+		}
+		if schema.Schema != "https://json-schema.org/draft/2020-12/schema" {
+			t.Errorf("%v: $schema = %q, want draft 2020-12", args, schema.Schema)
+		}
+		if schema.Ref != "#/$defs/ModelInteraction" {
+			t.Errorf("%v: $ref = %q, want #/$defs/ModelInteraction", args, schema.Ref)
+		}
+		if len(schema.OneOf) != 0 {
+			t.Errorf("%v: oneOf variants = %d, want 0 (pinned to ModelInteraction)", args, len(schema.OneOf))
+		}
+		if _, ok := schema.Defs["ModelInteraction"]; !ok {
+			t.Errorf("%v: $defs missing ModelInteraction", args)
+		}
+		if _, ok := schema.Defs["AgentInteraction"]; ok {
+			t.Errorf("%v: $defs unexpectedly contains AgentInteraction", args)
+		}
+	})
 }
 
 // TestReasonFirstErrorClassification pins spec A8: an HTTP 400 carrying a
