@@ -163,7 +163,7 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 			if structured {
 				// Schema-enforced JSON; parseTranscript also tolerates fenced output.
 				rf := interactions.CreateCreateModelInteractionResponseFormatResponseFormat(
-					interactions.CreateResponseFormatTextResponseFormat(interactions.TextResponseFormat{
+					interactions.CreateResponseFormatText(interactions.TextResponseFormat{
 						MimeType: interactions.TextResponseFormatMimeTypeApplicationJSON.ToPointer(),
 						Schema:   transcriptSchema(speakers, timestamps),
 					}))
