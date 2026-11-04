@@ -620,13 +620,7 @@ func (w *PullWorker) consumeStream(ctx context.Context, stream InteractionStream
 		}
 
 		if len(outEvents) > 0 || ackUpdated {
-			if err := sendBatch(ctx, &ClientEventBatch{
-				AckOutputSeqNum: pendingAck,
-				Events:          outEvents,
-			}); err != nil {
-				state.mu.Lock()
-				state.nextClientSeq = startClientSeq
-				state.mu.Unlock()
+			if err := sendClientEventsChunked(ctx, sendBatch, pendingAck, outEvents, startClientSeq, state); err != nil {
 				return false, err
 			}
 			state.mu.Lock()
@@ -758,11 +752,72 @@ func (w *PullWorker) handleServerEvent(ctx context.Context, ev *ServerEvent, sta
 			}
 		}
 		out := &EventPayload{CallHookResponse: resp}
+		if exceedsMaxToolResultWire(out) {
+			out = &EventPayload{
+				CallHookResponse: &CallHookResponse{
+					RequestID:    hr.RequestID,
+					ErrorMessage: fmt.Sprintf("hook %q response exceeds maximum frame size (%d bytes)", hr.Name, MaxGRPCFrameBytes),
+				},
+			}
+		}
 		w.storeCachedCall(state, callKey, out)
 		return out
 	}
 
 	return nil
+}
+
+func sendClientEventsChunked(
+	ctx context.Context,
+	sendBatch func(context.Context, *ClientEventBatch) error,
+	pendingAck int64,
+	outEvents []*ClientEvent,
+	startClientSeq int64,
+	state *sessionState,
+) error {
+	if len(outEvents) <= 1 || !exceedsClientBatchWire(&ClientEventBatch{
+		AckOutputSeqNum: pendingAck,
+		Events:          outEvents,
+	}) {
+		if err := sendBatch(ctx, &ClientEventBatch{
+			AckOutputSeqNum: pendingAck,
+			Events:          outEvents,
+		}); err != nil {
+			state.mu.Lock()
+			state.nextClientSeq = startClientSeq
+			state.mu.Unlock()
+			return err
+		}
+		return nil
+	}
+	for i := 0; i < len(outEvents); {
+		end := i + 1
+		for end < len(outEvents) && !exceedsClientBatchWire(&ClientEventBatch{
+			AckOutputSeqNum: pendingAck,
+			Events:          outEvents[i : end+1],
+		}) {
+			end++
+		}
+		if err := sendBatch(ctx, &ClientEventBatch{
+			AckOutputSeqNum: pendingAck,
+			Events:          outEvents[i:end],
+		}); err != nil {
+			state.mu.Lock()
+			state.nextClientSeq = outEvents[i].SeqNum
+			state.mu.Unlock()
+			return err
+		}
+		i = end
+	}
+	return nil
+}
+
+func exceedsClientBatchWire(batch *ClientEventBatch) bool {
+	if len(MarshalClientEventBatch(batch)) > MaxGRPCFrameBytes {
+		return true
+	}
+	rawJSON, err := MarshalClientEventBatchJSON(batch)
+	return err != nil || len(rawJSON) > MaxGRPCFrameBytes
 }
 
 func (w *PullWorker) loadCachedCall(state *sessionState, key string) *EventPayload {
@@ -781,9 +836,15 @@ func (w *PullWorker) storeCachedCall(state *sessionState, key string, payload *E
 }
 
 func exceedsMaxToolResultWire(payload *EventPayload) bool {
-	return len(MarshalClientEvent(&ClientEvent{
+	if len(MarshalClientEvent(&ClientEvent{
 		SeqNum:          1,
 		TimestampMicros: 1,
 		Payload:         payload,
-	})) > MaxToolResultWireBytes
+	})) > MaxToolResultWireBytes {
+		return true
+	}
+	rawJSON, err := MarshalClientEventBatchJSON(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: payload}},
+	})
+	return err != nil || len(rawJSON) > MaxToolResultWireBytes
 }

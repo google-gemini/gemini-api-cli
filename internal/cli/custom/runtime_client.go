@@ -21,9 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -44,20 +44,17 @@ type LeasedInteraction = envruntime.LeasedInteraction
 type HeartbeatResult = envruntime.HeartbeatResult
 
 type runtimeTransport struct {
-	baseURL       string
-	scheme        string
-	apiVersion    string
-	apiKey        string
-	accessToken   string
-	userProject   string
-	apiRevision   string
-	headers       map[string]string
-	timeout       time.Duration
-	httpClient    client.HTTPClient
-	streamClient  client.HTTPClient
-	hasTestClient bool
-	debug         bool
-	errOut        io.Writer
+	baseURL     string
+	apiVersion  string
+	apiKey      string
+	accessToken string
+	userProject string
+	apiRevision string
+	headers     map[string]string
+	timeout     time.Duration
+	httpClient  client.HTTPClient
+	debug       bool
+	errOut      io.Writer
 }
 
 func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtimeTransport, error) {
@@ -71,11 +68,9 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 	} else {
 		rt.baseURL = strings.TrimRight(sdk.ServerList[0], "/")
 	}
-	parsedBase, err := url.Parse(rt.baseURL)
-	if err != nil {
+	if _, err := url.Parse(rt.baseURL); err != nil {
 		return nil, usageError(fmt.Sprintf("invalid --server-url %q: %v", rt.baseURL, err))
 	}
-	rt.scheme = strings.ToLower(parsedBase.Scheme)
 
 	apiVersionExplicit := flagutil.FlagChanged(cmd, "api-version")
 	if apiVersionExplicit {
@@ -161,33 +156,16 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 	var wrapped client.HTTPClient = baseHTTP
 	if tc := testclient.NewTestHTTPClient(); tc != nil {
 		wrapped = tc
-		rt.hasTestClient = true
+		if _, exists := rt.headers["X-Speakeasy-Test-Name"]; !exists {
+			rt.headers["X-Speakeasy-Test-Name"] = os.Getenv("SPEAKEASY_TEST_NAME")
+		}
+		if instID := os.Getenv("SPEAKEASY_TEST_INSTANCE_ID"); instID != "" {
+			if _, exists := rt.headers["X-Speakeasy-Test-Instance-Id"]; !exists {
+				rt.headers["X-Speakeasy-Test-Instance-Id"] = instID
+			}
+		}
 	}
 	rt.httpClient = client.WrapClientForDiagnostics(cmd, wrapped)
-
-	// Bidirectional gRPC streams stream frames over an open io.Pipe body and must
-	// NOT be wrapped in DebugClient (which calls io.ReadAll on req.Body and blocks).
-	switch {
-	case isDryRun(cmd):
-		rt.streamClient = rt.httpClient
-	case rt.hasTestClient:
-		rt.streamClient = wrapped
-	case rt.scheme == "http":
-		var h2cProtos http.Protocols
-		h2cProtos.SetUnencryptedHTTP2(true)
-		rt.streamClient = &http.Client{
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			Transport: &http.Transport{
-				Protocols: &h2cProtos,
-				DialContext: (&net.Dialer{
-					Timeout:   15 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-			},
-		}
-	default:
-		rt.streamClient = baseHTTP
-	}
 
 	return rt, nil
 }
@@ -209,22 +187,20 @@ func validateRuntimeServerURL(raw string) error {
 
 func (rt *runtimeTransport) newEnvHTTPClient(envID, envKey string) *envruntime.HTTPClient {
 	return envruntime.NewHTTPClient(envruntime.HTTPClientConfig{
-		BaseURL:                     rt.baseURL,
-		APIVersion:                  rt.apiVersion,
-		APIKey:                      rt.apiKey,
-		AccessToken:                 rt.accessToken,
-		EnvironmentID:               envID,
-		EnvironmentKey:              envKey,
-		UserProject:                 rt.userProject,
-		APIRevision:                 rt.apiRevision,
-		UserAgent:                   rawUserAgent,
-		Headers:                     rt.headers,
-		Timeout:                     rt.timeout,
-		HTTPDoer:                    rt.httpClient,
-		StreamDoer:                  rt.streamClient,
-		Debug:                       rt.debug,
-		DebugOut:                    rt.errOut,
-		ProbePlainHTTPOnStreamError: true,
+		BaseURL:        rt.baseURL,
+		APIVersion:     rt.apiVersion,
+		APIKey:         rt.apiKey,
+		AccessToken:    rt.accessToken,
+		EnvironmentID:  envID,
+		EnvironmentKey: envKey,
+		UserProject:    rt.userProject,
+		APIRevision:    rt.apiRevision,
+		UserAgent:      rawUserAgent,
+		Headers:        rt.headers,
+		Timeout:        rt.timeout,
+		HTTPDoer:       rt.httpClient,
+		Debug:          rt.debug,
+		DebugOut:       rt.errOut,
 	})
 }
 
@@ -242,7 +218,7 @@ func (rt *runtimeTransport) newRequest(ctx context.Context, method, path string,
 	return req, nil
 }
 
-// HTTPClientOptions configures a CLI environment runtime HTTP/gRPC client.
+// HTTPClientOptions configures a CLI environment runtime HTTP/WebSocket client.
 type HTTPClientOptions struct {
 	Transport      *runtimeTransport
 	EnvironmentID  string
@@ -261,9 +237,8 @@ func NewHTTPClient(opts HTTPClientOptions) *HTTPClient {
 		inner = opts.Transport.newEnvHTTPClient(opts.EnvironmentID, opts.EnvironmentKey)
 	} else {
 		inner = envruntime.NewHTTPClient(envruntime.HTTPClientConfig{
-			EnvironmentID:               opts.EnvironmentID,
-			EnvironmentKey:              opts.EnvironmentKey,
-			ProbePlainHTTPOnStreamError: true,
+			EnvironmentID:  opts.EnvironmentID,
+			EnvironmentKey: opts.EnvironmentKey,
 		})
 	}
 	return &HTTPClient{inner: inner}
@@ -306,7 +281,7 @@ func (c *HTTPClient) PreviewConnect(ctx context.Context, leaseToken string) erro
 	return wrapTransportError(c.inner.PreviewConnect(ctx, leaseToken))
 }
 
-// ConnectInteraction implements envruntime.EnvironmentClient, wrapping HTTP and gRPC trailer errors into SDKDefaultError.
+// ConnectInteraction implements envruntime.EnvironmentClient, wrapping HTTP, WebSocket, and gRPC trailer errors into SDKDefaultError.
 func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *envruntime.ConnectInteractionRequest) (envruntime.InteractionStream, error) {
 	stream, err := c.inner.ConnectInteraction(ctx, req)
 	if err != nil {
@@ -334,7 +309,15 @@ func wrapTransportError(err error) error {
 	var te *envruntime.TransportError
 	if errors.As(err, &te) {
 		msg := cmp.Or(te.Op, te.Message)
-		return sdkerrors.NewSDKDefaultError(msg, te.StatusCode, te.Body, te.Resp)
+		if te.Op != "" && te.Message != "" && te.Message != te.Op {
+			msg = te.Op + ": " + te.Message
+		}
+		return sdkerrors.NewSDKDefaultError(
+			envruntime.RedactSecretsInString(msg),
+			te.StatusCode,
+			envruntime.RedactSecretsInString(te.Body),
+			te.Resp,
+		)
 	}
 	return err
 }

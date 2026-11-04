@@ -14,5 +14,5 @@
 
 // Package envruntime implements the shared self-hosted environment runtime
 // transport, wire codec, filesystem and shell tool dispatchers, pull worker,
-// and control-plane poller using only the Go standard library.
+// and control-plane poller.
 package envruntime

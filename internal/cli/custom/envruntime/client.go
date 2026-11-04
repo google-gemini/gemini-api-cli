@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,6 +32,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -118,7 +119,12 @@ type InteractionStream interface {
 // HTTPStreamDialer opens a custom bidirectional interaction stream for HTTPClient.
 type HTTPStreamDialer func(ctx context.Context, endpoint string, headers http.Header, req *ConnectInteractionRequest) (InteractionStream, error)
 
-// TransportError represents an HTTP or gRPC status failure returned by HTTPClient.
+// RedactSecretsInString replaces any JSON "lease_token" or "environment_key" string values in s with "[REDACTED]".
+func RedactSecretsInString(s string) string {
+	return leaseTokenJSONPattern.ReplaceAllString(s, `${1}"[REDACTED]"`)
+}
+
+// TransportError represents an HTTP, WebSocket, or gRPC status failure returned by HTTPClient.
 type TransportError struct {
 	Op         string
 	StatusCode int
@@ -130,9 +136,10 @@ type TransportError struct {
 
 // Error implements error.
 func (e *TransportError) Error() string {
-	detail := cmp.Or(strings.TrimSpace(e.Body), e.Message, http.StatusText(e.StatusCode))
-	if e.Op != "" {
-		return fmt.Sprintf("%s: HTTP %d: %s", e.Op, e.StatusCode, detail)
+	detail := RedactSecretsInString(cmp.Or(strings.TrimSpace(e.Body), e.Message, http.StatusText(e.StatusCode)))
+	op := RedactSecretsInString(e.Op)
+	if op != "" {
+		return fmt.Sprintf("%s: HTTP %d: %s", op, e.StatusCode, detail)
 	}
 	if e.StatusCode > 0 {
 		return fmt.Sprintf("HTTP %d: %s", e.StatusCode, detail)
@@ -481,54 +488,58 @@ func parseEnvironmentEnvVars(maps ...map[string]json.RawMessage) (map[string]str
 	return envMap, envVars
 }
 
-// HTTPClientConfig configures an HTTPClient for control-plane REST and gRPC/HTTP2 streams.
+// HTTPClientConfig configures an HTTPClient for control-plane REST and WebSocket/HTTP streams.
 type HTTPClientConfig struct {
-	BaseURL                     string
-	APIVersion                  string
-	StreamAPIVersion            string
-	APIKey                      string
-	AccessToken                 string
-	EnvironmentID               string
-	EnvironmentKey              string
-	WorkerID                    string
-	UserProject                 string
-	APIRevision                 string
-	UserAgent                   string
-	Headers                     map[string]string
-	Timeout                     time.Duration
-	HTTPDoer                    HTTPDoer
-	StreamDoer                  HTTPDoer
-	TLSConfig                   *tls.Config
-	StreamDialer                HTTPStreamDialer
-	Debug                       bool
-	DebugOut                    io.Writer
-	ProbePlainHTTPOnStreamError bool
-	RequireCredentialsOnLease   bool
+	BaseURL          string
+	APIVersion       string
+	StreamAPIVersion string
+	APIKey           string
+	AccessToken      string
+	EnvironmentID    string
+	EnvironmentKey   string
+	WorkerID         string
+	UserProject      string
+	APIRevision      string
+	UserAgent        string
+	Headers          map[string]string
+	Timeout          time.Duration
+	HTTPDoer         HTTPDoer
+	// StreamDoer is retained for caller source compatibility; ConnectInteraction dials WebSockets via WSDialer.
+	StreamDoer                HTTPDoer
+	WSDialer                  *websocket.Dialer
+	TLSConfig                 *tls.Config
+	StreamDialer              HTTPStreamDialer
+	Debug                     bool
+	DebugOut                  io.Writer
+	RequireCredentialsOnLease bool
 }
 
-// HTTPClient implements EnvironmentClient over Gemini API REST and HTTP/2 gRPC bidi endpoints.
+type wsConnDialer interface {
+	DialContext(ctx context.Context, urlStr string, requestHeader http.Header) (*websocket.Conn, *http.Response, error)
+}
+
+// HTTPClient implements EnvironmentClient over Gemini API REST and WebSocket bidi endpoints.
 type HTTPClient struct {
-	baseURL          string
-	scheme           string
-	apiVersion       string
-	streamAPIVersion string
-	apiKey           string
-	accessToken      string
-	environmentID    string
-	environmentKey   string
-	workerID         string
-	userProject      string
-	apiRevision      string
-	userAgent        string
-	headers          map[string]string
-	timeout          time.Duration
-	httpDoer         HTTPDoer
-	streamDoer       HTTPDoer
-	streamDialer     HTTPStreamDialer
-	debug            bool
-	debugOut         io.Writer
-	probePlainHTTP   bool
-	requireLeaseCred bool
+	baseURL            string
+	apiVersion         string
+	streamAPIVersion   string
+	apiKey             string
+	accessToken        string
+	environmentID      string
+	environmentKey     string
+	workerID           string
+	userProject        string
+	apiRevision        string
+	userAgent          string
+	headers            map[string]string
+	timeout            time.Duration
+	httpDoer           HTTPDoer
+	wsDialer           wsConnDialer
+	streamDialer       HTTPStreamDialer
+	marshalClientBatch func(*ClientEventBatch) ([]byte, error)
+	debug              bool
+	debugOut           io.Writer
+	requireLeaseCred   bool
 }
 
 func newDefaultHTTPTransport(tlsCfg *tls.Config) *http.Transport {
@@ -546,13 +557,26 @@ func newDefaultHTTPTransport(tlsCfg *tls.Config) *http.Transport {
 	}
 }
 
+func newDefaultWSDialer(tlsCfg *tls.Config, timeout time.Duration) *websocket.Dialer {
+	var streamTLS *tls.Config
+	if tlsCfg != nil {
+		streamTLS = tlsCfg.Clone()
+		streamTLS.NextProtos = nil
+	}
+	handshakeTimeout := 45 * time.Second
+	if timeout > 0 {
+		handshakeTimeout = timeout
+	}
+	return &websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: handshakeTimeout,
+		TLSClientConfig:  streamTLS,
+	}
+}
+
 // NewHTTPClient creates an HTTPClient from cfg.
 func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	var scheme string
-	if u, err := url.Parse(baseURL); err == nil {
-		scheme = strings.ToLower(u.Scheme)
-	}
 	apiVersion := strings.Trim(strings.TrimSpace(cfg.APIVersion), "/")
 	if apiVersion == "" {
 		apiVersion = "v1beta"
@@ -577,20 +601,11 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 		}
 	}
 
-	streamDoer := cmp.Or(cfg.StreamDoer, httpDoer)
-	if cfg.StreamDoer == nil && scheme == "http" {
-		var h2cProtos http.Protocols
-		h2cProtos.SetUnencryptedHTTP2(true)
-		streamDoer = &http.Client{
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			Transport: &http.Transport{
-				Protocols: &h2cProtos,
-				DialContext: (&net.Dialer{
-					Timeout:   15 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-			},
-		}
+	var wsDialer wsConnDialer
+	if cfg.WSDialer != nil {
+		wsDialer = cfg.WSDialer
+	} else {
+		wsDialer = newDefaultWSDialer(tlsCfg, cfg.Timeout)
 	}
 
 	copiedHeaders := make(map[string]string, len(cfg.Headers))
@@ -599,27 +614,26 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	}
 
 	return &HTTPClient{
-		baseURL:          baseURL,
-		scheme:           scheme,
-		apiVersion:       apiVersion,
-		streamAPIVersion: streamAPIVersion,
-		apiKey:           cfg.APIKey,
-		accessToken:      cfg.AccessToken,
-		environmentID:    strings.TrimSpace(cfg.EnvironmentID),
-		environmentKey:   strings.TrimSpace(cfg.EnvironmentKey),
-		workerID:         strings.TrimSpace(cfg.WorkerID),
-		userProject:      cfg.UserProject,
-		apiRevision:      cfg.APIRevision,
-		userAgent:        cfg.UserAgent,
-		headers:          copiedHeaders,
-		timeout:          cfg.Timeout,
-		httpDoer:         httpDoer,
-		streamDoer:       streamDoer,
-		streamDialer:     cfg.StreamDialer,
-		debug:            cfg.Debug,
-		debugOut:         cmp.Or[io.Writer](cfg.DebugOut, os.Stderr),
-		probePlainHTTP:   cfg.ProbePlainHTTPOnStreamError,
-		requireLeaseCred: cfg.RequireCredentialsOnLease,
+		baseURL:            baseURL,
+		apiVersion:         apiVersion,
+		streamAPIVersion:   streamAPIVersion,
+		apiKey:             cfg.APIKey,
+		accessToken:        cfg.AccessToken,
+		environmentID:      strings.TrimSpace(cfg.EnvironmentID),
+		environmentKey:     strings.TrimSpace(cfg.EnvironmentKey),
+		workerID:           strings.TrimSpace(cfg.WorkerID),
+		userProject:        cfg.UserProject,
+		apiRevision:        cfg.APIRevision,
+		userAgent:          cfg.UserAgent,
+		headers:            copiedHeaders,
+		timeout:            cfg.Timeout,
+		httpDoer:           httpDoer,
+		wsDialer:           wsDialer,
+		streamDialer:       cfg.StreamDialer,
+		marshalClientBatch: MarshalClientEventBatchJSON,
+		debug:              cfg.Debug,
+		debugOut:           cmp.Or[io.Writer](cfg.DebugOut, os.Stderr),
+		requireLeaseCred:   cfg.RequireCredentialsOnLease,
 	}
 }
 
@@ -633,9 +647,9 @@ func (c *HTTPClient) EndpointURL(path string) string {
 	return c.baseURL + "/" + c.apiVersion + "/" + strings.TrimLeft(path, "/")
 }
 
-// BidiStreamMethodPath returns the gRPC HTTP/2 path for CreateInteractionBidiStreamByEnvironmentKey.
+// BidiStreamMethodPath returns the WebSocket HTTP path for StreamInteractionForEnvironmentRuntimeHttp.
 func (c *HTTPClient) BidiStreamMethodPath() string {
-	return fmt.Sprintf("google.learning.gemini.api.interactions.%s.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey", c.streamAPIVersion)
+	return fmt.Sprintf("%s/interactions:streamForEnvironmentRuntime", c.streamAPIVersion)
 }
 
 // BuildHeaders constructs standard authentication and diagnostic headers for an outbound request.
@@ -877,20 +891,52 @@ func (c *HTTPClient) HeartbeatInteraction(ctx context.Context, pollerID, interac
 	return &HeartbeatResult{ShouldCancel: true}, nil
 }
 
-// PreviewConnect sends a dry-run preview request for CreateInteractionBidiStreamByEnvironmentKey without opening a stream pipe.
+// PreviewConnect sends a dry-run preview request for StreamInteractionForEnvironmentRuntimeHttp without opening a stream pipe.
 func (c *HTTPClient) PreviewConnect(ctx context.Context, leaseToken string) error {
-	req, err := c.newRequest(ctx, http.MethodPost, c.BidiStreamMethodPath(), c.environmentID, c.environmentKey, leaseToken, http.NoBody)
+	req, err := c.newRequest(ctx, http.MethodGet, c.BidiStreamMethodPath(), c.environmentID, c.environmentKey, leaseToken, http.NoBody)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/grpc")
-	req.Header.Set("TE", "trailers")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
 	resp, err := c.httpDoer.Do(req)
 	if err != nil {
 		return err
 	}
-	_ = resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, MaxControlPlaneBodyBytes))
+		return &TransportError{
+			Op:         "PreviewConnect failed",
+			StatusCode: resp.StatusCode,
+			GRPCCode:   HTTPStatusToGRPCCode(resp.StatusCode),
+			Message:    "PreviewConnect failed",
+			Body:       string(body),
+			Resp:       resp,
+		}
+	}
 	return nil
+}
+
+func (c *HTTPClient) wsEndpointURL(path string) (*url.URL, error) {
+	fullURL := c.baseURL + "/" + strings.TrimLeft(path, "/")
+	u, err := url.Parse(fullURL)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "ws":
+		u.Scheme = "ws"
+	case "https", "wss":
+		u.Scheme = "wss"
+	default:
+		return nil, fmt.Errorf("unsupported WebSocket URL scheme %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("missing host in WebSocket URL %q", fullURL)
+	}
+	return u, nil
 }
 
 // ConnectInteraction opens a bidirectional interaction event stream and sends the initial ReconnectInteraction handshake.
@@ -938,25 +984,12 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 		return stream, nil
 	}
 
-	pr, pw := io.Pipe()
-	methodPath := c.BidiStreamMethodPath()
-	httpReq, err := c.newRequest(ctx, http.MethodPost, methodPath, envID, envKey, req.LeaseToken, pr)
+	wsURL, err := c.wsEndpointURL(c.BidiStreamMethodPath())
 	if err != nil {
-		_ = pw.Close()
-		_ = pr.Close()
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/grpc")
-	httpReq.Header.Set("TE", "trailers")
-	if workerID != "" {
-		httpReq.Header.Set(WorkerIDHeader, workerID)
-	}
 
-	if c.debug {
-		_, _ = fmt.Fprintf(c.debugOut, "=== DEBUG STREAM ===\n%s %s\n", httpReq.Method, httpReq.URL.String())
-	}
-
-	handshake := MarshalClientEventBatch(&ClientEventBatch{
+	handshake, err := c.marshalClientBatch(&ClientEventBatch{
 		AckOutputSeqNum: req.AckOutputSeqNum,
 		ReconnectInteraction: &ReconnectInteractionEvent{
 			InteractionID:    req.InteractionID,
@@ -964,34 +997,68 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 			ClientID:         clientID,
 		},
 	})
-
-	writeErrCh := make(chan error, 1)
-	go func() {
-		writeErrCh <- GRPCWriteFrame(pw, handshake)
-	}()
-
-	resp, err := c.streamDoer.Do(httpReq)
 	if err != nil {
-		_ = pw.CloseWithError(err)
-		_ = pr.Close()
-		if c.probePlainHTTP && c.scheme == "http" && ctx.Err() == nil {
-			if httpErr := c.probePlainHTTPError(ctx, methodPath, envID, envKey, req.LeaseToken); httpErr != nil {
-				return nil, httpErr
-			}
-		}
 		return nil, err
 	}
 
-	if c.debug {
-		_, _ = fmt.Fprintf(c.debugOut, "=== DEBUG STREAM RESPONSE ===\n%s\n", resp.Status)
+	wsHeaders := c.BuildHeaders(envID, envKey, req.LeaseToken)
+	if workerID != "" {
+		wsHeaders.Set(WorkerIDHeader, workerID)
+	}
+	for _, k := range []string{
+		"Upgrade",
+		"Connection",
+		"Sec-Websocket-Key",
+		"Sec-Websocket-Version",
+		"Sec-Websocket-Extensions",
+		"Sec-Websocket-Protocol",
+	} {
+		wsHeaders.Del(k)
 	}
 
+	if c.debug {
+		_, _ = fmt.Fprintf(c.debugOut, "=== DEBUG STREAM ===\nGET %s\n", wsURL.Redacted())
+	}
+
+	wsConn, resp, err := c.wsDialer.DialContext(ctx, wsURL.String(), wsHeaders)
+	if c.debug && resp != nil {
+		_, _ = fmt.Fprintf(c.debugOut, "=== DEBUG STREAM RESPONSE ===\n%s\n", resp.Status)
+	}
+	if err != nil {
+		if resp != nil {
+			return nil, handleWSHandshakeError(resp, err)
+		}
+		return nil, err
+	}
+	_ = resp.Body.Close()
+
+	wsStream := newWSInteractionStream(ctx, wsConn)
+	if err := wsStream.writeTextMessage(ctx, handshake); err != nil {
+		_ = wsStream.Close()
+		return nil, err
+	}
+	var stream InteractionStream = wsStream
+	if req.HeartbeatInterval > 0 {
+		stream = NewHeartbeatStream(ctx, stream, req.HeartbeatInterval, req.AckOutputSeqNum)
+	}
+	return stream, nil
+}
+
+func handleWSHandshakeError(resp *http.Response, handshakeErr error) error {
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		_ = resp.Body.Close()
+		return &TransportError{
+			Op:         "ConnectInteraction failed",
+			StatusCode: http.StatusBadGateway,
+			GRPCCode:   14,
+			Message:    fmt.Sprintf("invalid WebSocket 101 Switching Protocols response: %v", handshakeErr),
+			Resp:       resp,
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = pr.Close()
-		_ = pw.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		_ = resp.Body.Close()
-		return nil, &TransportError{
+		return &TransportError{
 			Op:         "ConnectInteraction failed",
 			StatusCode: resp.StatusCode,
 			GRPCCode:   HTTPStatusToGRPCCode(resp.StatusCode),
@@ -1001,127 +1068,286 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 		}
 	}
 	if stErr := checkGRPCHeaders(resp); stErr != nil {
-		_ = pr.Close()
-		_ = pw.Close()
 		_ = resp.Body.Close()
-		return nil, stErr
-	}
-	select {
-	case werr := <-writeErrCh:
-		if werr != nil {
-			_ = pw.Close()
-			if !errors.Is(werr, io.ErrClosedPipe) {
-				_ = resp.Body.Close()
-				return nil, werr
-			}
-			// The server closed its read side early (for example, returning gRPC
-			// trailers without draining the request stream); keep resp.Body open so
-			// Recv surfaces buffered frames and trailer status codes.
-		}
-	case <-ctx.Done():
-		_ = pw.CloseWithError(ctx.Err())
-		_ = pr.Close()
-		_ = resp.Body.Close()
-		return nil, ctx.Err()
-	}
-
-	var stream InteractionStream = &grpcInteractionStream{
-		streamCtx: ctx,
-		resp:      resp,
-		pw:        pw,
-	}
-	if req.HeartbeatInterval > 0 {
-		stream = NewHeartbeatStream(ctx, stream, req.HeartbeatInterval, req.AckOutputSeqNum)
-	}
-	return stream, nil
-}
-
-func (c *HTTPClient) probePlainHTTPError(ctx context.Context, methodPath, envID, envKey, leaseToken string) error {
-	probeReq, err := c.newRequest(ctx, http.MethodPost, methodPath, envID, envKey, leaseToken, http.NoBody)
-	if err != nil {
-		return nil
-	}
-	probeReq.Header.Set("Content-Type", "application/grpc")
-	resp, err := c.httpDoer.Do(probeReq)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return nil
+		return stErr
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	_ = resp.Body.Close()
+	if stErr := checkGRPCTrailers(resp); stErr != nil {
+		return stErr
+	}
 	return &TransportError{
 		Op:         "ConnectInteraction failed",
-		StatusCode: resp.StatusCode,
-		GRPCCode:   HTTPStatusToGRPCCode(resp.StatusCode),
-		Message:    "ConnectInteraction failed",
+		StatusCode: http.StatusBadGateway,
+		GRPCCode:   14,
+		Message:    fmt.Sprintf("expected HTTP 101 Switching Protocols, got %s", resp.Status),
 		Body:       string(body),
 		Resp:       resp,
 	}
 }
 
-type grpcInteractionStream struct {
-	streamCtx context.Context
-	resp      *http.Response
-	pw        *io.PipeWriter
-	sendMu    sync.Mutex
+type wsInteractionStream struct {
+	conn       *websocket.Conn
+	streamDone <-chan struct{}
+	streamErr  func() error
+	stopCtx    func() bool
+	sendMu     sync.Mutex
+	readMu     sync.Mutex
+	closeOnce  sync.Once
+	closeErr   error
+	closedSend atomic.Bool
+	closed     atomic.Bool
 }
 
-func (s *grpcInteractionStream) Send(ctx context.Context, batch *ClientEventBatch) error {
+func newWSInteractionStream(ctx context.Context, conn *websocket.Conn) *wsInteractionStream {
+	conn.SetReadLimit(MaxGRPCFrameBytes)
+	s := &wsInteractionStream{
+		conn: conn,
+	}
+	if ctx != nil {
+		s.streamDone = ctx.Done()
+		s.streamErr = ctx.Err
+		s.stopCtx = context.AfterFunc(ctx, func() {
+			_ = s.closeStream(false)
+		})
+	}
+	return s
+}
+
+func (s *wsInteractionStream) streamContextErr() error {
+	if s.streamErr != nil {
+		return s.streamErr()
+	}
+	return nil
+}
+
+func (s *wsInteractionStream) writeTextMessage(ctx context.Context, payload []byte) error {
+	if len(payload) > MaxGRPCFrameBytes {
+		return fmt.Errorf("outbound WebSocket frame size %d exceeds limit %d", len(payload), MaxGRPCFrameBytes)
+	}
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	payload := MarshalClientEventBatch(batch)
+	if err := s.streamContextErr(); err != nil {
+		return err
+	}
+	if s.closedSend.Load() {
+		return io.ErrClosedPipe
+	}
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	if ctx != nil {
-		stop := context.AfterFunc(ctx, func() {
-			_ = s.pw.CloseWithError(ctx.Err())
-		})
-		defer stop()
-	}
-	err := GRPCWriteFrame(s.pw, payload)
-	if err != nil && ctx != nil && ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return err
-}
-
-func (s *grpcInteractionStream) Recv(ctx context.Context) (*ServerEventBatch, error) {
-	if ctx != nil && ctx.Err() != nil {
-		return nil, ctx.Err()
+	if err := s.streamContextErr(); err != nil {
+		return err
 	}
-	if ctx != nil && ctx != s.streamCtx {
+	if s.closedSend.Load() {
+		return io.ErrClosedPipe
+	}
+	if ctx != nil && ctx.Done() != nil && ctx.Done() != s.streamDone {
 		stop := context.AfterFunc(ctx, func() {
 			_ = s.Close()
 		})
 		defer stop()
 	}
-	frame, err := GRPCReadFrame(s.resp.Body)
+	if err := s.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if sErr := s.streamContextErr(); sErr != nil {
+			return sErr
+		}
+		if s.closedSend.Load() {
+			return io.ErrClosedPipe
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *wsInteractionStream) Send(ctx context.Context, batch *ClientEventBatch) error {
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err := s.streamContextErr(); err != nil {
+		return err
+	}
+	if s.closedSend.Load() {
+		return io.ErrClosedPipe
+	}
+	payload, err := MarshalClientEventBatchJSON(batch)
+	if err != nil {
+		return err
+	}
+	return s.writeTextMessage(ctx, payload)
+}
+
+func (s *wsInteractionStream) Recv(ctx context.Context) (*ServerEventBatch, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err := s.streamContextErr(); err != nil {
+		return nil, err
+	}
+	if s.closed.Load() {
+		return nil, io.ErrClosedPipe
+	}
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err := s.streamContextErr(); err != nil {
+		return nil, err
+	}
+	if s.closed.Load() {
+		return nil, io.ErrClosedPipe
+	}
+	if ctx != nil && ctx.Done() != nil && ctx.Done() != s.streamDone {
+		stop := context.AfterFunc(ctx, func() {
+			_ = s.Close()
+		})
+		defer stop()
+	}
+	_, frame, err := s.conn.ReadMessage()
 	if err != nil {
 		if ctx != nil && ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if errors.Is(err, io.EOF) {
-			if stErr := checkGRPCTrailers(s.resp); stErr != nil {
-				return nil, stErr
-			}
+		if sErr := s.streamContextErr(); sErr != nil {
+			return nil, sErr
 		}
-		return nil, err
+		if s.closed.Load() {
+			return nil, io.ErrClosedPipe
+		}
+		return nil, mapWSReadError(err)
 	}
-	return UnmarshalServerEventBatch(frame)
+	return UnmarshalServerEventBatchJSON(frame)
 }
 
-func (s *grpcInteractionStream) CloseSend() error {
+func mapWSReadError(err error) error {
+	if errors.Is(err, websocket.ErrReadLimit) {
+		return fmt.Errorf("inbound WebSocket message exceeds %d-byte limit: %w", MaxGRPCFrameBytes, err)
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		switch closeErr.Code {
+		case websocket.CloseNormalClosure, websocket.CloseNoStatusReceived:
+			return io.EOF
+		case websocket.CloseAbnormalClosure:
+			return io.ErrUnexpectedEOF
+		default:
+			return wsCloseToTransportError(closeErr.Code, strings.TrimSpace(closeErr.Text))
+		}
+	}
+	return err
+}
+
+func wsCloseToTransportError(closeCode int, reason string) error {
+	httpStatus := http.StatusInternalServerError
+	grpcCode := 13
+	lower := strings.ToLower(reason)
+	switch closeCode {
+	case 1002, 1003, 1007, 1009:
+		httpStatus = http.StatusBadRequest
+		grpcCode = 3
+	case 1001, 1012, 1013, 1014:
+		httpStatus = http.StatusServiceUnavailable
+		grpcCode = 14
+	case 1008:
+		switch {
+		case strings.Contains(lower, "unauthenticated") || strings.Contains(lower, "missing required credentials"):
+			httpStatus = http.StatusUnauthorized
+			grpcCode = 16
+		case strings.Contains(lower, "not_found") || strings.Contains(lower, "not found"):
+			httpStatus = http.StatusNotFound
+			grpcCode = 5
+		case strings.Contains(lower, "already_exists") || strings.Contains(lower, "aborted"):
+			httpStatus = http.StatusConflict
+			grpcCode = 10
+		case strings.Contains(lower, "unimplemented") || strings.Contains(lower, "not enabled") || strings.Contains(lower, "disabled"):
+			httpStatus = http.StatusNotImplemented
+			grpcCode = 12
+		default:
+			httpStatus = http.StatusForbidden
+			grpcCode = 7
+		}
+	default:
+		switch {
+		case strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "quota") || strings.Contains(lower, "rate limit"):
+			httpStatus = http.StatusTooManyRequests
+			grpcCode = 8
+		case strings.Contains(lower, "deadline_exceeded") || strings.Contains(lower, "deadline exceeded"):
+			httpStatus = http.StatusGatewayTimeout
+			grpcCode = 4
+		case strings.Contains(lower, "unavailable"):
+			httpStatus = http.StatusServiceUnavailable
+			grpcCode = 14
+		case strings.Contains(lower, "unauthenticated"):
+			httpStatus = http.StatusUnauthorized
+			grpcCode = 16
+		case strings.Contains(lower, "permission_denied") || strings.Contains(lower, "permission denied"):
+			httpStatus = http.StatusForbidden
+			grpcCode = 7
+		case strings.Contains(lower, "not_found"):
+			httpStatus = http.StatusNotFound
+			grpcCode = 5
+		case strings.Contains(lower, "already_exists") || strings.Contains(lower, "aborted"):
+			httpStatus = http.StatusConflict
+			grpcCode = 10
+		}
+	}
+	msg := RedactSecretsInString(reason)
+	if msg == "" {
+		msg = fmt.Sprintf("WebSocket closed with code %d", closeCode)
+	}
+	errBody, _ := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"code":    httpStatus,
+			"message": msg,
+		},
+	})
+	return &TransportError{
+		Op:         msg,
+		StatusCode: httpStatus,
+		GRPCCode:   grpcCode,
+		Message:    msg,
+		Body:       string(errBody),
+	}
+}
+
+func (s *wsInteractionStream) CloseSend() error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	return s.pw.Close()
+	if s.closedSend.Swap(true) {
+		return nil
+	}
+	if s.streamContextErr() != nil {
+		return nil
+	}
+	_ = s.conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(5*time.Second),
+	)
+	return nil
 }
 
-func (s *grpcInteractionStream) Close() error {
-	_ = s.pw.CloseWithError(io.ErrClosedPipe)
-	return s.resp.Body.Close()
+func (s *wsInteractionStream) closeStream(stopWatcher bool) error {
+	s.closeOnce.Do(func() {
+		s.closedSend.Store(true)
+		s.closed.Store(true)
+		if stopWatcher && s.stopCtx != nil {
+			s.stopCtx()
+		}
+		s.closeErr = s.conn.Close()
+	})
+	return s.closeErr
+}
+
+func (s *wsInteractionStream) Close() error {
+	return s.closeStream(true)
 }
 
 // SendHeartbeat transmits an AckOutputSeqNum-only ClientEventBatch over stream to renew the server-side lease.
@@ -1137,7 +1363,6 @@ func SendHeartbeat(ctx context.Context, stream InteractionStream, ackOutputSeqNu
 // HeartbeatStream wraps an InteractionStream to send periodic in-band AckOutputSeqNum frames.
 type HeartbeatStream struct {
 	inner     InteractionStream
-	hbCtx     context.Context
 	hbCancel  context.CancelFunc
 	sendMu    sync.Mutex
 	ackSeq    atomic.Int64
@@ -1147,10 +1372,12 @@ type HeartbeatStream struct {
 
 // NewHeartbeatStream wraps inner with a background ticker sending SendHeartbeat every interval.
 func NewHeartbeatStream(ctx context.Context, inner InteractionStream, interval time.Duration, initialAckSeqNum int64) *HeartbeatStream {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	hs := &HeartbeatStream{
 		inner:    inner,
-		hbCtx:    hbCtx,
 		hbCancel: hbCancel,
 	}
 	hs.ackSeq.Store(initialAckSeqNum)

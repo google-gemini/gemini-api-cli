@@ -103,6 +103,10 @@ func TestStdlibOnlyAndExportHygiene(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parser.ParseFile(%q) failed: %v", name, err)
 		}
+		allowedExternalImports := map[string]bool{
+			"github.com/gorilla/" + "websocket":                           true,
+			"google3/" + "third_party/golang/gorilla/websocket/websocket": true,
+		}
 		importLiterals := make(map[*ast.BasicLit]bool, len(fileAST.Imports))
 		for _, imp := range fileAST.Imports {
 			importLiterals[imp.Path] = true
@@ -111,8 +115,8 @@ func TestStdlibOnlyAndExportHygiene(t *testing.T) {
 				t.Fatalf("strconv.Unquote(%s) failed: %v", imp.Path.Value, err)
 			}
 			firstElem, _, _ := strings.Cut(impPath, "/")
-			if strings.HasPrefix(impPath, "google3/") || strings.Contains(firstElem, ".") {
-				t.Errorf("file %q imports non-stdlib package %q, want Go standard library only", name, impPath)
+			if (strings.HasPrefix(impPath, "google3/") || strings.Contains(firstElem, ".")) && !allowedExternalImports[impPath] {
+				t.Errorf("file %q imports disallowed external package %q", name, impPath)
 			}
 		}
 		for _, cg := range fileAST.Comments {

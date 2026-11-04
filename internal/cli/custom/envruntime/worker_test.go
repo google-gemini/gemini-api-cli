@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -886,6 +887,120 @@ func TestPullWorkerPresetsAndDecoupledTrackActiveLeases(t *testing.T) {
 	})
 	if wCustomTimeout.tools.cfg.CommandTimeout != 7*time.Second {
 		t.Errorf("wCustomTimeout.tools.cfg.CommandTimeout = %v, want 7s", wCustomTimeout.tools.cfg.CommandTimeout)
+	}
+
+	// Verify exceedsMaxToolResultWire across exact MaxToolResultWireBytes boundaries (Protobuf and JSON), NaN marshal errors, and JSON-escaped overflow payloads.
+	probeRawLen := MaxToolResultWireBytes - 64
+	pbProbeOverhead := len(MarshalClientEvent(&ClientEvent{
+		SeqNum:          1,
+		TimestampMicros: 1,
+		Payload:         &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, probeRawLen)}},
+	})) - probeRawLen
+	if exceedsMaxToolResultWire(&EventPayload{
+		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead)},
+	}) {
+		t.Error("exceedsMaxToolResultWire(exact Protobuf MaxToolResultWireBytes) = true, want false")
+	}
+	if !exceedsMaxToolResultWire(&EventPayload{
+		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead+1)},
+	}) {
+		t.Error("exceedsMaxToolResultWire(Protobuf MaxToolResultWireBytes+1) = false, want true")
+	}
+
+	jsonProbeBase, err := MarshalClientEventBatchJSON(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			FunctionResult: &FunctionResultEvent{CallID: "c_exact", Name: "fn", Result: map[string]any{"v": ""}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("MarshalClientEventBatchJSON(probe) failed: %v", err)
+	}
+	exactJSONPad := MaxToolResultWireBytes - len(jsonProbeBase)
+	if exceedsMaxToolResultWire(&EventPayload{
+		FunctionResult: &FunctionResultEvent{CallID: "c_exact", Name: "fn", Result: map[string]any{"v": strings.Repeat("a", exactJSONPad)}},
+	}) {
+		t.Error("exceedsMaxToolResultWire(exact JSON MaxToolResultWireBytes) = true, want false")
+	}
+	if !exceedsMaxToolResultWire(&EventPayload{
+		FunctionResult: &FunctionResultEvent{CallID: "c_exact", Name: "fn", Result: map[string]any{"v": strings.Repeat("a", exactJSONPad+1)}},
+	}) {
+		t.Error("exceedsMaxToolResultWire(JSON MaxToolResultWireBytes+1) = false, want true")
+	}
+	if !exceedsMaxToolResultWire(&EventPayload{
+		FunctionResult: &FunctionResultEvent{CallID: "c_nan", Name: "execute_bash", Result: map[string]any{"nan": math.NaN()}},
+	}) {
+		t.Error("exceedsMaxToolResultWire(JSON marshal error via NaN) = false, want true")
+	}
+	escapedPayload := &EventPayload{
+		FunctionResult: &FunctionResultEvent{
+			CallID: "c_json_big",
+			Name:   "execute_bash",
+			Result: map[string]any{"output": strings.Repeat("\x01", (MaxToolResultWireBytes/6)+1024)},
+		},
+	}
+	if !exceedsMaxToolResultWire(escapedPayload) {
+		t.Error("exceedsMaxToolResultWire(JSON-escaped payload > MaxToolResultWireBytes) = false, want true")
+	}
+
+	// Verify oversized CallHookResponse clamping in handleServerEvent and multi-event sub-batch splitting in sendClientEventsChunked.
+	hookWorker := NewPullWorker(PullWorkerConfig{
+		FS: fs,
+		Hooks: hookHandlerFunc(func(_ context.Context, req *CallHookRequest) (*CallHookResponse, error) {
+			return &CallHookResponse{
+				RequestID: req.RequestID,
+				RawWire:   make([]byte, MaxToolResultWireBytes),
+			}, nil
+		}),
+		Logger: log.New(io.Discard, "", 0),
+	})
+	hookState := &sessionState{
+		interactionID: "int_hook_big",
+		executedCalls: make(map[string]*EventPayload),
+	}
+	clampedHook := hookWorker.handleServerEvent(t.Context(), &ServerEvent{
+		SeqNum:  1,
+		Payload: &EventPayload{CallHookRequest: &CallHookRequest{RequestID: "req_big", Name: "pre_tool"}},
+	}, hookState)
+	if clampedHook == nil || clampedHook.CallHookResponse == nil || len(clampedHook.CallHookResponse.RawWire) != 0 || !strings.Contains(clampedHook.CallHookResponse.ErrorMessage, "exceeds maximum frame size") {
+		t.Errorf("handleServerEvent(oversized CallHookResponse) = %+v, want clamped ErrorMessage", clampedHook)
+	}
+
+	halfPayload := strings.Repeat("x", (MaxGRPCFrameBytes/2)+64*1024)
+	ev1 := &ClientEvent{
+		SeqNum:  10,
+		Payload: &EventPayload{FunctionResult: &FunctionResultEvent{CallID: "c1", Name: "read_file", Result: map[string]any{"content": halfPayload}}},
+	}
+	ev2 := &ClientEvent{
+		SeqNum:  11,
+		Payload: &EventPayload{FunctionResult: &FunctionResultEvent{CallID: "c2", Name: "read_file", Result: map[string]any{"content": halfPayload}}},
+	}
+	chunkState := &sessionState{nextClientSeq: 12}
+	var sentBatches []*ClientEventBatch
+	if err := sendClientEventsChunked(t.Context(), func(_ context.Context, b *ClientEventBatch) error {
+		sentBatches = append(sentBatches, b)
+		return nil
+	}, 99, []*ClientEvent{ev1, ev2}, 10, chunkState); err != nil {
+		t.Fatalf("sendClientEventsChunked(2 x 2.1MiB) failed: %v", err)
+	}
+	if len(sentBatches) != 2 || len(sentBatches[0].Events) != 1 || sentBatches[0].Events[0].SeqNum != 10 || len(sentBatches[1].Events) != 1 || sentBatches[1].Events[0].SeqNum != 11 {
+		t.Fatalf("sendClientEventsChunked(2 x 2.1MiB) sent %d batches (%+v), want 2 single-event sub-batches", len(sentBatches), sentBatches)
+	}
+
+	// Verify partial sub-batch send failure rolls back nextClientSeq only to the first unsent event's SeqNum.
+	partialState := &sessionState{nextClientSeq: 12}
+	sendCalls := 0
+	partialErr := errors.New("second sub-batch send failed")
+	if err := sendClientEventsChunked(t.Context(), func(_ context.Context, _ *ClientEventBatch) error {
+		sendCalls++
+		if sendCalls == 2 {
+			return partialErr
+		}
+		return nil
+	}, 99, []*ClientEvent{ev1, ev2}, 10, partialState); !errors.Is(err, partialErr) {
+		t.Errorf("sendClientEventsChunked(2nd batch error) = %v, want %v", err, partialErr)
+	}
+	if partialState.nextClientSeq != 11 {
+		t.Errorf("partialState.nextClientSeq after 2nd sub-batch error = %d, want 11", partialState.nextClientSeq)
 	}
 }
 

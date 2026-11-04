@@ -33,6 +33,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/spf13/cobra"
+	"github.com/gorilla/websocket"
 )
 
 func newTestRuntimeCmd(t *testing.T, serverURL string) *cobra.Command {
@@ -378,32 +379,37 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 	t.Run("dry_run_previews", func(t *testing.T) {
 		t.Cleanup(output.ResetPreparsedRendering)
 		dryCases := []struct {
-			name     string
-			args     []string
-			wantPath string
-			wantBody string
+			name       string
+			args       []string
+			wantMethod string
+			wantPath   string
+			wantBody   string
 		}{
 			{
-				name:     "connect_dry_run",
-				args:     []string{"-o", "json", "--dry-run", "environments", "connect", "--environment-key", "ek_c", "--worker-id", "w-custom", "--max-concurrent", "2"},
-				wantPath: "/v1beta/environments:leaseInteractions",
-				wantBody: "w-custom",
+				name:       "connect_dry_run",
+				args:       []string{"-o", "json", "--dry-run", "environments", "connect", "--environment-key", "ek_c", "--worker-id", "w-custom", "--max-concurrent", "2"},
+				wantMethod: http.MethodPost,
+				wantPath:   "/v1beta/environments:leaseInteractions",
+				wantBody:   "w-custom",
 			},
 			{
-				name:     "poll_dry_run_with_scoped_environment",
-				args:     []string{"-o", "json", "--dry-run", "environments", "poll", "--environment", "environments/env_77", "--environment-key", "ek_p", "--poller-id", "p-custom", "--max-interactions", "3"},
-				wantPath: "/v1beta/environments:leaseInteractions",
-				wantBody: "env_77",
+				name:       "poll_dry_run_with_scoped_environment",
+				args:       []string{"-o", "json", "--dry-run", "environments", "poll", "--environment", "environments/env_77", "--environment-key", "ek_p", "--poller-id", "p-custom", "--max-interactions", "3"},
+				wantMethod: http.MethodPost,
+				wantPath:   "/v1beta/environments:leaseInteractions",
+				wantBody:   "env_77",
 			},
 			{
-				name:     "serve_dry_run_default_sample",
-				args:     []string{"-o", "json", "--dry-run", "environments", "serve"},
-				wantPath: "/google.learning.gemini.api.interactions.v1beta.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey",
+				name:       "serve_dry_run_default_sample",
+				args:       []string{"-o", "json", "--dry-run", "environments", "serve"},
+				wantMethod: http.MethodGet,
+				wantPath:   "/v1beta/interactions:streamForEnvironmentRuntime",
 			},
 			{
-				name:     "serve_dry_run_explicit_lease",
-				args:     []string{"-o", "json", "--dry-run", "environments", "serve", "--interaction-id", "interactions/int_s1", "--lease-token", "tok_s1"},
-				wantPath: "/google.learning.gemini.api.interactions.v1beta.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey",
+				name:       "serve_dry_run_explicit_lease",
+				args:       []string{"-o", "json", "--dry-run", "environments", "serve", "--interaction-id", "interactions/int_s1", "--lease-token", "tok_s1"},
+				wantMethod: http.MethodGet,
+				wantPath:   "/v1beta/interactions:streamForEnvironmentRuntime",
 			},
 		}
 		for _, tc := range dryCases {
@@ -419,6 +425,9 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 					t.Fatalf("json.Unmarshal(dry-run output %q) failed: %v", stdout.String(), err)
 				}
 				reqObj, _ := preview["request"].(map[string]any)
+				if gotMethod, _ := reqObj["method"].(string); gotMethod != tc.wantMethod {
+					t.Errorf("dry-run method = %q, want %q", gotMethod, tc.wantMethod)
+				}
 				if gotURL, _ := reqObj["url"].(string); !strings.HasSuffix(gotURL, tc.wantPath) {
 					t.Errorf("dry-run url = %q, want suffix %q", gotURL, tc.wantPath)
 				}
@@ -473,61 +482,64 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 				}
 				_, _ = w.Write([]byte(`{}`))
 
-			case "/google.learning.gemini.api.interactions.v1beta.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey":
-				w.Header().Set("Content-Type", "application/grpc")
-				w.WriteHeader(http.StatusOK)
-				flusher, _ := w.(http.Flusher)
-				flusher.Flush()
-
-				hsRaw, err := envruntime.GRPCReadFrame(r.Body)
+			case "/v1beta/interactions:streamForEnvironmentRuntime":
+				wsUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+				wsConn, err := wsUpgrader.Upgrade(w, r, nil)
 				if err != nil {
 					return
 				}
-				hsBatch, err := envruntime.UnmarshalClientEventBatch(hsRaw)
+				defer wsConn.Close()
+
+				_, hsRaw, err := wsConn.ReadMessage()
+				if err != nil {
+					return
+				}
+				hsBatch, err := envruntime.UnmarshalClientEventBatchJSON(hsRaw)
 				if err != nil || hsBatch.ReconnectInteraction == nil {
 					return
 				}
-				if hsBatch.ReconnectInteraction.ClientID != envruntime.DefaultEnvironmentClientID {
-					t.Errorf("handshake ClientID = %q, want %q", hsBatch.ReconnectInteraction.ClientID, envruntime.DefaultEnvironmentClientID)
-				}
 				intID := hsBatch.ReconnectInteraction.InteractionID
 				if intID == "int_serve_bash_off" {
-					_ = envruntime.GRPCWriteFrame(w, envruntime.MarshalServerEventBatch(&envruntime.ServerEventBatch{
+					callBytes, _ := envruntime.MarshalServerEventBatchJSON(&envruntime.ServerEventBatch{
 						Events: []*envruntime.ServerEvent{{
 							SeqNum: 1,
 							Payload: &envruntime.EventPayload{
-								Step: &envruntime.Step{
-									ToolCall: &envruntime.ToolCallStep{
-										ID: "c_bash",
-										FunctionCall: &envruntime.FunctionCallStep{
-											Name:      "execute_bash",
-											Arguments: map[string]any{"command": "echo nope"},
-										},
-									},
+								FunctionInvocation: &envruntime.FunctionInvocation{
+									CallID:    "c_bash",
+									Name:      "execute_bash",
+									Arguments: map[string]any{"command": "echo nope"},
 								},
 							},
 						}},
-					}))
-					flusher.Flush()
+					})
+					_ = wsConn.WriteMessage(websocket.TextMessage, callBytes)
 					for {
-						replyRaw, err := envruntime.GRPCReadFrame(r.Body)
+						_, replyRaw, err := wsConn.ReadMessage()
 						if err != nil {
 							return
 						}
-						if len(replyRaw) == 0 {
+						replyBatch, err := envruntime.UnmarshalClientEventBatchJSON(replyRaw)
+						if err != nil {
+							return
+						}
+						if len(replyBatch.Events) == 0 {
 							continue
 						}
-						replyBatch, err := envruntime.UnmarshalClientEventBatch(replyRaw)
-						if err == nil && len(replyBatch.Events) == 1 && replyBatch.Events[0].Payload.Step.ToolResult.FunctionResult.IsError {
+						if replyBatch.Events[0].Payload.FunctionResult != nil && replyBatch.Events[0].Payload.FunctionResult.IsError {
 							serveToolRejected.Store(true)
 						}
 						break
 					}
 				}
-				_ = envruntime.GRPCWriteFrame(w, envruntime.MarshalServerEventBatch(&envruntime.ServerEventBatch{
+				doneBytes, _ := envruntime.MarshalServerEventBatchJSON(&envruntime.ServerEventBatch{
 					InteractionCompleted: &envruntime.InteractionCompletedEvent{},
-				}))
-				flusher.Flush()
+				})
+				_ = wsConn.WriteMessage(websocket.TextMessage, doneBytes)
+				for {
+					if _, _, err := wsConn.ReadMessage(); err != nil {
+						break
+					}
+				}
 				if intID == "int_connected" {
 					select {
 					case connectDone <- struct{}{}:
@@ -814,7 +826,19 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 	t.Run("sdk_error_wrapping_and_debug_redaction", func(t *testing.T) {
 		srvURL := startH2CTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v1beta/environments:leaseInteractions" {
-				http.Error(w, `{"error":{"message":"permission denied"}}`, http.StatusForbidden)
+				http.Error(w, `{"error":{"message":"permission denied"},"lease_token":"tok_secret_in_err"}`, http.StatusForbidden)
+				return
+			}
+			if r.Header.Get(envruntime.LeaseTokenHeader) == "tok_ws_close_1008" {
+				wsUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+				wsConn, err := wsUpgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer wsConn.Close()
+				_, _, _ = wsConn.ReadMessage()
+				closeMsg := websocket.FormatCloseMessage(websocket.ClosePolicyViolation, `PERMISSION_DENIED: invalid {"lease_token":"tok_ws_secret"}`)
+				_ = wsConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
 				return
 			}
 			w.Header().Set("Content-Type", "application/grpc")
@@ -839,30 +863,74 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 		}
 
 		_, leaseErr := hc.LeaseSimple(t.Context(), "w-err", 1)
-		if leaseErr == nil || !strings.Contains(leaseErr.Error(), "Status 403") {
-			t.Errorf("LeaseSimple(403) = %v, want SDKDefaultError containing \"Status 403\"", leaseErr)
+		if leaseErr == nil || !strings.Contains(leaseErr.Error(), "Status 403") || strings.Contains(leaseErr.Error(), "tok_secret_in_err") {
+			t.Errorf("LeaseSimple(403) = %v, want redacted SDKDefaultError containing \"Status 403\"", leaseErr)
 		}
 		if !isNonRetryableControlPlaneError(leaseErr) {
 			t.Errorf("isNonRetryableControlPlaneError(%v) = false, want true", leaseErr)
 		}
 
-		stream, err := hc.ConnectInteraction(t.Context(), &envruntime.ConnectInteractionRequest{
+		wsCloseStream, err := hc.ConnectInteraction(t.Context(), &envruntime.ConnectInteractionRequest{
+			InteractionID: "int_ws_1008",
+			LeaseToken:    "tok_ws_close_1008",
+		})
+		if err != nil {
+			t.Fatalf("ConnectInteraction(ws 1008) failed: %v", err)
+		}
+		_, wsCloseErr := wsCloseStream.Recv(t.Context())
+		_ = wsCloseStream.Close()
+		if wsCloseErr == nil || !strings.Contains(wsCloseErr.Error(), "Status 403") || strings.Contains(wsCloseErr.Error(), "tok_ws_secret") {
+			t.Errorf("wsCloseStream.Recv(1008) = %v, want redacted SDKDefaultError containing \"Status 403\"", wsCloseErr)
+		}
+
+		// Verify wrapTransportError handles all (Op, Message) combinations without duplication and redacts fields.
+		for _, tc := range []struct {
+			op, msg string
+			wantMsg string
+		}{
+			{op: "ConnectInteraction failed", msg: "invalid Sec-WebSocket-Accept header", wantMsg: "ConnectInteraction failed: invalid Sec-WebSocket-Accept header"},
+			{op: "same error", msg: "same error", wantMsg: "same error"},
+			{op: "only-op", wantMsg: "only-op"},
+			{msg: "only-msg", wantMsg: "only-msg"},
+		} {
+			wrapped := wrapTransportError(&envruntime.TransportError{
+				Op:         tc.op,
+				StatusCode: http.StatusBadGateway,
+				Message:    tc.msg,
+				Body:       `{"lease_token":"lt_body_secret"}`,
+			})
+			wantPrefix := tc.wantMsg + ": Status 502\n"
+			if wrapped == nil || !strings.HasPrefix(wrapped.Error(), wantPrefix) || strings.Contains(wrapped.Error(), "lt_body_secret") {
+				t.Errorf("wrapTransportError(op=%q, msg=%q) = %q, want prefix %q and redacted body", tc.op, tc.msg, wrapped, wantPrefix)
+			}
+		}
+
+		_, trErr := hc.ConnectInteraction(t.Context(), &envruntime.ConnectInteractionRequest{
 			InteractionID: "int_tr",
 			LeaseToken:    "tok_secret_dbg",
 		})
-		if err != nil {
-			t.Fatalf("ConnectInteraction() failed: %v", err)
+		if trErr == nil || !strings.Contains(trErr.Error(), "Status 503") {
+			t.Errorf("ConnectInteraction(Grpc-Status trailer 14) = %v, want SDKDefaultError containing \"Status 503\"", trErr)
 		}
-		_, recvErr := stream.Recv(t.Context())
-		_ = stream.Close()
-		if recvErr == nil || !strings.Contains(recvErr.Error(), "Status 503") {
-			t.Errorf("stream.Recv(Grpc-Status 14) = %v, want SDKDefaultError containing \"Status 503\"", recvErr)
-		}
-		if isNonRetryableControlPlaneError(recvErr) {
+		if isNonRetryableControlPlaneError(trErr) {
 			t.Errorf("isNonRetryableControlPlaneError(503) = true, want false")
 		}
 		if strings.Contains(dbg.String(), "tok_secret_dbg") {
 			t.Errorf("debug stderr leaked lease token: %q", dbg.String())
+		}
+
+		// Verify --dry-run wraps httpClient in DryRunClient (succeeds without hitting an unreachable server).
+		dryCmd := newTestRuntimeCmd(t, "http://127.0.0.1:1")
+		var dryOut bytes.Buffer
+		dryCmd.Root().SetOut(&dryOut)
+		dryCmd.SetOut(&dryOut)
+		_ = dryCmd.Root().PersistentFlags().Set("dry-run", "true")
+		dryRT, err := newRuntimeTransport(dryCmd, true)
+		if err != nil {
+			t.Fatalf("newRuntimeTransport(dry-run) failed: %v", err)
+		}
+		if err := dryRT.newEnvHTTPClient("env_dry", "ek_dry").PreviewConnect(t.Context(), "tok_dry"); err != nil {
+			t.Errorf("dryRT PreviewConnect() hit network or failed: %v", err)
 		}
 
 		// Verify nil-Transport fallback constructor does not panic.
@@ -871,16 +939,41 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 			t.Error("NewHTTPClient(nil Transport) = nil")
 		}
 
-		// Verify SPEAKEASY_TEST_NAME keeps streamClient unwrapped even when --debug is enabled.
+		// Verify SPEAKEASY_TEST_NAME and SPEAKEASY_TEST_INSTANCE_ID propagate into headers for WebSocket upgrades while preserving explicit --header overrides.
 		t.Setenv("SPEAKEASY_TEST_NAME", "contract_stream_case")
+		t.Setenv("SPEAKEASY_TEST_INSTANCE_ID", "")
+		noInstCmd := newTestRuntimeCmd(t, srvURL)
+		noInstRT, err := newRuntimeTransport(noInstCmd, true)
+		if err != nil {
+			t.Fatalf("newRuntimeTransport(SPEAKEASY_TEST_NAME without instance ID) failed: %v", err)
+		}
+		noInstHdrs := noInstRT.newEnvHTTPClient("", "").BuildHeaders("", "", "")
+		if noInstHdrs.Get("X-Speakeasy-Test-Name") != "contract_stream_case" || noInstHdrs.Values("X-Speakeasy-Test-Instance-Id") != nil {
+			t.Errorf("BuildHeaders(empty SPEAKEASY_TEST_INSTANCE_ID) = %v, want test name without instance ID header", noInstHdrs)
+		}
+
+		t.Setenv("SPEAKEASY_TEST_INSTANCE_ID", "inst_42")
 		testCmd := newTestRuntimeCmd(t, srvURL)
 		_ = testCmd.Root().PersistentFlags().Set("debug", "true")
 		testRT, err := newRuntimeTransport(testCmd, true)
 		if err != nil {
 			t.Fatalf("newRuntimeTransport(SPEAKEASY_TEST_NAME + debug) failed: %v", err)
 		}
-		if !testRT.hasTestClient || testRT.streamClient == testRT.httpClient {
-			t.Errorf("newRuntimeTransport(SPEAKEASY_TEST_NAME + debug): hasTestClient=%v, streamClient==httpClient=%v, want hasTestClient=true and unwrapped streamClient", testRT.hasTestClient, testRT.streamClient == testRT.httpClient)
+		testHdrs := testRT.newEnvHTTPClient("", "").BuildHeaders("", "", "")
+		if testHdrs.Get("X-Speakeasy-Test-Name") != "contract_stream_case" || testHdrs.Get("X-Speakeasy-Test-Instance-Id") != "inst_42" {
+			t.Errorf("BuildHeaders(SPEAKEASY_TEST_*) = %v, want test name and instance ID headers", testHdrs)
+		}
+
+		overrideCmd := newTestRuntimeCmd(t, srvURL)
+		_ = overrideCmd.Root().PersistentFlags().Set("header", "X-Speakeasy-Test-Name: explicit_name")
+		_ = overrideCmd.Root().PersistentFlags().Set("header", "X-Speakeasy-Test-Instance-Id: explicit_inst")
+		overrideRT, err := newRuntimeTransport(overrideCmd, true)
+		if err != nil {
+			t.Fatalf("newRuntimeTransport(explicit Speakeasy headers) failed: %v", err)
+		}
+		overrideHdrs := overrideRT.newEnvHTTPClient("", "").BuildHeaders("", "", "")
+		if overrideHdrs.Get("X-Speakeasy-Test-Name") != "explicit_name" || overrideHdrs.Get("X-Speakeasy-Test-Instance-Id") != "explicit_inst" {
+			t.Errorf("BuildHeaders(explicit Speakeasy headers) = %v, want explicit overrides preserved", overrideHdrs)
 		}
 	})
 }

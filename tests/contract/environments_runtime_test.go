@@ -114,24 +114,28 @@ func TestEnvironmentsRuntimeDryRun(t *testing.T) {
 	absentWork := filepath.Join(absentRoot, "uncreated-work")
 
 	tests := []struct {
-		name     string
-		args     []string
-		wantPath string
+		name       string
+		args       []string
+		wantMethod string
+		wantPath   string
 	}{
 		{
-			name:     "connect",
-			args:     []string{"environments", "connect", "--root-dir", absentRoot, "--workdir", absentWork},
-			wantPath: "/v1beta/environments:leaseInteractions",
+			name:       "connect",
+			args:       []string{"environments", "connect", "--root-dir", absentRoot, "--workdir", absentWork},
+			wantMethod: "POST",
+			wantPath:   "/v1beta/environments:leaseInteractions",
 		},
 		{
-			name:     "poll",
-			args:     []string{"environments", "poll"},
-			wantPath: "/v1beta/environments:leaseInteractions",
+			name:       "poll",
+			args:       []string{"environments", "poll"},
+			wantMethod: "POST",
+			wantPath:   "/v1beta/environments:leaseInteractions",
 		},
 		{
-			name:     "serve",
-			args:     []string{"environments", "serve", "--root-dir", absentRoot, "--workdir", absentWork},
-			wantPath: "/google.learning.gemini.api.interactions.v1beta.InteractionsService/CreateInteractionBidiStreamByEnvironmentKey",
+			name:       "serve",
+			args:       []string{"environments", "serve", "--root-dir", absentRoot, "--workdir", absentWork},
+			wantMethod: "GET",
+			wantPath:   "/v1beta/interactions:streamForEnvironmentRuntime",
 		},
 	}
 
@@ -152,8 +156,9 @@ func TestEnvironmentsRuntimeDryRun(t *testing.T) {
 			if humanRes.stdout != "" {
 				t.Errorf("human dry-run stdout = %q, want empty", humanRes.stdout)
 			}
-			if !strings.Contains(humanRes.stderr, "[DRY-RUN] Would send: POST ") || !strings.Contains(humanRes.stderr, tc.wantPath) {
-				t.Errorf("human dry-run stderr = %q, want POST %s preview", humanRes.stderr, tc.wantPath)
+			wantDryPrefix := "[DRY-RUN] Would send: " + tc.wantMethod + " "
+			if !strings.Contains(humanRes.stderr, wantDryPrefix) || !strings.Contains(humanRes.stderr, tc.wantPath) {
+				t.Errorf("human dry-run stderr = %q, want %s%s preview", humanRes.stderr, wantDryPrefix, tc.wantPath)
 			}
 
 			jsonArgs := append(append([]string{}, humanArgs...), "--output-format", "json")
@@ -162,6 +167,9 @@ func TestEnvironmentsRuntimeDryRun(t *testing.T) {
 				t.Fatalf("runCLI(%v --dry-run -o json) failed: %v\nstderr: %s", tc.args, jsonRes.err, jsonRes.stderr)
 			}
 			reqPreview := parseDryRunRequest(t, jsonRes.stdout)
+			if gotMethod := fmt.Sprint(reqPreview["method"]); gotMethod != tc.wantMethod {
+				t.Errorf("json dry-run method = %q, want %q", gotMethod, tc.wantMethod)
+			}
 			gotURL := fmt.Sprint(reqPreview["url"])
 			if !strings.HasSuffix(gotURL, tc.wantPath) {
 				t.Errorf("json dry-run url = %q, want suffix %q", gotURL, tc.wantPath)
@@ -234,15 +242,16 @@ func TestEnvironmentsRuntimeExitCodesAndErrorTaxonomy(t *testing.T) {
 		},
 	}
 
+	noKeyringEnv := map[string]string{"GEMINI_NO_KEYRING": "true"}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plainRes := runCLI(t, t.TempDir(), nil, tc.args...)
+			plainRes := runCLI(t, t.TempDir(), noKeyringEnv, tc.args...)
 			if got := exitCode(t, plainRes); got != tc.wantCode {
 				t.Errorf("runCLI(%v) exit code = %d, want %d\nstdout: %s\nstderr: %s", tc.args, got, tc.wantCode, plainRes.stdout, plainRes.stderr)
 			}
 
 			agentArgs := append([]string{"--agent-mode"}, tc.args...)
-			agentRes := runCLI(t, t.TempDir(), nil, agentArgs...)
+			agentRes := runCLI(t, t.TempDir(), noKeyringEnv, agentArgs...)
 			if got := exitCode(t, agentRes); got != tc.wantCode {
 				t.Errorf("runCLI(--agent-mode %v) exit code = %d, want %d\nstderr: %s", tc.args, got, tc.wantCode, agentRes.stderr)
 			}
