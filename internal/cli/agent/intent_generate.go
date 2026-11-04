@@ -124,7 +124,7 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		return usage.EmitSchema(cmd, cmd.OutOrStdout())
 	}
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
-		return usage.EmitBodySchema(cmd.OutOrStdout(), "CreateInteraction")
+		return usage.EmitBodySchema(cmd.OutOrStdout(), "CreateInteraction#ModelInteraction")
 	}
 	bodySurfaces := []string{"body"}
 	for _, surface := range bodySurfaces {
@@ -244,6 +244,13 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 			if err := flagutil.MergePresetStdinBody(cmd, intentGeneratePreset); err != nil {
 				return err
 			}
+		}
+	}
+	if bodySupplied {
+		if err := flagutil.RequireBodyInputs(cmd, suppliedBodyFlag, []flagutil.RequiredBodyInput{
+			{Path: []string{"input"}, Source: "the <prompt> argument"},
+		}); err != nil {
+			return err
 		}
 	}
 	return runRunCmd(cmd, nil)

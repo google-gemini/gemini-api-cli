@@ -65,6 +65,7 @@ type asyncSnapshot struct {
 	raw     []byte
 	parsed  interface{}
 	headers http.Header
+	request *http.Request
 }
 
 type asyncHTTPMeta struct {
@@ -451,6 +452,10 @@ func snapshotAsyncResponse(response interface{}) (asyncSnapshot, error) {
 		}
 	}
 	headers := extractResponseHeaders(response).Clone()
+	var request *http.Request
+	if httpResponse := extractHTTPResponse(response); httpResponse != nil {
+		request = httpResponse.Request
+	}
 	raw, rawErr := tryReadRawBody(response)
 	if rawErr != nil {
 		return asyncSnapshot{}, rawErr
@@ -472,13 +477,14 @@ func snapshotAsyncResponse(response interface{}) (asyncSnapshot, error) {
 	if err := decoder.Decode(&parsed); err != nil {
 		return asyncSnapshot{}, fmt.Errorf("response body is not valid JSON: %w", err)
 	}
-	return asyncSnapshot{raw: raw, parsed: parsed, headers: headers}, nil
+	return asyncSnapshot{raw: raw, parsed: parsed, headers: headers, request: request}, nil
 }
 
 func renderAsyncSnapshot(cmd *cobra.Command, snapshot asyncSnapshot, allowArtifact bool) error {
 	response := &http.Response{
-		Body:   io.NopCloser(bytes.NewReader(snapshot.raw)),
-		Header: snapshot.headers.Clone(),
+		Body:    io.NopCloser(bytes.NewReader(snapshot.raw)),
+		Header:  snapshot.headers.Clone(),
+		Request: snapshot.request,
 	}
 	envelope := &asyncResultEnvelope{
 		HTTPMeta: asyncHTTPMeta{Response: response},

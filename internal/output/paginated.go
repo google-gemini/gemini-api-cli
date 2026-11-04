@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -75,6 +76,9 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 	pageCount := 0
 	seenContinuations := make(map[string]struct{})
 	collectRows := format == "table" && jqExpr == "" && resultsFieldName != ""
+	tableHeaders := wantsHeaders(cmd) && collectRows
+	pageHeaders := wantsHeaders(cmd) && !collectRows
+	var lastHeaders http.Header
 	var rows reflect.Value
 	flushRows := func(partial bool) error {
 		if !rows.IsValid() || (partial && rows.Len() == 0) {
@@ -82,6 +86,19 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 		}
 		if err := printTable(out, rows.Interface()); err != nil {
 			return prettyPrint(out, rows.Interface(), colorize)
+		}
+		return nil
+	}
+	finish := func() error {
+		if err := flushRows(false); err != nil {
+			return err
+		}
+		if lastHeaders != nil {
+			label := "Response Headers"
+			if pageCount > 1 {
+				label = "Response Headers (last page)"
+			}
+			printResponseHeadersPrettyLabel(out, lastHeaders, colorize, label)
 		}
 		return nil
 	}
@@ -103,7 +120,16 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 			v = v.Elem()
 		}
 		handledRaw := false
-		if rawJSON {
+		if tableHeaders {
+			lastHeaders = extractResponseHeaders(page)
+		} else if pageHeaders {
+			if err := outputPageWithHeaders(out, page, format, jqExpr, colorize, jqRaw, rawJSON, first); err != nil {
+				return err
+			}
+			first = false
+			handledRaw = true
+		}
+		if rawJSON && !handledRaw {
 			var err error
 			handledRaw, err = outputRawPage(out, page, resultsFieldName != "", probe.Results, jqExpr, colorize, jqRaw)
 			if err != nil {
@@ -179,7 +205,38 @@ func PaginatedResult(cmd *cobra.Command, res interface{}, contentFieldName, resu
 			return Error(cmd, err)
 		}
 	}
-	return flushRows(false)
+	return finish()
+}
+
+// outputPageWithHeaders prints one whole page with its response headers:
+// machine formats and jq get the page object with _response_headers, human
+// formats get the typed page followed by a headers section.
+func outputPageWithHeaders(out io.Writer, page interface{}, format, jqExpr string, colorize, jqRaw, rawJSON, first bool) error {
+	headers := extractResponseHeaders(page)
+	if jqExpr == "" && (format == "pretty" || format == "table") {
+		if content := extractResultContent(page); content != nil {
+			if err := outputOneItem(out, content, format, "", colorize, jqRaw, first); err != nil {
+				return err
+			}
+		}
+		printResponseHeadersPretty(out, headers, colorize)
+		return nil
+	}
+	var data interface{}
+	if rawBody := peekRawBody(page); rawJSON && len(rawBody) > 0 && json.Valid(rawBody) {
+		decoded, err := decodeWithNumbers(rawBody)
+		if err != nil {
+			return fmt.Errorf("failed to parse response JSON: %w", err)
+		}
+		data = decoded
+	} else if content := extractResultContent(page); content != nil {
+		normalized, err := normalizeForOutput(content)
+		if err != nil {
+			return err
+		}
+		data = normalized
+	}
+	return outputOneItem(out, injectHeaders(data, headers), format, jqExpr, colorize, jqRaw, first)
 }
 
 // outputRawPage prints a page from its response bytes so fields the SDK does
@@ -232,8 +289,8 @@ func outputRawPage(out io.Writer, page interface{}, itemsOnly bool, resultsPath,
 
 func outputRawItem(out io.Writer, raw []byte, jqExpr string, colorize, jqRaw bool) error {
 	if jqExpr != "" {
-		var data interface{}
-		if err := json.Unmarshal(raw, &data); err != nil {
+		data, err := decodeWithNumbers(raw)
+		if err != nil {
 			return fmt.Errorf("failed to parse response JSON for jq: %w", err)
 		}
 		return outputOneItem(out, data, "json", jqExpr, colorize, jqRaw, false)

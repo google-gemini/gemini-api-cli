@@ -130,6 +130,14 @@ func resolveOutputFormat(cmd *cobra.Command) string {
 	return flagutil.ResolveOutputFormat(cmd, config.GetString("output-format"), IsAgentMode())
 }
 
+// configuredTimeout returns the timeout setting: --timeout, then env/config.
+func configuredTimeout(cmd *cobra.Command) string {
+	if value, changed := flagutil.GetStringFlag(cmd, "timeout"); changed && value != "" {
+		return value
+	}
+	return config.GetString("timeout")
+}
+
 // EffectiveOutputFormat returns the format the command renders with.
 func EffectiveOutputFormat(cmd *cobra.Command) string {
 	return resolveOutputFormat(cmd)
@@ -199,8 +207,16 @@ func decodeWithNumbers(data []byte) (interface{}, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var parsed interface{}
-	err := dec.Decode(&parsed)
-	return parsed, err
+	if err := dec.Decode(&parsed); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		if err == nil {
+			err = errors.New("invalid character after top-level value")
+		}
+		return nil, err
+	}
+	return parsed, nil
 }
 
 func convertNumbers(v interface{}, conv func(json.Number) interface{}) interface{} {
@@ -465,8 +481,7 @@ func renderResult(cmd *cobra.Command, res interface{}, allowArtifact bool) error
 		if len(rawBody) > 0 {
 			if includeHeaders {
 				headers := extractResponseHeaders(res)
-				var parsed interface{}
-				if err := json.Unmarshal(rawBody, &parsed); err == nil {
+				if parsed, err := decodeWithNumbers(rawBody); err == nil {
 					merged := injectHeaders(parsed, headers)
 					if jqExpr != "" {
 						return applyJqToTyped(out, merged, jqExpr, colorize, jqRaw)
@@ -515,9 +530,13 @@ func renderResult(cmd *cobra.Command, res interface{}, allowArtifact bool) error
 		if format == "json" || format == "yaml" || format == "toon" || jqExpr != "" {
 			return outputWithHeaders(out, content, headers, format, jqExpr, colorize, jqRaw)
 		}
-		// Pretty mode: print body content, then headers section
+		// Pretty and table modes: print body content, then headers section
 		if content != nil {
-			if err := prettyPrint(out, content, colorize); err != nil {
+			if format == "table" {
+				if err := printTable(out, content); err != nil {
+					return err
+				}
+			} else if err := prettyPrint(out, content, colorize); err != nil {
 				return err
 			}
 		}
@@ -1263,7 +1282,7 @@ func outputWithHeaders(out io.Writer, content interface{}, headers http.Header, 
 		if err != nil {
 			return err
 		}
-		if err := json.Unmarshal(data, &parsed); err != nil {
+		if parsed, err = decodeWithNumbers(data); err != nil {
 			return err
 		}
 	}
@@ -1276,7 +1295,7 @@ func outputWithHeaders(out io.Writer, content interface{}, headers http.Header, 
 
 	switch format {
 	case "yaml":
-		yamlData, err := yaml.Marshal(merged)
+		yamlData, err := yaml.Marshal(convertNumbers(merged, yamlNumber))
 		if err != nil {
 			return fmt.Errorf("failed to marshal response as YAML: %w", err)
 		}
@@ -1300,6 +1319,10 @@ func outputWithHeaders(out io.Writer, content interface{}, headers http.Header, 
 // printResponseHeadersPretty prints HTTP response headers in aligned key-value
 // format, similar to prettyPrint but as a separate section.
 func printResponseHeadersPretty(w io.Writer, headers http.Header, colorize bool) {
+	printResponseHeadersPrettyLabel(w, headers, colorize, "Response Headers")
+}
+
+func printResponseHeadersPrettyLabel(w io.Writer, headers http.Header, colorize bool, label string) {
 	if len(headers) == 0 {
 		return
 	}
@@ -1320,7 +1343,6 @@ func printResponseHeadersPretty(w io.Writer, headers http.Header, colorize bool)
 	}
 
 	fmt.Fprintln(w)
-	label := "Response Headers"
 	if colorize {
 		label = colorKey + label + colorReset
 	}
@@ -1359,8 +1381,8 @@ func outputJqResults(out io.Writer, results []interface{}, colorize, raw bool) e
 
 // applyJqToRawJSON applies a jq expression to raw JSON bytes.
 func applyJqToRawJSON(out io.Writer, rawBody []byte, jqExpr string, colorize, raw bool) error {
-	var data interface{}
-	if err := json.Unmarshal(rawBody, &data); err != nil {
+	data, err := decodeWithNumbers(rawBody)
+	if err != nil {
 		return fmt.Errorf("failed to parse response JSON for jq: %w", err)
 	}
 	results, err := ApplyJqFilter(data, jqExpr)

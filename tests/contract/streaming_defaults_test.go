@@ -431,7 +431,7 @@ func TestImageInteractivePromptsForOutputFile(t *testing.T) {
 
 	base := []string{"--interactive", "--api-key", "k", "--server-url", server.URL, "--api-version", "v1beta", "--no-retries", "--color", "never", "image"}
 
-	// A chosen path (extension corrected to the returned MIME type, with a note).
+	// A chosen path with a mismatched media extension is kept as given, with a mismatch note.
 	target := filepath.Join(dir, "shots", "hero.jpg")
 	prompter := &scriptedPrompter{t: t, answers: map[string][]string{"arg:prompt": {"a lighthouse"}, "flag:out": {target}}}
 	stdout, stderr, err := executeInteractive(t, prompter, base...)
@@ -441,15 +441,14 @@ func TestImageInteractivePromptsForOutputFile(t *testing.T) {
 	if !reflect.DeepEqual(prompter.calls, [][]string{{"arg:prompt", "flag:out"}}) {
 		t.Fatalf("prompt calls = %#v, want one call for arg:prompt then flag:out", prompter.calls)
 	}
-	wantPath := filepath.Join(dir, "shots", "hero.png")
-	if strings.TrimSpace(stdout) != wantPath {
-		t.Errorf("stdout = %q, want %q", stdout, wantPath)
+	if strings.TrimSpace(stdout) != target {
+		t.Errorf("stdout = %q, want %q", stdout, target)
 	}
-	if data, err := os.ReadFile(wantPath); err != nil || len(data) != 69 {
-		t.Errorf("written file %q: err=%v len=%d, want the 69-byte PNG", wantPath, err, len(data))
+	if data, err := os.ReadFile(target); err != nil || len(data) != 69 {
+		t.Errorf("written file %q: err=%v len=%d, want the 69-byte PNG", target, err, len(data))
 	}
-	if !strings.Contains(stderr, "hero.jpg") || !strings.Contains(stderr, "hero.png") {
-		t.Errorf("stderr lacks the extension-change note:\n%s", stderr)
+	if !strings.Contains(stderr, "Note: hero.jpg contains image/png content; its extension does not match") {
+		t.Errorf("stderr lacks the extension-mismatch note:\n%s", stderr)
 	}
 
 	// An empty answer keeps the default filename in the working directory.
