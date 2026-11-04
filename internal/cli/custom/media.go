@@ -532,7 +532,7 @@ func resolveMediaSource(cmd *cobra.Command, s *sdk.GeminiAPI, arg, mimeOverride 
 // its URI and MIME type. Under --dry-run the lookup is previewed and a
 // placeholder URI is used so the main request can still be previewed.
 func resolveRemoteFile(cmd *cobra.Command, s *sdk.GeminiAPI, name, id, mimeOverride, ref string, policy mediaPolicy) (*mediaSource, error) {
-	fileURI := "https://generativelanguage.googleapis.com/v1beta/" + name
+	fileURI := expandedFilesURI(cmd, name)
 	mimeType := strings.ToLower(strings.TrimSpace(mimeOverride))
 	if err := checkRemoteMIME(mimeType, ref, policy); err != nil {
 		return nil, err // a bad override fails before the lookup is sent
@@ -1029,7 +1029,7 @@ func normalizeInputValueFileURIs(cmd *cobra.Command, s **sdk.GeminiAPI, val any)
 // uri in a files.get response does.
 func expandedFilesURI(cmd *cobra.Command, name string) string {
 	base := "https://generativelanguage.googleapis.com"
-	ver := "v1beta"
+	ver := "v1"
 	if cmd != nil && flagutil.FlagChanged(cmd, "api-version") {
 		if v, ok := flagutil.GetStringFlag(cmd, "api-version"); ok && strings.TrimSpace(v) != "" {
 			ver = strings.Trim(strings.TrimSpace(v), "/")

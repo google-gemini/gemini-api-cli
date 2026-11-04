@@ -136,7 +136,7 @@ func TestPorcelainInteractivePrompts(t *testing.T) {
 			command:    []string{"files", "upload"},
 			answers:    map[string][]string{"arg:path": {upload}},
 			wantFields: []string{"arg:path"},
-			wantStderr: []string{"upload/v1beta/files", "dry-run-session", "<bytes:"},
+			wantStderr: []string{"upload/v1/files", "dry-run-session", "<bytes:"},
 		},
 		// The identifier is asked for once, and the positional answer is enough.
 		{
@@ -144,21 +144,21 @@ func TestPorcelainInteractivePrompts(t *testing.T) {
 			command:    []string{"files", "get"},
 			answers:    map[string][]string{"arg:file": {"files/abc123"}},
 			wantFields: []string{"arg:file"},
-			wantStderr: []string{"/v1beta/files/abc123"},
+			wantStderr: []string{"/v1/files/abc123"},
 		},
 		{
 			name:       "files delete",
 			command:    []string{"files", "delete"},
 			answers:    map[string][]string{"arg:file": {"abc123"}},
 			wantFields: []string{"arg:file"},
-			wantStderr: []string{"DELETE", "/v1beta/files/abc123"},
+			wantStderr: []string{"DELETE", "/v1/files/abc123"},
 		},
 		{
 			name:       "models get",
 			command:    []string{"models", "get"},
 			answers:    map[string][]string{"arg:model": {"models/gemini-2.5-flash"}},
 			wantFields: []string{"arg:model"},
-			wantStderr: []string{"/v1beta/models/gemini-2.5-flash"},
+			wantStderr: []string{"/v1/models/gemini-2.5-flash"},
 		},
 	}
 

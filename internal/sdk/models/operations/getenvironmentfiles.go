@@ -23,8 +23,8 @@ import (
 )
 
 type GetEnvironmentFilesGlobals struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 }
 
 func (g GetEnvironmentFilesGlobals) MarshalJSON() ([]byte, error) {
@@ -46,8 +46,8 @@ func (g *GetEnvironmentFilesGlobals) GetAPIVersion() *string {
 }
 
 type GetEnvironmentFilesRequest struct {
-	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
-	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Which version of the API to use. Defaults to v1.
+	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
 	// Environment to read, as environments/<id> or a bare id
 	Environment string `pathParam:"style=simple,explode=false,name=environment"`
 	// File or directory path relative to the workspace root, e.g. src; a leading slash is ignored

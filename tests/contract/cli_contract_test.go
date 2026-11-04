@@ -1415,9 +1415,9 @@ func TestDebugRedactsGeminiAPIKey(t *testing.T) {
 	}
 }
 
-// TestAPIVersionDefaultsToV1Beta pins the zero-config path: with no
-// --api-version flag, env var, or config entry, requests go to /v1beta.
-func TestAPIVersionDefaultsToV1Beta(t *testing.T) {
+// TestAPIVersionDefaultsToV1 pins the zero-config path: with no
+// --api-version flag, env var, or config entry, requests go to /v1.
+func TestAPIVersionDefaultsToV1(t *testing.T) {
 	paths := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths <- r.URL.Path
@@ -1438,8 +1438,8 @@ func TestAPIVersionDefaultsToV1Beta(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("agent list failed without an explicit API version: %v\nstderr: %s", result.err, result.stderr)
 	}
-	if got := <-paths; !strings.HasPrefix(got, "/v1beta/") {
-		t.Errorf("request path = %q, want /v1beta/ prefix from the schema default", got)
+	if got := <-paths; !strings.HasPrefix(got, "/v1/") {
+		t.Errorf("request path = %q, want /v1/ prefix from the schema default", got)
 	}
 }
 

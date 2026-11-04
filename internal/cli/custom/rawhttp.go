@@ -81,7 +81,7 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	}
 	t.baseURL = strings.TrimRight(t.baseURL, "/")
 
-	// API version: flag > env/config > flag default (v1beta). An explicitly
+	// API version: flag > env/config > flag default (v1). An explicitly
 	// empty flag is invalid; only an absent value may fall back to the default.
 	apiVersionExplicit := flagutil.FlagChanged(cmd, "api-version")
 	if apiVersionExplicit {
@@ -92,7 +92,7 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 		t.apiVersion, _ = flagutil.GetStringFlag(cmd, "api-version")
 	}
 	if t.apiVersion == "" && !apiVersionExplicit {
-		t.apiVersion = "v1beta"
+		t.apiVersion = "v1"
 	}
 	// The generated client's request hook holds the version to one path
 	// segment; that hook does not run here, and the version is spliced into the
