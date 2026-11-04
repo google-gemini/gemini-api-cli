@@ -45,6 +45,7 @@ func InitIntentImage(parent *cobra.Command) error {
 			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/image-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"image\",\"defaultPath\":\"gemini-image-{timestamp}-{rand}.{ext}\"}",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")

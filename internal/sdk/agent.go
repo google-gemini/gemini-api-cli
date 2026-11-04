@@ -125,6 +125,7 @@ func (s *Agent) List(ctx context.Context, request *operations.ListAgentsRequest,
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "ListAgents")
 	req, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -408,6 +409,7 @@ func (s *Agent) Create(ctx context.Context, request operations.CreateAgentReques
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "CreateAgent")
 	req, err := http.NewRequestWithContext(ctx, "POST", opURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -726,6 +728,7 @@ func (s *Agent) Get(ctx context.Context, request operations.GetAgentRequest, opt
 		}()
 	}
 
+	ctx = utils.WithOperation(ctx, "GetAgent")
 	req, err := http.NewRequestWithContext(ctx, "GET", opURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)

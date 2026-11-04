@@ -41,6 +41,7 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 			"speakeasy_strict_body_keys":     "true",
 			"speakeasy_help_defaults":        "model gemini-3.8-flash · stream true",
 			"speakeasy_help_escalate":        "exact request JSON via --body @request.json (schema with --schema)",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
 			"speakeasy_stream_select":        "/data/delta/text",
 			"speakeasy_stream_metadata":      "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
 		},
@@ -132,7 +133,7 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			PresetMerge: flagutil.PresetMerge{
 				Command: "agent run", Variant: "AgentInteraction",
 				Preset:  "",
-				Foreign: []string{"created", "id", "model", "status", "updated"},
+				Foreign: []string{"model"},
 				Escape:  "gemini-api agent run",
 			},
 		},
