@@ -299,7 +299,7 @@ func checkDispatchRequired(cmd *cobra.Command, args []string, body map[string]js
 			if (pass == 0) != conditional || !dispatchContains(input.RequiredRouteIDs, route.ID) {
 				continue
 			}
-			if _, present := body[input.BodyKey]; present {
+			if raw, present := body[input.BodyKey]; present && bodyValuePresent(raw) {
 				continue
 			}
 			if input.Positional {

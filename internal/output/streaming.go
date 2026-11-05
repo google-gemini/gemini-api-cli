@@ -45,6 +45,22 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string, s
 			}
 		}
 	}
+	return streamResult(cmd, res, streamFieldName, nil, stop)
+}
+
+// streamHops continues a stream into the next hop's stream when one ends,
+// so every hop's events reach one projector and one output sequence.
+type streamHops interface {
+	observe(frame map[string]interface{})
+	wrap(err error) error
+	next() (interface{}, bool, error)
+	discrete(res interface{}) error
+}
+
+func streamResult(cmd *cobra.Command, res interface{}, streamFieldName string, hops streamHops, stop func()) error {
+	if stop == nil {
+		stop = func() {}
+	}
 	defer stop()
 	if flagutil.DidDryRunRequest(cmd) {
 		return nil
@@ -56,48 +72,6 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string, s
 	colorize := ShouldColorize(colorFlag)
 	jqExpr, _ := flagutil.GetStringFlag(cmd, "jq")
 	jqRaw := jqRawOutput(cmd)
-
-	// Extract the stream field from the response envelope via reflection
-	v := reflect.ValueOf(res)
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return nil
-		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		// Fallback: not a struct envelope — output as regular result
-		stop()
-		return Result(cmd, res)
-	}
-	streamVal := v.FieldByName(streamFieldName)
-	if !streamVal.IsValid() {
-		// Fallback: stream field not found — output as regular result
-		stop()
-		return Result(cmd, res)
-	}
-	// Guard IsNil: only call on nillable kinds. Fall back to Result() for
-	// mixed-content operations where non-stream content may still exist.
-	if isNillable(streamVal) && streamVal.IsNil() {
-		stop()
-		return Result(cmd, res)
-	}
-
-	// Validate streaming interface: must have Next and Value methods
-	nextMethod := streamVal.MethodByName("Next")
-	valueMethod := streamVal.MethodByName("Value")
-	errMethod := streamVal.MethodByName("Err")
-	closeMethod := streamVal.MethodByName("Close")
-	rawMethod := streamVal.MethodByName("RawValue")
-	if !nextMethod.IsValid() || !valueMethod.IsValid() {
-		// Fallback: not a streaming type — output as regular result
-		stop()
-		return Result(cmd, res)
-	}
-
-	if closeMethod.IsValid() {
-		defer closeMethod.Call(nil)
-	}
 
 	projector := newStreamProjector(cmd)
 	outcomeCfg := activeOutcome(cmd)
@@ -126,84 +100,166 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string, s
 		}
 		return rendered
 	}
+	wrap := func(e error) error {
+		if hops != nil {
+			return hops.wrap(e)
+		}
+		return e
+	}
 
 	first := true
-	for {
-		// Check for context cancellation (Ctrl+C)
-		select {
-		case <-ctx.Done():
-			return finishJoin(ctx.Err())
-		default:
-		}
-
-		// Call Next() bool
-		nextResults := nextMethod.Call(nil)
-		stop()
-		if !nextResults[0].Bool() {
-			break
-		}
-
-		// Call Value() — handles both:
-		//   EventStream: Value() *T (1 return value)
-		//   JsonLStream: Value() (T, error) (2 return values)
-		valueResults := valueMethod.Call(nil)
-		var item interface{}
-		if len(valueResults) == 2 {
-			// JsonLStream: check error — route through Error() for JSON formatting
-			if !valueResults[1].IsNil() {
-				return renderAfterFinish(valueResults[1].Interface().(error))
+	// drain writes one response's events. fallback reports a response that
+	// carries no stream, which is rendered as a regular result instead.
+	drain := func(res interface{}) (fallback bool, err error) {
+		// Extract the stream field from the response envelope via reflection
+		v := reflect.ValueOf(res)
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return false, nil
 			}
-			item = valueResults[0].Interface()
-		} else {
-			// EventStream: dereference pointer if needed
-			val := valueResults[0]
-			if val.Kind() == reflect.Ptr && !val.IsNil() {
-				item = val.Elem().Interface()
-			} else if val.Kind() == reflect.Ptr && val.IsNil() {
-				continue // skip nil events
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return true, nil
+		}
+		streamVal := v.FieldByName(streamFieldName)
+		if !streamVal.IsValid() {
+			return true, nil
+		}
+		// Guard IsNil: only call on nillable kinds. Fall back to Result() for
+		// mixed-content operations where non-stream content may still exist.
+		if isNillable(streamVal) && streamVal.IsNil() {
+			return true, nil
+		}
+
+		// Validate streaming interface: must have Next and Value methods
+		nextMethod := streamVal.MethodByName("Next")
+		valueMethod := streamVal.MethodByName("Value")
+		errMethod := streamVal.MethodByName("Err")
+		closeMethod := streamVal.MethodByName("Close")
+		rawMethod := streamVal.MethodByName("RawValue")
+		if !nextMethod.IsValid() || !valueMethod.IsValid() {
+			return true, nil
+		}
+
+		if closeMethod.IsValid() {
+			defer closeMethod.Call(nil)
+		}
+
+		for {
+			// Check for context cancellation (Ctrl+C)
+			select {
+			case <-ctx.Done():
+				return false, finishJoin(wrap(ctx.Err()))
+			default:
+			}
+
+			// Call Next() bool
+			nextResults := nextMethod.Call(nil)
+			stop()
+			if !nextResults[0].Bool() {
+				break
+			}
+
+			// Call Value() — handles both:
+			//   EventStream: Value() *T (1 return value)
+			//   JsonLStream: Value() (T, error) (2 return values)
+			valueResults := valueMethod.Call(nil)
+			var item interface{}
+			if len(valueResults) == 2 {
+				// JsonLStream: check error — route through Error() for JSON formatting
+				if !valueResults[1].IsNil() {
+					return false, renderAfterFinish(wrap(valueResults[1].Interface().(error)))
+				}
+				item = valueResults[0].Interface()
 			} else {
-				item = val.Interface()
+				// EventStream: dereference pointer if needed
+				val := valueResults[0]
+				if val.Kind() == reflect.Ptr && !val.IsNil() {
+					item = val.Elem().Interface()
+				} else if val.Kind() == reflect.Ptr && val.IsNil() {
+					continue // skip nil events
+				} else {
+					item = val.Interface()
+				}
+			}
+
+			var raw []byte
+			if rawMethod.IsValid() {
+				raw = rawMethod.Call(nil)[0].Bytes()
+			}
+
+			if len(valueResults) == 1 {
+				if body, isErr := streamErrorEvent(item, raw); isErr {
+					return false, renderAfterFinish(wrap(&StreamEventError{Body: string(body)}))
+				}
+			}
+
+			var frame map[string]interface{}
+			if outcomeCfg != nil && streamFailure == nil {
+				frame, _ = decodeStreamFrame(raw)
+				streamFailure = outcomeStreamFailure(cmd, outcomeCfg, item, frame)
+			}
+			if hops != nil {
+				if frame == nil {
+					frame, _ = decodeStreamFrame(raw)
+				}
+				hops.observe(frame)
+			}
+			item = wireStreamItem(item, raw, frame, format == "table" && jqExpr == "")
+
+			if projector != nil {
+				if err := projector.emit(out, item); err != nil {
+					return false, finishJoin(err)
+				}
+			} else if err := outputOneItem(out, item, format, jqExpr, colorize, jqRaw, first); err != nil {
+				return false, err
+			}
+			first = false
+		}
+
+		// Check for stream errors — route through Error() for consistent
+		// --output-format json behavior
+		if errMethod.IsValid() {
+			errResults := errMethod.Call(nil)
+			if len(errResults) > 0 && !errResults[0].IsNil() {
+				return false, renderAfterFinish(wrap(errResults[0].Interface().(error)))
 			}
 		}
+		return false, nil
+	}
 
-		var raw []byte
-		if rawMethod.IsValid() {
-			raw = rawMethod.Call(nil)[0].Bytes()
-		}
-
-		if len(valueResults) == 1 {
-			if body, isErr := streamErrorEvent(item, raw); isErr {
-				return renderAfterFinish(&StreamEventError{Body: string(body)})
+	for hop := 0; ; hop++ {
+		fallback, err := drain(res)
+		if fallback {
+			stop()
+			if hop > 0 {
+				if finishErr := finishJoin(nil); finishErr != nil {
+					return finishErr
+				}
 			}
-		}
-
-		var frame map[string]interface{}
-		if outcomeCfg != nil && streamFailure == nil {
-			frame, _ = decodeStreamFrame(raw)
-			streamFailure = outcomeStreamFailure(cmd, outcomeCfg, item, frame)
-		}
-		item = wireStreamItem(item, raw, frame, format == "table" && jqExpr == "")
-
-		if projector != nil {
-			if err := projector.emit(out, item); err != nil {
-				return finishJoin(err)
+			if hops != nil {
+				return hops.discrete(res)
 			}
-		} else if err := outputOneItem(out, item, format, jqExpr, colorize, jqRaw, first); err != nil {
+			return Result(cmd, res)
+		}
+		if err != nil {
 			return err
 		}
-		first = false
-	}
-
-	// Check for stream errors — route through Error() for consistent
-	// --output-format json behavior
-	if errMethod.IsValid() {
-		errResults := errMethod.Call(nil)
-		if len(errResults) > 0 && !errResults[0].IsNil() {
-			return renderAfterFinish(errResults[0].Interface().(error))
+		if streamFailure != nil {
+			return renderAfterFinish(wrap(streamFailure))
 		}
-	}
-	if streamFailure != nil {
-		return renderAfterFinish(streamFailure)
+		if hops == nil {
+			break
+		}
+		next, more, err := hops.next()
+		if err != nil {
+			return renderAfterFinish(err)
+		}
+		if !more {
+			break
+		}
+		res = next
 	}
 
 	if projector != nil {

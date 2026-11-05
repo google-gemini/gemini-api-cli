@@ -71,8 +71,8 @@ func ApplyJqFilter(content interface{}, expression string) ([]interface{}, error
 		return nil, fmt.Errorf("failed to marshal for jq: %w", err)
 	}
 
-	var data interface{}
-	if err := json.Unmarshal(jsonData, &data); err != nil {
+	data, err := decodeWithNumbers(jsonData)
+	if err != nil {
 		return nil, fmt.Errorf("failed to prepare data for jq: %w", err)
 	}
 

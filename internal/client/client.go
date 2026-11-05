@@ -23,7 +23,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -60,6 +59,9 @@ func NewClient(cmd *cobra.Command, allowedSecurityFields ...string) (*sdk.Gemini
 		if err != nil {
 			return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid --timeout value %q: %w", timeoutStr, err))
 		}
+		if timeout <= 0 {
+			return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid --timeout value %q: must be a positive Go duration", timeoutStr))
+		}
 		sdkOpts = append(sdkOpts, sdk.WithTimeout(timeout))
 	} // Retry configuration
 	retryConfig, err := buildRetryConfig(cmd)
@@ -90,7 +92,7 @@ func SameOriginRedirect(req *http.Request, via []*http.Request) error {
 		return fmt.Errorf("stopped after 10 redirects")
 	}
 	from := via[0].URL
-	if urlOrigin(req.URL) != urlOrigin(from) {
+	if flagutil.URLOrigin(req.URL) != flagutil.URLOrigin(from) {
 		return &RedirectRefusedError{message: fmt.Sprintf("refusing to follow a redirect from %s://%s to %s://%s: credentials are only sent to the configured server", from.Scheme, from.Host, req.URL.Scheme, req.URL.Host)}
 	}
 	if prev := via[len(via)-1]; req.Method != prev.Method {
@@ -133,32 +135,6 @@ func (c *redirectGuardClient) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 	return res, err
-}
-
-func urlOrigin(u *url.URL) string {
-	scheme := strings.ToLower(u.Scheme)
-	port := u.Port()
-	if port == "" {
-		switch scheme {
-		case "https":
-			port = "443"
-		case "http":
-			port = "80"
-		}
-	}
-	return scheme + "://" + net.JoinHostPort(asciiLower(u.Hostname()), port)
-}
-
-// asciiLower folds only A-Z. Unicode case folding would equate hosts the
-// transport dials as different IDNA names (U+0130 "İ" and "i").
-func asciiLower(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if 'A' <= c && c <= 'Z' {
-			b[i] = c + ('a' - 'A')
-		}
-	}
-	return string(b)
 }
 
 func newPhaseBoundedTransport(cmd *cobra.Command) http.RoundTripper {

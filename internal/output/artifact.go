@@ -18,11 +18,17 @@
 package output
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,29 +148,40 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 	if item == nil {
 		return artifactMissingError(cfg, parsed)
 	}
-	b64, _ := item[cfg.DataField].(string)
-	if b64 == "" {
-		if uri, _ := item[cfg.URIField].(string); uri != "" {
-			return fmt.Errorf("the %s content was delivered by URI, which this CLI cannot download yet; fetch it directly: %s", cfg.Kind, uri)
+	mimeType, _ := item[cfg.MimeTypeField].(string)
+	var payload []byte
+	if b64, _ := item[cfg.DataField].(string); b64 != "" {
+		decoded, err := decodeArtifactBase64(b64)
+		if err != nil {
+			return fmt.Errorf("the %s content is not valid base64: %w", cfg.Kind, err)
 		}
+		if len(decoded) == 0 {
+			return fmt.Errorf("the %s content decoded to zero bytes; not writing a file", cfg.Kind)
+		}
+		payload = decoded
+	} else if uri, _ := item[cfg.URIField].(string); uri != "" {
+		downloaded, contentType, err := downloadArtifact(cmd, uri, extractHTTPResponse(res), cfg)
+		if err != nil {
+			return err
+		}
+		if len(downloaded) == 0 {
+			return fmt.Errorf("the %s download was empty; not writing a file", cfg.Kind)
+		}
+		payload = downloaded
+		if mimeType == "" && artifactExtension(cfg.Kind, contentType) != "" {
+			mimeType = artifactBaseMediaType(contentType)
+		}
+	} else {
 		return artifactMissingError(cfg, parsed)
 	}
-	payload, err := decodeArtifactBase64(b64)
-	if err != nil {
-		return fmt.Errorf("the %s content is not valid base64: %w", cfg.Kind, err)
-	}
-	if len(payload) == 0 {
-		return fmt.Errorf("the %s content decoded to zero bytes; not writing a file", cfg.Kind)
-	}
 
-	mimeType, _ := item[cfg.MimeTypeField].(string)
 	outFlag, _ := flagutil.GetStringFlag(cmd, "out")
-	finalPath, extensionRewritten, err := writeArtifact(outFlag, payload, mimeType, cfg)
+	finalPath, extensionMismatch, err := writeArtifact(outFlag, payload, mimeType, cfg)
 	if err != nil {
 		return err
 	}
-	if extensionRewritten && !IsMachineMode(cmd) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Note: wrote %s as %s (requested %s)\n", mimeType, filepath.Base(finalPath), filepath.Base(outFlag))
+	if extensionMismatch && !IsMachineMode(cmd) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Note: %s contains %s content; its extension does not match\n", filepath.Base(finalPath), mimeType)
 	}
 	absPath, err := filepath.Abs(finalPath)
 	if err != nil {
@@ -194,6 +211,9 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 	if mimeType != "" {
 		envelope["mime_type"] = mimeType
 	}
+	if extensionMismatch {
+		envelope["extension_mismatch"] = true
+	}
 	if m, ok := parsed.(map[string]interface{}); ok {
 		if id, ok := m[cfg.IDField].(string); ok && id != "" {
 			envelope["response_id"] = id
@@ -207,6 +227,177 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 
 func renderArtifactEnvelope(cmd *cobra.Command, absPath string, envelope map[string]interface{}) error {
 	return renderPathEnvelope(cmd, absPath, envelope)
+}
+
+var artifactMaxDownloadBytes int64 = 1 << 30
+
+// Headers of the API request that describe its body or its response
+// negotiation rather than the caller.
+var artifactBodyHeaders = map[string]bool{
+	"Accept":           true,
+	"Accept-Encoding":  true,
+	"Content-Encoding": true,
+	"Content-Length":   true,
+	"Content-Type":     true,
+	"Idempotency-Key":  true,
+	"Referer":          true,
+}
+
+// downloadArtifact fetches URI-delivered content. The API request's headers,
+// credentials included, are sent only when the URI shares the API server's
+// origin, and are dropped on any redirect that leaves it.
+func downloadArtifact(cmd *cobra.Command, rawURI string, apiResponse *http.Response, cfg *artifactConfig) ([]byte, string, error) {
+	target, err := url.Parse(rawURI)
+	if err != nil || target.Host == "" {
+		return nil, "", fmt.Errorf("the %s content URI is not an absolute URL", cfg.Kind)
+	}
+	shown := artifactDisplayURL(target)
+	scheme := strings.ToLower(target.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return nil, "", fmt.Errorf("the %s content was delivered as a %s: URI, which this CLI cannot download; fetch it directly: %s", cfg.Kind, target.Scheme, shown)
+	}
+
+	var apiRequest *http.Request
+	trustedOrigin := ""
+	if apiResponse != nil && apiResponse.Request != nil && apiResponse.Request.URL != nil {
+		apiRequest = apiResponse.Request
+		trustedOrigin = flagutil.URLOrigin(apiRequest.URL)
+	}
+	apiOnLoopback := apiRequest != nil && artifactIsLoopbackHost(apiRequest.URL.Hostname())
+	if err := artifactCheckDownloadURL(target, apiOnLoopback); err != nil {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: %w", cfg.Kind, shown, err)
+	}
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout := artifactDownloadTimeout(cmd); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: %w", cfg.Kind, shown, err)
+	}
+	if trustedOrigin != "" && flagutil.URLOrigin(target) == trustedOrigin {
+		for name, values := range apiRequest.Header {
+			if !artifactBodyHeaders[http.CanonicalHeaderKey(name)] {
+				req.Header[name] = append([]string(nil), values...)
+			}
+		}
+	}
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			if err := artifactCheckDownloadURL(next.URL, apiOnLoopback); err != nil {
+				return fmt.Errorf("refusing to follow a redirect to %s: %w", artifactDisplayURL(next.URL), err)
+			}
+			next.Header.Del("Referer")
+			if trustedOrigin == "" || flagutil.URLOrigin(next.URL) != trustedOrigin {
+				next.Header = http.Header{"Accept": []string{"*/*"}}
+			}
+			return nil
+		},
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return nil, "", fmt.Errorf("cannot download the %s from %s: %w", cfg.Kind, shown, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: the server returned %s", cfg.Kind, shown, res.Status)
+	}
+	contentType := res.Header.Get("Content-Type")
+	if !artifactDownloadTypeMatches(cfg.Kind, contentType) {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: the server returned %s content, not %s", cfg.Kind, shown, artifactBaseMediaType(contentType), cfg.Kind)
+	}
+	if res.ContentLength > artifactMaxDownloadBytes {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: %d bytes exceeds the %d byte limit", cfg.Kind, shown, res.ContentLength, artifactMaxDownloadBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, artifactMaxDownloadBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: %w", cfg.Kind, shown, err)
+	}
+	if int64(len(data)) > artifactMaxDownloadBytes {
+		return nil, "", fmt.Errorf("cannot download the %s from %s: the content exceeds the %d byte limit", cfg.Kind, shown, artifactMaxDownloadBytes)
+	}
+	return data, contentType, nil
+}
+
+func artifactBaseMediaType(contentType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+}
+
+// artifactDownloadTypeMatches accepts a download whose Content-Type is absent,
+// generic binary, or of the declared kind. Anything else, such as the HTML
+// sign-in page an expired signed URL answers with, is not the artifact.
+func artifactDownloadTypeMatches(kind, contentType string) bool {
+	base := artifactBaseMediaType(contentType)
+	switch base {
+	case "", "application/octet-stream", "binary/octet-stream":
+		return true
+	}
+	top, _, _ := strings.Cut(base, "/")
+	return top == kind
+}
+
+// artifactCheckDownloadURL allows https, and plain http only to loopback
+// hosts. Loopback hosts are reachable only when the API itself is: otherwise
+// a response could make the CLI fetch from services on the user's machine.
+func artifactCheckDownloadURL(u *url.URL, apiOnLoopback bool) error {
+	loopback := artifactIsLoopbackHost(u.Hostname())
+	if loopback && !apiOnLoopback {
+		return errors.New("a remote API cannot direct downloads to this machine")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if loopback {
+			return nil
+		}
+		return errors.New("only https URIs are downloaded")
+	}
+	return fmt.Errorf("unsupported URI scheme %q", u.Scheme)
+}
+
+// artifactIsLoopbackHost matches loopback IPs and the names reserved for
+// loopback: localhost and *.localhost, with or without a trailing dot.
+func artifactIsLoopbackHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// artifactDisplayURL drops the query, fragment and userinfo, which can carry
+// signed-URL tokens.
+func artifactDisplayURL(u *url.URL) string {
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+}
+
+// artifactDownloadTimeout gives the download, body included, its own budget of
+// the same length as the API call's: --timeout, then config, then the
+// generated default.
+func artifactDownloadTimeout(cmd *cobra.Command) time.Duration {
+	if value := configuredTimeout(cmd); value != "" {
+		if timeout, err := time.ParseDuration(value); err == nil && timeout > 0 {
+			return timeout
+		}
+		return 0
+	}
+	return 0
 }
 
 func artifactCandidates(node interface{}, segs []artifactSegment) []interface{} {
@@ -238,7 +429,8 @@ func artifactCandidates(node interface{}, segs []artifactSegment) []interface{} 
 
 // findArtifactItem returns the last block of the configured kind in document
 // order. Selection is by kind, not payload: a trailing URI-only or data-less
-// block is returned, and the caller reports it, rather than an earlier block.
+// block is returned, and the caller downloads or reports it, rather than an
+// earlier block.
 func findArtifactItem(parsed interface{}, cfg *artifactConfig) map[string]interface{} {
 	candidates := artifactCandidates(parsed, cfg.Pointer)
 	for i := len(candidates) - 1; i >= 0; i-- {
@@ -306,7 +498,7 @@ func writeArtifact(outFlag string, payload []byte, mimeType string, cfg *artifac
 		return path, false, err
 	}
 
-	finalPath := artifactRewriteExtension(outFlag, ext)
+	finalPath, mismatch := artifactOutPath(outFlag, ext)
 	if dir := filepath.Dir(finalPath); dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", false, fmt.Errorf("cannot create output directory %s: %w", dir, err)
@@ -315,23 +507,42 @@ func writeArtifact(outFlag string, payload []byte, mimeType string, cfg *artifac
 	if err := artifactAtomicReplace(finalPath, payload); err != nil {
 		return "", false, err
 	}
-	rewritten := filepath.Ext(outFlag) != "" && finalPath != outFlag
-	return finalPath, rewritten, nil
+	return finalPath, mismatch, nil
 }
 
-func artifactRewriteExtension(path, ext string) string {
+var artifactMediaExtensions = map[string]string{
+	"png": "png", "jpg": "jpg", "jpeg": "jpg", "gif": "gif", "webp": "webp", "bmp": "bmp",
+	"tif": "tif", "tiff": "tif", "heic": "heic", "heif": "heif", "avif": "avif", "svg": "svg",
+	"ico": "ico",
+	"wav": "wav", "wave": "wav", "pcm": "pcm", "l16": "pcm", "mp3": "mp3", "ogg": "ogg", "oga": "ogg",
+	"opus": "ogg", "m4a": "m4a", "aac": "aac", "flac": "flac",
+	"mp4": "mp4", "m4v": "m4v", "webm": "webm", "mov": "mov", "mpg": "mpg", "mpeg": "mpg",
+	"avi": "avi", "mkv": "mkv", "3gp": "3gp",
+}
+
+var artifactMimeExtensions = map[string]string{
+	"image/jpeg": "jpg", "image/jpg": "jpg", "image/icon": "ico", "image/microsoft.icon": "ico",
+	"image/ms-bmp": "bmp",
+	"audio/wave":   "wav", "audio/l16": "pcm", "audio/pcm": "pcm", "audio/mpeg": "mp3", "audio/mp3": "mp3",
+	"audio/vorbis": "ogg", "audio/mp4": "m4a",
+	"video/mpeg": "mpg", "video/quicktime": "mov", "video/msvideo": "avi", "video/matroska": "mkv",
+	"video/3gpp": "3gp",
+}
+
+func artifactOutPath(path, ext string) (string, bool) {
 	if ext == "" {
-		return path
+		return path, false
 	}
-	currentExt := filepath.Ext(path)
-	current := strings.TrimPrefix(strings.ToLower(currentExt), ".")
-	if current == ext || (current == "jpeg" && ext == "jpg") || (current == "jpg" && ext == "jpeg") {
-		return path
+	currentExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	if currentExt == ext {
+		return path, false
 	}
-	if current == "" {
-		return path + "." + ext
+	current, known := artifactMediaExtensions[currentExt]
+	if !known {
+		return strings.TrimSuffix(path, ".") + "." + ext, false
 	}
-	return strings.TrimSuffix(path, currentExt) + "." + ext
+	returned, known := artifactMediaExtensions[ext]
+	return path, known && current != returned
 }
 
 func writeArtifactDefault(dir string, payload []byte, ext string, cfg *artifactConfig) (string, error) {
@@ -416,27 +627,9 @@ func artifactExtension(kind, mimeType string) string {
 	if !ok || top != kind {
 		return ""
 	}
-	switch base {
-	case "image/png":
-		return "png"
-	case "image/jpeg", "image/jpg":
-		return "jpg"
-	case "audio/wav", "audio/x-wav", "audio/l16", "audio/pcm":
-		return "wav"
-	case "audio/mpeg", "audio/mp3":
-		return "mp3"
-	case "audio/ogg", "audio/vorbis":
-		return "ogg"
-	case "audio/mp4", "audio/m4a":
-		return "m4a"
-	case "video/mp4":
-		return "mp4"
-	case "video/webm":
-		return "webm"
-	case "video/quicktime":
-		return "mov"
-	case "video/mpeg":
-		return "mpg"
+	sub, _, _ = strings.Cut(strings.TrimPrefix(strings.TrimPrefix(sub, "x-"), "vnd."), "+")
+	if ext, ok := artifactMimeExtensions[top+"/"+sub]; ok {
+		return ext
 	}
 	var b strings.Builder
 	for _, r := range sub {
