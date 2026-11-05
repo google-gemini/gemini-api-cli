@@ -37,7 +37,7 @@ func initModelsGetCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "get [model]",
 		Short:   "Get a model's live metadata (version, token limits, supported methods)",
-		Long:    "Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://ai.google.dev/gemini-api/docs/models",
+		Long:    "Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://aistudio.google.com/docs/models",
 		Example: "  gemini-api models get --model gemini-flash-latest",
 		Args:    flagutil.PositionalFlagArgs,
 		RunE:    runModelsGetCmd,

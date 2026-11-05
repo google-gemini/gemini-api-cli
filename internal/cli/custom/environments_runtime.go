@@ -217,7 +217,7 @@ func newEnvironmentsConnectCmd() *cobra.Command {
 	helpMeta(
 		cmd,
 		"root-dir . · workdir . · max-concurrent 4 · poll-interval 2s",
-		"https://ai.google.dev/gemini-api/docs/agent-environment",
+		"https://aistudio.google.com/docs/agent-environment",
 		"multi-tenant orchestration via gemini-api environments poll",
 	)
 
@@ -342,7 +342,7 @@ func newEnvironmentsPollCmd() *cobra.Command {
 	helpMeta(
 		cmd,
 		"max-interactions 10 · poll-interval 2s · provision-timeout 2m · handoff-heartbeat-interval 5s",
-		"https://ai.google.dev/gemini-api/docs/agent-environment",
+		"https://aistudio.google.com/docs/agent-environment",
 		"single-node execution via gemini-api environments connect",
 	)
 
@@ -435,7 +435,7 @@ func newEnvironmentsServeCmd() *cobra.Command {
 	helpMeta(
 		cmd,
 		"root-dir . · workdir . · heartbeat-interval 5s · command-timeout 2m",
-		"https://ai.google.dev/gemini-api/docs/agent-environment",
+		"https://aistudio.google.com/docs/agent-environment",
 		"single-node polling + worker via gemini-api environments connect",
 	)
 

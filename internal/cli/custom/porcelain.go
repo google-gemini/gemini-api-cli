@@ -188,7 +188,7 @@ func emitResult(cmd *cobra.Command, deliverable string, envelope map[string]any)
 
 // modelFlag registers the shared -m/--model override with its curated default.
 func modelFlag(cmd *cobra.Command, def, route string) {
-	cmd.Flags().StringP("model", "m", "", fmt.Sprintf("Override model (default: %s) — %s-capable models: https://ai.google.dev/gemini-api/docs/models", def, route))
+	cmd.Flags().StringP("model", "m", "", fmt.Sprintf("Override model (default: %s) — %s-capable models: https://aistudio.google.com/docs/models", def, route))
 }
 
 // resolveModel returns the --model override or the curated default, stripped

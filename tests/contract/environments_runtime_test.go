@@ -37,7 +37,7 @@ func TestEnvironmentsRuntimeHelpAndUsage(t *testing.T) {
 			args: []string{"environments", "connect"},
 			wantText: []string{
 				"Defaults: root-dir . · workdir . · max-concurrent 4 · poll-interval 2s",
-				"Learn: https://ai.google.dev/gemini-api/docs/agent-environment · escalate: multi-tenant orchestration via gemini-api environments poll",
+				"Learn: https://aistudio.google.com/docs/agent-environment · escalate: multi-tenant orchestration via gemini-api environments poll",
 				"--disable-bash",
 				"By default, stdout is unused",
 			},
@@ -47,7 +47,7 @@ func TestEnvironmentsRuntimeHelpAndUsage(t *testing.T) {
 			args: []string{"environments", "poll"},
 			wantText: []string{
 				"Defaults: max-interactions 10 · poll-interval 2s · provision-timeout 2m · handoff-heartbeat-interval 5s",
-				"Learn: https://ai.google.dev/gemini-api/docs/agent-environment · escalate: single-node execution via gemini-api environments connect",
+				"Learn: https://aistudio.google.com/docs/agent-environment · escalate: single-node execution via gemini-api environments connect",
 				"By default, stdout is unused",
 			},
 		},
@@ -56,7 +56,7 @@ func TestEnvironmentsRuntimeHelpAndUsage(t *testing.T) {
 			args: []string{"environments", "serve"},
 			wantText: []string{
 				"Defaults: root-dir . · workdir . · heartbeat-interval 5s · command-timeout 2m",
-				"Learn: https://ai.google.dev/gemini-api/docs/agent-environment · escalate: single-node polling + worker via gemini-api environments connect",
+				"Learn: https://aistudio.google.com/docs/agent-environment · escalate: single-node polling + worker via gemini-api environments connect",
 				"--disable-bash",
 				"By default, stdout is unused",
 			},
@@ -83,7 +83,7 @@ func TestEnvironmentsRuntimeHelpAndUsage(t *testing.T) {
 				"--api-key string",
 				"Tier-1",
 				"Tier-2",
-				"https://ai.google.dev/gemini-api/docs/environments",
+				"https://aistudio.google.com/docs/environments",
 			} {
 				if strings.Contains(helpRes.stdout, reject) {
 					t.Errorf("%v --help leaked forbidden text %q:\n%s", tc.args, reject, helpRes.stdout)

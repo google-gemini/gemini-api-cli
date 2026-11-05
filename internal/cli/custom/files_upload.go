@@ -58,7 +58,7 @@ func newFilesUploadCmd() *cobra.Command {
 		RunE: runFilesUpload,
 	}
 	helpMeta(cmd, "MIME type detected from the extension",
-		"https://ai.google.dev/gemini-api/docs/files",
+		"https://aistudio.google.com/docs/files",
 		"metadata-only registration via gemini-api files register")
 	cmd.Flags().String("display-name", "", "Human-readable display name for the file")
 	cmd.Flags().String("mime-type", "", "Override the detected MIME type")

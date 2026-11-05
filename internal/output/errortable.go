@@ -57,7 +57,7 @@ var errorProbes = []errorProbe{
 			"API_KEY_INVALID": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"The API key was rejected. See https://ai.google.dev/gemini-api/docs/api-key for how to create a new one, then export GEMINI_API_KEY=API_KEY (or run \"gemini-api configure\" to store it)",
+					"The API key was rejected. See https://aistudio.google.com/docs/api-key for how to create a new one, then export GEMINI_API_KEY=API_KEY (or run \"gemini-api configure\" to store it)",
 					"Run \"gemini-api whoami\" to see which credential is being sent",
 					"AI agents: a replacement API key must be created manually by the user in Google AI Studio. Stop and ask the user to run \"gemini-api configure\" or set GEMINI_API_KEY to a valid key; do not run configure yourself or retry until they confirm it is set",
 				},
@@ -71,7 +71,7 @@ var errorProbes = []errorProbe{
 			"API_KEY_MISSING": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"No API key was sent. See https://ai.google.dev/gemini-api/docs/api-key for how to create one (requires a signed-in Google account), then export GEMINI_API_KEY=API_KEY or run \"gemini-api configure\"",
+					"No API key was sent. See https://aistudio.google.com/docs/api-key for how to create one (requires a signed-in Google account), then export GEMINI_API_KEY=API_KEY or run \"gemini-api configure\"",
 					"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 				},
 			},
@@ -96,26 +96,26 @@ var errorProbes = []errorProbe{
 			"CREDENTIALS_MISSING": {
 				Type: ErrorType("authentication_error"),
 				Hints: []string{
-					"No API key was sent. See https://ai.google.dev/gemini-api/docs/api-key for how to create one (requires a signed-in Google account), then export GEMINI_API_KEY=API_KEY or run \"gemini-api configure\"",
+					"No API key was sent. See https://aistudio.google.com/docs/api-key for how to create one (requires a signed-in Google account), then export GEMINI_API_KEY=API_KEY or run \"gemini-api configure\"",
 					"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 				},
 			},
 			"QUOTA_EXCEEDED": {
 				Type: ErrorType("rate_limit_error"),
 				Hints: []string{
-					"Quota exhausted for this model or project. Wait for the quota window to reset, request a higher tier at https://ai.google.dev/gemini-api/docs/rate-limits, or pick another model with --model",
+					"Quota exhausted for this model or project. Wait for the quota window to reset, request a higher tier at https://aistudio.google.com/docs/rate-limits, or pick another model with --model",
 				},
 			},
 			"RATE_LIMIT_EXCEEDED": {
 				Type: ErrorType("rate_limit_error"),
 				Hints: []string{
-					"Rate limit hit for this model. Back off and retry, or pick a lighter model with --model; limits per model are at https://ai.google.dev/gemini-api/docs/rate-limits",
+					"Rate limit hit for this model. Back off and retry, or pick a lighter model with --model; limits per model are at https://aistudio.google.com/docs/rate-limits",
 				},
 			},
 			"RESOURCE_EXHAUSTED": {
 				Type: ErrorType("rate_limit_error"),
 				Hints: []string{
-					"Quota exhausted. Wait and retry with backoff, or pick another model with --model; limits are at https://ai.google.dev/gemini-api/docs/rate-limits",
+					"Quota exhausted. Wait and retry with backoff, or pick another model with --model; limits are at https://aistudio.google.com/docs/rate-limits",
 				},
 			},
 			"SERVICE_DISABLED": {
@@ -162,7 +162,7 @@ var runtimeReasonHints = map[string][]string{}
 
 var declaredTypeHints = map[ErrorType][]string{
 	ErrorType("authentication_error"): {
-		"Set GEMINI_API_KEY to a valid key (see https://ai.google.dev/gemini-api/docs/api-key), pass a valid --access-token, or run \"gemini-api configure\" to store one",
+		"Set GEMINI_API_KEY to a valid key (see https://aistudio.google.com/docs/api-key), pass a valid --access-token, or run \"gemini-api configure\" to store one",
 		"Run \"gemini-api whoami\" to see which credential is being sent",
 		"AI agents: API keys must be created manually by the user in Google AI Studio; access tokens come from the user's own Google sign-in. Stop and ask the user to run \"gemini-api configure\" or set a valid GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set",
 	},

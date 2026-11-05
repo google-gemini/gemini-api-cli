@@ -51,7 +51,7 @@ func attachTranscribe(cmd *cobra.Command) {
 		"  gemini-api transcribe -i files/abc123 --format json --no-speakers\n" +
 		"  gemini-api transcribe -i a.mp3 -i b.mp3 --out ./transcripts/"
 	helpMeta(cmd, "model "+defaultTranscribeModel+" (video: "+defaultTextModel+") · format md · speakers on · timestamps on",
-		"https://ai.google.dev/gemini-api/docs/transcribe",
+		"https://aistudio.google.com/docs/transcribe",
 		"full request control via gemini-api agent run")
 	cmd.Args = cobra.NoArgs
 	cmd.Flags().StringArrayP("input", "i", nil, "Local path or files/<id> to transcribe (repeatable)")

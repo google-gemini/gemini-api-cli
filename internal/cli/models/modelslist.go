@@ -37,7 +37,7 @@ func initModelsListCmd(parent *cobra.Command) error {
 	var cmd = &cobra.Command{
 		Use:     "list",
 		Short:   "List the models the API serves (live; bare \"models\" is the offline catalog)",
-		Long:    "Lists the models available through the Gemini API. See https://ai.google.dev/gemini-api/docs/models",
+		Long:    "Lists the models available through the Gemini API. See https://aistudio.google.com/docs/models",
 		Example: "  gemini-api models list",
 		Args:    cobra.NoArgs,
 		RunE:    runModelsListCmd,

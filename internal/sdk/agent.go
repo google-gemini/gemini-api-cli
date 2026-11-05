@@ -903,7 +903,7 @@ func (s *Agent) Get(ctx context.Context, request operations.GetAgentRequest, opt
 // Provide input and choose exactly one selector: "model" or "agent".
 //
 // For a first model run, use gemini-3.8-flash (recommended starting model).
-// Other model IDs: https://ai.google.dev/gemini-api/docs/models
+// Other model IDs: https://aistudio.google.com/docs/models
 //
 // Pass the full JSON with --body or stdin. Set "background": true to
 // return immediately with an interaction ID, then poll:

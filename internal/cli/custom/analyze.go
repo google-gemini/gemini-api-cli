@@ -42,7 +42,7 @@ func attachAnalyze(cmd *cobra.Command) {
 		"  gemini-api analyze -i https://youtu.be/dQw4w9WgXcQ \"What happens at 1:00?\"\n" +
 		"  gemini-api analyze -i a.png -i b.png \"What changed between these?\""
 	helpMeta(cmd, "model "+defaultTextModel+" · question \""+defaultAnalyzeQuestion+"\"",
-		"https://ai.google.dev/gemini-api/docs/image-understanding (images) · https://ai.google.dev/gemini-api/docs/audio (audio) · https://ai.google.dev/gemini-api/docs/video-understanding (video) · https://ai.google.dev/gemini-api/docs/document-processing (documents)",
+		"https://aistudio.google.com/docs/image-understanding (images) · https://aistudio.google.com/docs/audio (audio) · https://aistudio.google.com/docs/video-understanding (video) · https://aistudio.google.com/docs/document-processing (documents)",
 		"full request control via gemini-api agent run")
 	cmd.Args = cobra.ArbitraryArgs
 	cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to analyze (repeatable)")

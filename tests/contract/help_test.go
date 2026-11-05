@@ -84,20 +84,20 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 			"Just works:",
 			"Explain concurrency in one sentence",
 			"Defaults: model gemini-3.8-flash · streams the reply (--stream=false for one result)",
-			"Learn: https://ai.google.dev/gemini-api/docs/text-generation · escalate: full request control via gemini-api agent run",
+			"Learn: https://aistudio.google.com/docs/text-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"image"}, []string{
 			"Defaults: model gemini-nano-banana-2.1 · output ./gemini-image-{timestamp}-{rand}.{ext}",
-			"Learn: https://ai.google.dev/gemini-api/docs/image-generation · escalate: full request control via gemini-api agent run",
+			"Learn: https://aistudio.google.com/docs/image-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"tts"}, []string{
 			"Just works:\n  gemini-api tts \"Welcome to the show\"",
 			"Defaults: model gemini-3.8-flash-tts · voice Kore · 24kHz mono WAV",
-			"Learn: https://ai.google.dev/gemini-api/docs/speech-generation · escalate: full request control via gemini-api agent run",
+			"Learn: https://aistudio.google.com/docs/speech-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"files", "upload"}, []string{
 			"Defaults: MIME type detected from the extension",
-			"Learn: https://ai.google.dev/gemini-api/docs/files · escalate: metadata-only registration via gemini-api files register",
+			"Learn: https://aistudio.google.com/docs/files · escalate: metadata-only registration via gemini-api files register",
 		}},
 	}
 	for _, tc := range cases {
@@ -247,7 +247,7 @@ func TestPorcelainHelpCopy(t *testing.T) {
 // not read the OS keychain). Keychain-sourced credentials are covered in
 // internal/cli/custom.
 func TestRootHelpMissingCredentialHint(t *testing.T) {
-	const hint = "No API key found. See https://ai.google.dev/gemini-api/docs/api-key for how to create one in Google AI Studio\n" +
+	const hint = "No API key found. See https://aistudio.google.com/docs/api-key for how to create one in Google AI Studio\n" +
 		"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set"
 	noKeyring := map[string]string{"GEMINI_NO_KEYRING": "true"}
 	withConfig := func(security string) func(*testing.T) string {

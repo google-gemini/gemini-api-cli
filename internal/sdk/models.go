@@ -51,7 +51,7 @@ func newModels(rootSDK *GeminiAPI, sdkConfig config.SDKConfiguration, hooks *hoo
 }
 
 // ModelsList - List the models the API serves (live; bare "models" is the offline catalog)
-// Lists the models available through the Gemini API. See https://ai.google.dev/gemini-api/docs/models
+// Lists the models available through the Gemini API. See https://aistudio.google.com/docs/models
 func (s *Models) ModelsList(ctx context.Context, request *operations.ModelsListRequest, opts ...operations.Option) (*operations.ModelsListResponse, error) {
 	globals := operations.ModelsListGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,
@@ -335,7 +335,7 @@ func (s *Models) ModelsList(ctx context.Context, request *operations.ModelsListR
 }
 
 // ModelsGet - Get a model's live metadata (version, token limits, supported methods)
-// Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://ai.google.dev/gemini-api/docs/models
+// Gets information about a specific model such as its version number, token limits, and supported generation methods. See https://aistudio.google.com/docs/models
 func (s *Models) ModelsGet(ctx context.Context, request operations.ModelsGetRequest, opts ...operations.Option) (*operations.ModelsGetResponse, error) {
 	globals := operations.ModelsGetGlobals{
 		APIVersion: s.sdkConfiguration.Globals.APIVersion,

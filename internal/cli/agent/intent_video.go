@@ -44,7 +44,7 @@ func InitIntentVideo(parent *cobra.Command) error {
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
 			"speakeasy_help_defaults":        "model gemini-omni-1.1-flash · polls until done, writes ./gemini-video-<ts>.mp4 (--async returns the interaction ID)",
-			"speakeasy_help_learn":           "https://ai.google.dev/gemini-api/docs/video",
+			"speakeasy_help_learn":           "https://aistudio.google.com/docs/video",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"video\",\"defaultPath\":\"gemini-video-{timestamp}-{rand}.{ext}\"}",
 			"speakeasy_async":                "{\"idPointer\":\"/id\",\"statePointer\":\"/status\",\"states\":{\"budget_exceeded\":\"failure\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"failure\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"interval\":\"5s\",\"backoff\":1.5,\"maxInterval\":\"30s\",\"timeout\":\"15m\",\"command\":\"video\",\"resume\":\"gemini-api video --resume\",\"parameterIn\":\"path\",\"parameterName\":\"interactionsId\",\"params\":[{\"in\":\"query\",\"name\":\"stream\",\"value\":false}]}",

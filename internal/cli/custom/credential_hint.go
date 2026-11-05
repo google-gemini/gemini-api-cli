@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const missingCredentialHint = "No API key found. See https://ai.google.dev/gemini-api/docs/api-key for how to create one in Google AI Studio\n" +
+const missingCredentialHint = "No API key found. See https://aistudio.google.com/docs/api-key for how to create one in Google AI Studio\n" +
 	"AI agents: an API key must be created manually by the user in Google AI Studio. Stop and ask the user to create one and run \"gemini-api configure\" or set GEMINI_API_KEY; do not run configure yourself or retry until they confirm it is set"
 
 var requestCredentials = []string{"api-key", "access-token"}

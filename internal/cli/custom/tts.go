@@ -47,7 +47,7 @@ func attachTTS(cmd *cobra.Command) {
 		"  echo \"hello\" | gemini-api tts --stdin\n" +
 		"  gemini-api tts \"Alice: hi. Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
 	helpMeta(cmd, "model "+defaultTTSModel+" · voice "+defaultTTSVoice+" · 24kHz mono WAV",
-		"https://ai.google.dev/gemini-api/docs/speech-generation",
+		"https://aistudio.google.com/docs/speech-generation",
 		"full request control via gemini-api agent run")
 	cmd.Args = cobra.ArbitraryArgs
 	cmd.Flags().StringP("voice", "v", defaultTTSVoice, "Voice for single-speaker audio (e.g. Kore, Puck, Zephyr, Charon, Fenrir, Aoede)")
