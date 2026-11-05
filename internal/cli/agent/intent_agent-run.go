@@ -214,27 +214,12 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			UnroutedVariants: []string{},
 		},
 		{
-			BodyKey:          "created",
-			RouteIDs:         []string{"model"},
-			UnroutedVariants: []string{},
-		},
-		{
 			BodyKey:          "environment",
 			RouteIDs:         []string{"agent", "model"},
 			UnroutedVariants: []string{},
 		},
 		{
-			BodyKey:          "environment_id",
-			RouteIDs:         []string{"model"},
-			UnroutedVariants: []string{},
-		},
-		{
 			BodyKey:          "generation_config",
-			RouteIDs:         []string{"model"},
-			UnroutedVariants: []string{},
-		},
-		{
-			BodyKey:          "id",
 			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
@@ -284,11 +269,6 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			UnroutedVariants: []string{},
 		},
 		{
-			BodyKey:          "status",
-			RouteIDs:         []string{"model"},
-			UnroutedVariants: []string{},
-		},
-		{
 			BodyKey:          "store",
 			RouteIDs:         []string{"agent", "model"},
 			UnroutedVariants: []string{},
@@ -306,11 +286,6 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		{
 			BodyKey:          "tools",
 			RouteIDs:         []string{"agent", "model"},
-			UnroutedVariants: []string{},
-		},
-		{
-			BodyKey:          "updated",
-			RouteIDs:         []string{"model"},
 			UnroutedVariants: []string{},
 		},
 		{

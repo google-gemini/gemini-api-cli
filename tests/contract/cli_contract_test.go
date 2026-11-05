@@ -1257,6 +1257,8 @@ func TestJQRawOutputDefaultsTrue(t *testing.T) {
 // the exact, self-contained JSON Schema of their request body (multi-route
 // commands emit the union; variant-pinned intents emit that variant's schema).
 func TestBodySchemaFlag(t *testing.T) {
+	const wantDraft = "https://json-schema.org/draft/2020-12/schema"
+
 	t.Run("agent run union schema", func(t *testing.T) {
 		args := []string{"agent", "run", "--schema"}
 		result := runCLI(t, t.TempDir(), nil, args...)
@@ -1271,8 +1273,8 @@ func TestBodySchemaFlag(t *testing.T) {
 		if err := json.Unmarshal([]byte(result.stdout), &schema); err != nil {
 			t.Fatalf("%v output is not JSON: %v", args, err)
 		}
-		if schema.Schema != "https://json-schema.org/draft/2020-12/schema" {
-			t.Errorf("%v: $schema = %q, want draft 2020-12", args, schema.Schema)
+		if schema.Schema != wantDraft {
+			t.Errorf("%v: $schema = %q, want %q", args, schema.Schema, wantDraft)
 		}
 		if len(schema.OneOf) != 2 {
 			t.Errorf("%v: oneOf variants = %d, want 2", args, len(schema.OneOf))
@@ -1282,35 +1284,99 @@ func TestBodySchemaFlag(t *testing.T) {
 		}
 	})
 
-	t.Run("generate pinned variant schema", func(t *testing.T) {
-		args := []string{"generate", "--schema"}
-		result := runCLI(t, t.TempDir(), nil, args...)
-		if result.err != nil {
-			t.Fatalf("%v failed: %v\nstderr: %s", args, result.err, result.stderr)
-		}
-		var schema struct {
-			Schema string                     `json:"$schema"`
-			Ref    string                     `json:"$ref"`
-			Defs   map[string]json.RawMessage `json:"$defs"`
-			OneOf  []json.RawMessage          `json:"oneOf"`
-		}
-		if err := json.Unmarshal([]byte(result.stdout), &schema); err != nil {
-			t.Fatalf("%v output is not JSON: %v", args, err)
-		}
-		if schema.Schema != "https://json-schema.org/draft/2020-12/schema" {
-			t.Errorf("%v: $schema = %q, want draft 2020-12", args, schema.Schema)
-		}
-		if schema.Ref != "#/$defs/ModelInteraction" {
-			t.Errorf("%v: $ref = %q, want #/$defs/ModelInteraction", args, schema.Ref)
-		}
-		if len(schema.OneOf) != 0 {
-			t.Errorf("%v: oneOf variants = %d, want 0 (pinned to ModelInteraction)", args, len(schema.OneOf))
-		}
-		if _, ok := schema.Defs["ModelInteraction"]; !ok {
-			t.Errorf("%v: $defs missing ModelInteraction", args)
-		}
-		if _, ok := schema.Defs["AgentInteraction"]; ok {
-			t.Errorf("%v: $defs unexpectedly contains AgentInteraction", args)
+	for _, intent := range []struct {
+		cmd        string
+		previewArg string
+	}{
+		{cmd: "generate", previewArg: "hi"},
+		{cmd: "image", previewArg: "a lighthouse"},
+		{cmd: "video", previewArg: "ocean waves"},
+		{cmd: "music", previewArg: "ambient synth"},
+	} {
+		t.Run(intent.cmd+" pinned variant schema and preview body", func(t *testing.T) {
+			args := []string{intent.cmd, "--schema"}
+			result := runCLI(t, t.TempDir(), nil, args...)
+			if result.err != nil {
+				t.Fatalf("%v failed: %v\nstderr: %s", args, result.err, result.stderr)
+			}
+			var schema struct {
+				Schema string                     `json:"$schema"`
+				Ref    string                     `json:"$ref"`
+				Defs   map[string]json.RawMessage `json:"$defs"`
+				OneOf  []json.RawMessage          `json:"oneOf"`
+			}
+			if err := json.Unmarshal([]byte(result.stdout), &schema); err != nil {
+				t.Fatalf("%v output is not JSON: %v", args, err)
+			}
+			if schema.Schema != wantDraft {
+				t.Errorf("%v: $schema = %q, want %q", args, schema.Schema, wantDraft)
+			}
+			if schema.Ref != "#/$defs/ModelInteraction" {
+				t.Errorf("%v: $ref = %q, want \"#/$defs/ModelInteraction\"", args, schema.Ref)
+			}
+			if len(schema.OneOf) != 0 {
+				t.Errorf("%v: oneOf variants = %d, want 0 (pinned to ModelInteraction)", args, len(schema.OneOf))
+			}
+			modelRaw, ok := schema.Defs["ModelInteraction"]
+			if !ok {
+				t.Fatalf("%v: schema $defs missing ModelInteraction", args)
+			}
+			if _, ok := schema.Defs["AgentInteraction"]; ok {
+				t.Errorf("%v: schema $defs unexpectedly contains AgentInteraction", args)
+			}
+
+			var modelDef struct {
+				Required   []string                   `json:"required"`
+				Properties map[string]map[string]any `json:"properties"`
+			}
+			if err := json.Unmarshal(modelRaw, &modelDef); err != nil {
+				t.Fatalf("unmarshal ModelInteraction def: %v", err)
+			}
+			if len(modelDef.Required) != 1 || modelDef.Required[0] != "model" {
+				t.Errorf("%v: ModelInteraction.required = %v, want [\"model\"]", args, modelDef.Required)
+			}
+			for _, forbidden := range []string{"created", "environment_id", "errors", "id", "status", "steps", "updated", "usage"} {
+				if _, exists := modelDef.Properties[forbidden]; exists {
+					t.Errorf("%v: ModelInteraction.properties unexpectedly contains response-only field %q", args, forbidden)
+				}
+			}
+			for propName, propSchema := range modelDef.Properties {
+				if _, hasRO := propSchema["readOnly"]; hasRO {
+					t.Errorf("%v: ModelInteraction.properties[%q] unexpectedly has readOnly marker", args, propName)
+				}
+				if _, hasWO := propSchema["writeOnly"]; hasWO {
+					t.Errorf("%v: ModelInteraction.properties[%q] unexpectedly has writeOnly marker", args, propName)
+				}
+			}
+
+			dryArgs := append(baseArgs("https://example.invalid"), "--dry-run", intent.cmd, intent.previewArg)
+			dryRes := runCLI(t, t.TempDir(), nil, dryArgs...)
+			if dryRes.err != nil {
+				t.Fatalf("%v --dry-run failed: %v\nstderr: %s", intent.cmd, dryRes.err, dryRes.stderr)
+			}
+			req := parseDryRunRequest(t, dryRes.stdout)
+			body, ok := req["body"].(map[string]any)
+			if !ok {
+				t.Fatalf("%v dry-run request.body = %#v, want object", intent.cmd, req["body"])
+			}
+			for _, reqField := range modelDef.Required {
+				if _, ok := body[reqField]; !ok {
+					t.Errorf("%v preview body missing required field %q: %v", intent.cmd, reqField, body)
+				}
+			}
+			for k := range body {
+				if _, ok := modelDef.Properties[k]; !ok {
+					t.Errorf("%v preview body key %q is not in ModelInteraction.properties", intent.cmd, k)
+				}
+			}
+		})
+	}
+
+	t.Run("generate rejects agent body with exit 2", func(t *testing.T) {
+		args := append(baseArgs("https://example.invalid"), "--dry-run", "generate", "--body", `{"agent":"deep-research","input":"hi"}`)
+		res := runCLI(t, t.TempDir(), nil, args...)
+		if code := exitCode(t, res); code != 2 {
+			t.Errorf("generate with agent body exit code = %d, want 2\nstderr: %s", code, res.stderr)
 		}
 	})
 }
