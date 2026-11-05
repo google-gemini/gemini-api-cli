@@ -91,7 +91,7 @@ func runTTS(cmd *cobra.Command, args []string) error {
 	// The format stays bare: the TTS models reject every explicit mime_type
 	// and delivery ("not supported for models/…"), and answer with 24 kHz L16.
 	responseFormat := interactions.CreateCreateModelInteractionResponseFormatResponseFormat(
-		interactions.CreateResponseFormatAudioResponseFormat(interactions.AudioResponseFormat{}))
+		interactions.CreateResponseFormatAudio(interactions.AudioResponseFormat{}))
 	// Warnings reach a human on stderr and a machine in the result envelope;
 	// structured stderr stays reserved for the error document.
 	var warnings []string
