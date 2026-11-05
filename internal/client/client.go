@@ -79,8 +79,37 @@ func NewClient(cmd *cobra.Command, allowedSecurityFields ...string) (*sdk.Gemini
 		httpClient = testClient
 	}
 	httpClient = WrapClientForDiagnostics(cmd, httpClient)
+	if hdrs, _ := flagutil.GetStringArrayFlag(cmd, "header"); len(hdrs) > 0 {
+		headers, err := flagutil.ParseHeaderFlags(hdrs)
+		if err != nil {
+			return nil, err
+		}
+		if repeated := flagutil.RepeatedHeaders(headers); len(repeated) > 0 {
+			httpClient = &repeatedHeaderClient{next: httpClient, headers: repeated}
+		}
+	}
 	sdkOpts = append(sdkOpts, sdk.WithClient(httpClient))
 	return sdk.New(sdkOpts...), nil
+}
+
+// repeatedHeaderClient sends every value of a header repeated with --header on
+// requests tagged with flagutil.RepeatedHeadersMarker.
+// operations.WithSetHeaders carries only one value per header.
+type repeatedHeaderClient struct {
+	next    HTTPClient
+	headers http.Header
+}
+
+func (c *repeatedHeaderClient) Do(req *http.Request) (*http.Response, error) {
+	if req.Header.Get(flagutil.RepeatedHeadersMarker) == "" {
+		return c.next.Do(req)
+	}
+	req = req.Clone(req.Context())
+	req.Header.Del(flagutil.RepeatedHeadersMarker)
+	for name, values := range c.headers {
+		req.Header[name] = append([]string(nil), values...)
+	}
+	return c.next.Do(req)
 }
 
 // SameOriginRedirect refuses redirects to another scheme or host, and

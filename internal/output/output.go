@@ -364,18 +364,23 @@ func renderPathEnvelope(cmd *cobra.Command, absPath string, envelope map[string]
 }
 
 // PrepareCallOpts builds common SDK call options from CLI flags.
-// Parses --header flags into operations.WithSetHeaders options.
+// Parses --header flags into operations.WithSetHeaders options carrying each
+// header's first value; client.NewClient sends the remaining values of a
+// repeated header.
 // Server resolution and skip-deserialization are handled per-operation.
 func PrepareCallOpts(cmd *cobra.Command) ([]operations.Option, error) {
 	var opts []operations.Option
 	if hdrs, _ := flagutil.GetStringArrayFlag(cmd, "header"); len(hdrs) > 0 {
-		headerMap := make(map[string]string, len(hdrs))
-		for _, h := range hdrs {
-			k, v, ok := strings.Cut(h, ":")
-			if !ok {
-				return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid header format %q: expected \"Key: Value\"", h))
-			}
-			headerMap[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		headers, err := flagutil.ParseHeaderFlags(hdrs)
+		if err != nil {
+			return nil, err
+		}
+		headerMap := make(map[string]string, len(headers))
+		for name, values := range headers {
+			headerMap[name] = values[0]
+		}
+		if len(flagutil.RepeatedHeaders(headers)) > 0 {
+			headerMap[flagutil.RepeatedHeadersMarker] = "1"
 		}
 		opts = append(opts, operations.WithSetHeaders(headerMap))
 	}

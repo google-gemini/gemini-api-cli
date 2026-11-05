@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -609,6 +610,72 @@ func (e serverURLValidationError) Unwrap() error { return e.error }
 
 func (e serverURLValidationError) Error() string {
 	return fmt.Sprintf("invalid --server-url %q: %v", e.value, e.error)
+}
+
+// ParseHeaderFlags parses "Name: value" --header values into canonical header
+// names, keeping repeated values in the order given.
+func ParseHeaderFlags(values []string) (http.Header, error) {
+	headers := http.Header{}
+	for _, h := range values {
+		k, v, ok := strings.Cut(h, ":")
+		if !ok {
+			return nil, WithCLIValidation(fmt.Errorf("invalid --header value: expected \"Key: Value\" with a colon after the header name"))
+		}
+		name, value := strings.TrimSpace(k), strings.TrimSpace(v)
+		if !validHeaderName(name) {
+			return nil, WithCLIValidation(fmt.Errorf("invalid header name %q: use letters, digits and !#$%%&'*+-.^_`|~", name))
+		}
+		if !validHeaderValue(value) {
+			return nil, WithCLIValidation(fmt.Errorf("invalid value for header %q: control characters such as CR or LF are not allowed", name))
+		}
+		if http.CanonicalHeaderKey(name) == RepeatedHeadersMarker {
+			return nil, WithCLIValidation(fmt.Errorf("invalid header name %q: reserved for internal use", name))
+		}
+		headers.Add(name, value)
+	}
+	return headers, nil
+}
+
+// RepeatedHeadersMarker tags the requests an operation builds itself, so the
+// remaining values of a repeated --header reach only those requests and not
+// the requests SDK hooks send through the same client, such as OAuth token
+// calls.
+const RepeatedHeadersMarker = "X-Cli-Repeated-Headers"
+
+// RepeatedHeaders returns the headers given more than once.
+func RepeatedHeaders(headers http.Header) http.Header {
+	repeated := http.Header{}
+	for name, values := range headers {
+		if len(values) > 1 {
+			repeated[name] = values
+		}
+	}
+	return repeated
+}
+
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validHeaderValue(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if c := value[i]; (c < 0x20 && c != '\t') || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidateServerURL(value string) error {
