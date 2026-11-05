@@ -1,0 +1,15 @@
+{
+  "release-type": "go",
+  "separate-pull-requests": true,
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "initial-version": "0.4.5",
+  "packages": {
+    ".": {
+      "extra-files": [
+        "internal/sdk/sdkinternal/hooks/useragent.go"
+      ]
+    }
+  }
+}

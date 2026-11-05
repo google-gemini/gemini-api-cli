@@ -20,9 +20,9 @@ jobs:
       - name: Check release version
         run: |
           tag_version="${GITHUB_REF_NAME#v}"
-          cli_version=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/version.go)
+          cli_version=$(sed -n 's/^const cliVersion = "\([^"]*\)" .*$/\1/p' internal/sdk/sdkinternal/hooks/useragent.go)
           if [ -z "$cli_version" ] || [ "$tag_version" != "$cli_version" ]; then
-            printf '::error::Release tag %s does not match generated CLI version %s. Set cli.version in .speakeasy/gen.yaml to %s and regenerate before tagging.\n' "$GITHUB_REF_NAME" "$cli_version" "$tag_version"
+            printf '::error::Release tag %s does not match CLI version %s in internal/sdk/sdkinternal/hooks/useragent.go.\n' "$GITHUB_REF_NAME" "$cli_version"
             exit 1
           fi
 
