@@ -159,8 +159,9 @@ func TestTTSMultiSpeakerInput(t *testing.T) {
 		if result := runCLI(t, dir, nil, args...); result.err != nil {
 			t.Fatalf("tts (model %q) failed: %v\nstderr: %s", model, result.err, result.stderr)
 		}
-		if got, _ := stub.body["input"].([]any); !reflect.DeepEqual(got, want) {
-			t.Errorf("model %q: input = %#v, want %#v", model, stub.body["input"], want)
+		wantSteps := []any{map[string]any{"type": "user_input", "content": want}}
+		if got, _ := stub.body["input"].([]any); !reflect.DeepEqual(got, wantSteps) {
+			t.Errorf("model %q: input = %#v, want %#v", model, stub.body["input"], wantSteps)
 		}
 	}
 }
@@ -180,8 +181,8 @@ func TestTTSMultiSpeakerScriptFile(t *testing.T) {
 		t.Fatalf("tts failed: %v\nstderr: %s", result.err, result.stderr)
 	}
 	var texts []any
-	for _, block := range stub.body["input"].([]any) {
-		texts = append(texts, block.(map[string]any)["text"])
+	for _, block := range stub.inputParts(t) {
+		texts = append(texts, block["text"])
 	}
 	if want := []any{"hi.", "yo."}; !reflect.DeepEqual(texts, want) {
 		t.Errorf("input texts = %q, want %q", texts, want)

@@ -41,19 +41,7 @@ func textPart(text string) map[string]any {
 
 func inputParts(t *testing.T, body map[string]any) []map[string]any {
 	t.Helper()
-	raw, ok := body["input"].([]any)
-	if !ok {
-		t.Fatalf("request input = %#v, want an array of content blocks", body["input"])
-	}
-	parts := make([]map[string]any, 0, len(raw))
-	for _, p := range raw {
-		m, ok := p.(map[string]any)
-		if !ok {
-			t.Fatalf("input part = %#v, want an object", p)
-		}
-		parts = append(parts, m)
-	}
-	return parts
+	return assertUserInputStepParts(t, body)
 }
 
 // TestIntentModelOverride pins the --model guard on the generated intents and
@@ -268,9 +256,15 @@ func TestIntentBodyPreservesLargeIntegers(t *testing.T) {
 		if !ok || len(inputs) != wantInputLen {
 			t.Fatalf("input = %#v, want slice of len %d", body["input"], wantInputLen)
 		}
-		fnStep, ok := inputs[wantInputLen-1].(map[string]any)
+		fnStep, ok := inputs[0].(map[string]any)
 		if !ok {
-			t.Fatalf("function_result step = %#v, want object", inputs[wantInputLen-1])
+			t.Fatalf("function_result step = %#v, want object", inputs[0])
+		}
+		if wantInputLen == 2 {
+			userStep, ok := inputs[1].(map[string]any)
+			if !ok || userStep["type"] != "user_input" {
+				t.Fatalf("appended step = %#v, want user_input step after function_result", inputs[1])
+			}
 		}
 		resMap, ok := fnStep["result"].(map[string]any)
 		if !ok {
