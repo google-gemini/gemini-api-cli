@@ -286,6 +286,10 @@ func TestTTSValidation(t *testing.T) {
 		wantStderr string
 	}{
 		{"voice and multi-speaker", []string{"tts", "x", "--voice", "Puck", "--multi-speaker", "A=Kore"}, "mutually exclusive"},
+		{"voice and voice-prompt", []string{"tts", "x", "--voice", "Puck", "--voice-prompt", "Warm narrator"}, "mutually exclusive"},
+		{"multi-speaker and voice-prompt", []string{"tts", "x", "--multi-speaker", "A=Kore,B=Puck", "--voice-prompt", "Warm narrator"}, "mutually exclusive"},
+		{"style on legacy model", []string{"tts", "x", "--model", "gemini-2.5-flash-preview-tts", "--style", "whispered"}, "--style is not supported"},
+		{"voice-prompt on legacy model", []string{"tts", "x", "--model", "gemini-2.5-flash-preview-tts", "--voice-prompt", "Warm narrator"}, "--voice-prompt is not supported"},
 		{"bad multi-speaker entry", []string{"tts", "x", "--multi-speaker", "Alice"}, "expected Speaker=Voice"},
 		{"one speaker", []string{"tts", "x", "--multi-speaker", "A=Kore"}, "Use --voice for a single speaker"},
 		{"three speakers", []string{"tts", "x", "--multi-speaker", "A=Kore,B=Puck,C=Zephyr"}, "exactly two Speaker=Voice entries (got 3)"},
@@ -700,4 +704,191 @@ func TestTTSArtifactPath(t *testing.T) {
 			t.Errorf("failed write left %d entries behind", len(entries))
 		}
 	})
+}
+
+func TestTTSSingleAndMultiSpeakerStyleAnnotations(t *testing.T) {
+	stub := newInteractionStub(t, ttsAudioResponse([]byte{0x00, 0x01}, "audio/l16", 24000, 1))
+	dir := t.TempDir()
+
+	// Single-speaker with --style sends speech_metadata.style on the text block.
+	outSingle := filepath.Join(dir, "single.wav")
+	args := append(plainArgs(stub.URL), "tts", "Look out!", "--style", "whispered urgently", "--out", outSingle)
+	if result := runCLI(t, dir, nil, args...); result.err != nil {
+		t.Fatalf("tts single --style failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	wantSingle := []any{
+		map[string]any{
+			"type": "text",
+			"text": "Look out!",
+			"annotations": []any{
+				map[string]any{"type": "speech_metadata", "style": "whispered urgently"},
+			},
+		},
+	}
+	if !reflect.DeepEqual(stub.body["input"], wantSingle) {
+		t.Errorf("single --style input = %#v, want %#v", stub.body["input"], wantSingle)
+	}
+
+	// Multi-speaker with per-turn [style] and fallback --style.
+	outMulti := filepath.Join(dir, "multi.wav")
+	args = append(plainArgs(stub.URL), "tts", "Alice [whispered]: hi! Bob: hello.",
+		"--multi-speaker", "Alice=Kore,Bob=Puck", "--style", "calm", "--out", outMulti)
+	if result := runCLI(t, dir, nil, args...); result.err != nil {
+		t.Fatalf("tts multi --style failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	wantMulti := []any{
+		map[string]any{
+			"type": "text",
+			"text": "hi!",
+			"annotations": []any{
+				map[string]any{"type": "speech_metadata", "speaker": "Alice", "style": "whispered"},
+			},
+		},
+		map[string]any{
+			"type": "text",
+			"text": "hello.",
+			"annotations": []any{
+				map[string]any{"type": "speech_metadata", "speaker": "Bob", "style": "calm"},
+			},
+		},
+	}
+	if !reflect.DeepEqual(stub.body["input"], wantMulti) {
+		t.Errorf("multi --style input = %#v, want %#v", stub.body["input"], wantMulti)
+	}
+}
+
+func TestTTSStageDirectionWarnings(t *testing.T) {
+	stub := newInteractionStub(t, ttsAudioResponse([]byte{0x00, 0x01}, "audio/l16", 24000, 1))
+	dir := t.TempDir()
+
+	args := append(plainArgs(stub.URL), "tts", "Say cheerfully: Welcome [sigh] everyone!", "--out", filepath.Join(dir, "a.wav"))
+	result := runCLI(t, dir, nil, args...)
+	if result.err != nil {
+		t.Fatalf("tts failed: %v\nstderr: %s", result.err, result.stderr)
+	}
+	for _, want := range []string{"warning: input text looks like stage direction", "warning: square-bracket stage tags"} {
+		if !strings.Contains(result.stderr, want) {
+			t.Errorf("stderr = %q, want warning %q", result.stderr, want)
+		}
+	}
+
+	jsonArgs := append(plainArgs(stub.URL), "--output-format", "json", "tts",
+		"Say cheerfully: Welcome [sigh] everyone!", "--out", filepath.Join(dir, "b.wav"))
+	jsonRes := runCLI(t, dir, nil, jsonArgs...)
+	if jsonRes.err != nil {
+		t.Fatalf("tts json failed: %v\nstderr: %s", jsonRes.err, jsonRes.stderr)
+	}
+	var envelope struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(jsonRes.stdout), &envelope); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, jsonRes.stdout)
+	}
+	if len(envelope.Warnings) != 2 {
+		t.Errorf("envelope.Warnings = %q, want 2 warnings", envelope.Warnings)
+	}
+}
+
+func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
+	pcm := []byte{0x01, 0x02, 0x03, 0x04}
+	var createdVoiceBody map[string]any
+	var interactionBody map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/voices":
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &createdVoiceBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":           "voice_custom_123",
+				"type":         "prompted",
+				"model":        "gemini-3.8-flash-tts",
+				"display_name": "Warm Host",
+				"sample_audio": map[string]any{
+					"mime_type": "audio/l16;rate=24000",
+					"data":      base64.StdEncoding.EncodeToString(pcm),
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/interactions":
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &interactionBody)
+			_, _ = w.Write([]byte(ttsAudioResponse(pcm, "audio/l16", 24000, 1)))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1beta/voices/voice_custom_123":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":   "voice_custom_123",
+				"type": "prompted",
+				"sample_audio": map[string]any{
+					"mime_type": "audio/l16;rate=24000",
+					"data":      base64.StdEncoding.EncodeToString(pcm),
+				},
+			})
+		case r.Method == http.MethodDelete && r.URL.Path == "/v1beta/voices/voice_custom_123":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.Error(w, "unexpected route "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+
+	// 1. Inline `tts --voice-prompt` designs a voice and synthesizes speech with it.
+	ttsOut := filepath.Join(dir, "prompted.wav")
+	res := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "tts", "Welcome aboard",
+		"--voice-prompt", "Warm radio host", "--language", "en-US", "--out", ttsOut)...)
+	if res.err != nil {
+		t.Fatalf("tts --voice-prompt failed: %v\nstderr: %s", res.err, res.stderr)
+	}
+	if createdVoiceBody["store"] != true {
+		t.Errorf("voices create store = %#v, want true", createdVoiceBody["store"])
+	}
+	voiceMap, _ := createdVoiceBody["voice"].(map[string]any)
+	promptedMap, _ := voiceMap["prompted"].(map[string]any)
+	if voiceMap["type"] != "prompted" || promptedMap["input"] != "Warm radio host" {
+		t.Errorf("voices create payload = %#v", createdVoiceBody)
+	}
+	genCfg, _ := interactionBody["generation_config"].(map[string]any)
+	speechCfg, _ := genCfg["speech_config"].([]any)
+	if len(speechCfg) != 1 || speechCfg[0].(map[string]any)["voice"] != "voice_custom_123" {
+		t.Errorf("interaction speech_config = %#v, want voice_custom_123", speechCfg)
+	}
+	var ttsEnv map[string]any
+	if err := json.Unmarshal([]byte(res.stdout), &ttsEnv); err != nil {
+		t.Fatalf("tts stdout is not JSON: %v\n%s", err, res.stdout)
+	}
+	if ttsEnv["voice_id"] != "voice_custom_123" {
+		t.Errorf("tts envelope voice_id = %#v, want voice_custom_123", ttsEnv["voice_id"])
+	}
+
+	// 2. `voices create` with `--base-voice` and `--out` writes the sample WAV and returns the ID.
+	sampleOut := filepath.Join(dir, "sample.wav")
+	createRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "voices", "create",
+		"Gravelly detective", "--base-voice", "Puck", "--out", sampleOut)...)
+	if createRes.err != nil {
+		t.Fatalf("voices create failed: %v\nstderr: %s", createRes.err, createRes.stderr)
+	}
+	if got := strings.TrimSpace(createRes.stdout); got != "voice_custom_123" {
+		t.Errorf("voices create stdout = %q, want voice_custom_123", got)
+	}
+	if data, err := os.ReadFile(sampleOut); err != nil || !bytes.HasPrefix(data, []byte("RIFF")) {
+		t.Errorf("sample WAV = %v, %v; want RIFF WAV file", data, err)
+	}
+
+	// 3. `voices get` normalizes `voices/voice_custom_123` and writes sample_audio when --out is given.
+	getSampleOut := filepath.Join(dir, "get-sample.wav")
+	getRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "get",
+		"voices/voice_custom_123", "--out", getSampleOut)...)
+	if getRes.err != nil {
+		t.Fatalf("voices get failed: %v\nstderr: %s", getRes.err, getRes.stderr)
+	}
+	if data, err := os.ReadFile(getSampleOut); err != nil || !bytes.HasPrefix(data, []byte("RIFF")) {
+		t.Errorf("voices get --out WAV = %v, %v; want RIFF WAV file", data, err)
+	}
+
+	// 4. `voices delete` normalizes `voices/voice_custom_123`.
+	delRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "voices", "delete", "voices/voice_custom_123")...)
+	if delRes.err != nil {
+		t.Fatalf("voices delete failed: %v\nstderr: %s", delRes.err, delRes.stderr)
+	}
 }
