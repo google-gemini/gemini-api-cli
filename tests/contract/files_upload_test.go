@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -581,6 +582,136 @@ func TestFilesUploadTransportParity(t *testing.T) {
 		}
 		if strings.Contains(result.stderr, "test-key") {
 			t.Errorf("--debug leaked the API key:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("repeated headers, Accept replacement, trimming, and dry-run header preview", func(t *testing.T) {
+		mock := newUploadMock(t)
+		src := writeTempFile(t, "clip.mp3", "some audio bytes")
+		args := append(
+			plainArgs(mock.URL),
+			"-H", "X-A: 1",
+			"-H", "x-a: 2",
+			"-H", "  X-Trim:  trimmed\r\n",
+			"-H", "Accept: application/vnd.custom+json",
+			"--timeout", "30s",
+			"files", "upload", src,
+		)
+		result := runCLI(t, t.TempDir(), nil, args...)
+		if result.err != nil {
+			t.Fatalf("upload failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		for _, r := range mock.recorded() {
+			if got := r.headers.Values("X-A"); !slices.Equal(got, []string{"1", "2"}) {
+				t.Errorf("%s X-A = %v, want [1 2]", r.command, got)
+			}
+			if got := r.headers.Values("X-Trim"); !slices.Equal(got, []string{"trimmed"}) {
+				t.Errorf("%s X-Trim = %v, want [trimmed]", r.command, got)
+			}
+			if got := r.headers.Values("Accept"); !slices.Equal(got, []string{"application/vnd.custom+json"}) {
+				t.Errorf("%s Accept = %v, want [application/vnd.custom+json]", r.command, got)
+			}
+		}
+
+		dryArgs := append(
+			plainArgs(mock.URL),
+			"--dry-run", "-o", "json",
+			"-H", "X-Trace: a",
+			"-H", "x-trace: b",
+			"files", "upload", src,
+		)
+		dryRes := runCLI(t, t.TempDir(), nil, dryArgs...)
+		if dryRes.err != nil {
+			t.Fatalf("dry-run failed: %v\nstderr: %s", dryRes.err, dryRes.stderr)
+		}
+		lines := strings.Split(strings.TrimSpace(dryRes.stdout), "\n")
+		if len(lines) == 0 {
+			t.Fatalf("dry-run produced empty stdout")
+		}
+		for i, line := range lines {
+			var preview struct {
+				Request struct {
+					Headers map[string][]string `json:"headers"`
+				} `json:"request"`
+			}
+			if err := json.Unmarshal([]byte(line), &preview); err != nil {
+				t.Fatalf("dry-run line %d JSON decode: %v\nline: %s", i, err, line)
+			}
+			if got := preview.Request.Headers["X-Trace"]; !slices.Equal(got, []string{"a", "b"}) {
+				t.Errorf("dry-run line %d X-Trace = %v, want [a b]", i, got)
+			}
+		}
+	})
+
+	t.Run("header, timeout, and server-url validation fail with exit 2 before network access", func(t *testing.T) {
+		mock := newUploadMock(t)
+		src := writeTempFile(t, "clip.mp3", "some audio bytes")
+		const secret = "secret-header-token-999"
+
+		badFlagCases := []struct {
+			name string
+			args []string
+		}{
+			{"missing colon", []string{"-H", "Authorization Bearer " + secret}},
+			{"invalid header name", []string{"-H", "bad name: " + secret}},
+			{"embedded CRLF", []string{"-H", "Authorization: Bearer " + secret + "\r\nX-Injected: 1"}},
+			{"embedded LF", []string{"-H", "X-Token: " + secret + "\nX-Injected: 1"}},
+			{"reserved repeated header marker", []string{"-H", "X-Cli-Repeated-Headers: X-A"}},
+			{"timeout 0s", []string{"--timeout", "0s"}},
+			{"timeout -1s", []string{"--timeout", "-1s"}},
+			{"timeout abc", []string{"--timeout", "abc"}},
+		}
+		for _, tc := range badFlagCases {
+			for _, mode := range [][]string{nil, {"--dry-run", "-o", "json"}} {
+				args := append(append(plainArgs(mock.URL), tc.args...), mode...)
+				args = append(args, "files", "upload", src)
+				res := runCLI(t, t.TempDir(), nil, args...)
+				if code := exitCode(t, res); code != 2 {
+					t.Errorf("%s (%v): exit code = %d, want 2\nstderr: %s", tc.name, mode, code, res.stderr)
+				}
+				if strings.Contains(res.stderr, secret) || strings.Contains(res.stdout, secret) {
+					t.Errorf("%s (%v): leaked secret in output:\nstderr: %s\nstdout: %s", tc.name, mode, res.stderr, res.stdout)
+				}
+			}
+		}
+
+		for _, envTimeout := range []string{"0s", "-1s", "abc"} {
+			args := append(plainArgs(mock.URL), "files", "upload", src)
+			res := runCLI(t, t.TempDir(), map[string]string{"GEMINI_TIMEOUT": envTimeout}, args...)
+			if code := exitCode(t, res); code != 2 {
+				t.Errorf("GEMINI_TIMEOUT=%q: exit code = %d, want 2\nstderr: %s", envTimeout, code, res.stderr)
+			}
+		}
+
+		home := t.TempDir()
+		cfgDir := filepath.Join(home, ".config", "gemini-api")
+		if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("version: 1\ntimeout: 0s\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfgRes := runCLI(t, home, nil, append(plainArgs(mock.URL), "files", "upload", src)...)
+		if code := exitCode(t, cfgRes); code != 2 {
+			t.Errorf("config timeout 0s: exit code = %d, want 2\nstderr: %s", code, cfgRes.stderr)
+		}
+		overrideRes := runCLI(t, home, nil, append(plainArgs(mock.URL), "--timeout", "30s", "--dry-run", "-o", "json", "files", "upload", src)...)
+		if overrideRes.err != nil {
+			t.Errorf("--timeout 30s flag should override config timeout 0s: %v\nstderr: %s", overrideRes.err, overrideRes.stderr)
+		}
+
+		for _, badURL := range []string{"ftp://x", "https://"} {
+			for _, mode := range [][]string{nil, {"--dry-run", "-o", "json"}} {
+				args := append(append(plainArgs(badURL), mode...), "files", "upload", src)
+				res := runCLI(t, t.TempDir(), nil, args...)
+				if code := exitCode(t, res); code != 2 {
+					t.Errorf("--server-url %q (%v): exit code = %d, want 2\nstderr: %s", badURL, mode, code, res.stderr)
+				}
+			}
+		}
+
+		if got := len(mock.recorded()); got != 0 {
+			t.Errorf("validation failures sent %d requests, want 0", got)
 		}
 	})
 }

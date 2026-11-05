@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -297,5 +298,48 @@ func TestEnvironmentFilesUploadDryRun(t *testing.T) {
 				t.Errorf("dry-run previews = %d, want %d:\n%s", got, want, result.stderr)
 			}
 		})
+	}
+}
+
+func TestEnvironmentFilesHeadersTimeoutAndServerURLValidation(t *testing.T) {
+	mock := newEnvironmentUploadMock(t, storesEverything("src/main.py"))
+	src := writeTempFile(t, "main.py", "print('hi')\n")
+
+	uploadArgs := append(
+		plainArgs(mock.URL),
+		"-H", "X-A: 1",
+		"-H", "x-a: 2",
+		"--timeout", "30s",
+		"environments", "files", "upload", "env_abc", src, "--path", "src/main.py", "--overwrite",
+	)
+	res := runCLI(t, t.TempDir(), nil, uploadArgs...)
+	if res.err != nil {
+		t.Fatalf("environments files upload failed: %v\nstderr: %s", res.err, res.stderr)
+	}
+	for _, r := range mock.recorded() {
+		if got := r.headers.Values("X-A"); !slices.Equal(got, []string{"1", "2"}) {
+			t.Errorf("%s X-A = %v, want [1 2]", r.command, got)
+		}
+	}
+
+	for _, cmdTail := range [][]string{
+		{"environments", "files", "upload", "env_abc", src, "--path", "src/main.py"},
+		{"environments", "files", "download", "env_abc", "src/main.py"},
+	} {
+		for _, badFlags := range [][]string{
+			{"--timeout", "0s"},
+			{"--timeout", "-1s"},
+			{"--timeout", "abc"},
+			{"-H", "InvalidHeaderWithoutColon"},
+			{"-H", "X-Cli-Repeated-Headers: X-A"},
+			{"--server-url", "ftp://x"},
+			{"--server-url", "https://"},
+		} {
+			args := append(append(plainArgs(mock.URL), badFlags...), cmdTail...)
+			badRes := runCLI(t, t.TempDir(), nil, args...)
+			if code := exitCode(t, badRes); code != 2 {
+				t.Errorf("%v %v: exit code = %d, want 2\nstderr: %s", cmdTail[2], badFlags, code, badRes.stderr)
+			}
+		}
 	}
 }

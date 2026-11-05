@@ -30,6 +30,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
@@ -1946,4 +1947,111 @@ func TestRawTransportRecordsCredentialsMissing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRawTransportHeadersTimeoutAndServerURL(t *testing.T) {
+	t.Run("repeated headers preserve order, Accept replaces default, Authorization removes API key", func(t *testing.T) {
+		root, _, _ := newTestEnvironmentFilesRoot("https://example.com")
+		args := []string{
+			"--api-key", "secret-key",
+			"-H", "X-A: 1",
+			"-H", "x-a: 2",
+			"-H", "  X-Trim:  trimmed\r\n",
+			"-H", "Accept: application/vnd.custom+json",
+			"-H", "Authorization: Bearer override-token",
+			"--timeout", "30s",
+		}
+		if err := root.PersistentFlags().Parse(args); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		tr, err := newRawTransport(root)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		if tr.timeout != 30*time.Second {
+			t.Errorf("timeout = %v, want 30s", tr.timeout)
+		}
+		req, err := tr.newRequest(t.Context(), http.MethodPost, tr.apiURL("v1/files"), nil)
+		if err != nil {
+			t.Fatalf("newRequest: %v", err)
+		}
+		if got := req.Header.Values("X-A"); !slices.Equal(got, []string{"1", "2"}) {
+			t.Errorf("X-A values = %v, want [1 2]", got)
+		}
+		if got := req.Header.Values("X-Trim"); !slices.Equal(got, []string{"trimmed"}) {
+			t.Errorf("X-Trim values = %v, want [trimmed]", got)
+		}
+		if got := req.Header.Values("Accept"); !slices.Equal(got, []string{"application/vnd.custom+json"}) {
+			t.Errorf("Accept values = %v, want [application/vnd.custom+json]", got)
+		}
+		if got := req.Header.Get("Authorization"); got != "Bearer override-token" {
+			t.Errorf("Authorization = %q, want Bearer override-token", got)
+		}
+		if got := req.Header.Get("x-goog-api-key"); got != "" {
+			t.Errorf("x-goog-api-key = %q, want empty when Authorization is set", got)
+		}
+	})
+
+	t.Run("invalid headers fail with exit 2 without echoing secret values", func(t *testing.T) {
+		const secret = "top-secret-cred-98765"
+		badHeaders := []string{
+			"Authorization Bearer " + secret,
+			"bad name: " + secret,
+			": " + secret,
+			"Authorization: Bearer " + secret + "\r\nX-Injected: 1",
+			"X-Token: " + secret + "\nX-Injected: 1",
+			"X-Token: " + secret + "\x00extra",
+			flagutil.RepeatedHeadersMarker + ": X-A",
+		}
+		for _, h := range badHeaders {
+			root, _, _ := newTestEnvironmentFilesRoot("https://example.com")
+			if err := root.PersistentFlags().Parse([]string{"-H", h}); err != nil {
+				t.Fatalf("Parse(%q): %v", h, err)
+			}
+			_, rawErr := newRawTransport(root)
+			if rawErr == nil {
+				t.Fatalf("expected error for invalid header %q", h)
+			}
+			if strings.Contains(rawErr.Error(), secret) {
+				t.Errorf("error for %q leaked secret: %v", h, rawErr)
+			}
+			err := output.CLIError(root, rawErr)
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode(%q) = %d, want %d", h, got, clierrors.ExitUsage)
+			}
+		}
+	})
+
+	t.Run("invalid timeouts and server URLs fail with exit 2", func(t *testing.T) {
+		for _, badTimeout := range []string{"0s", "-1s", "abc"} {
+			root, _, _ := newTestEnvironmentFilesRoot("https://example.com")
+			if err := root.PersistentFlags().Parse([]string{"--timeout", badTimeout}); err != nil {
+				t.Fatalf("Parse(--timeout %q): %v", badTimeout, err)
+			}
+			_, rawErr := newRawTransport(root)
+			if rawErr == nil {
+				t.Fatalf("expected error for --timeout %q", badTimeout)
+			}
+			err := output.CLIError(root, rawErr)
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode(--timeout %q) = %d, want %d", badTimeout, got, clierrors.ExitUsage)
+			}
+		}
+
+		for _, badURL := range []string{"ftp://x", "https://"} {
+			root, _, _ := newTestEnvironmentFilesRoot(badURL)
+			if err := root.PersistentFlags().Parse([]string{"--server-url", badURL}); err != nil {
+				t.Fatalf("Parse(--server-url %q): %v", badURL, err)
+			}
+			uploadCmd := findChild(findChild(findChild(root, "environments"), "files"), "upload")
+			_, rawErr := newRawTransport(uploadCmd)
+			if rawErr == nil {
+				t.Fatalf("expected error for --server-url %q", badURL)
+			}
+			err := output.CLIError(root, rawErr)
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode(--server-url %q) = %d, want %d", badURL, got, clierrors.ExitUsage)
+			}
+		}
+	})
 }

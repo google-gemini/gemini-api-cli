@@ -52,7 +52,7 @@ type rawTransport struct {
 	accessToken string
 	userProject string
 	apiRevision string
-	headers     map[string]string
+	headers     http.Header
 	timeout     time.Duration
 	client      client.HTTPClient
 }
@@ -68,7 +68,7 @@ func validAPIVersion(v string) bool {
 const rawUserAgent = "speakeasy-sdk/go 0.0.1 internal v1beta github.com/speakeasy-sdks/gemini-cli-next/internal/sdk (porcelain)"
 
 func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
-	t := &rawTransport{headers: map[string]string{}}
+	t := &rawTransport{headers: http.Header{}}
 
 	// Server: --server-url > first declared server.
 	if serverURL, _ := flagutil.GetStringFlag(cmd, "server-url"); serverURL != "" {
@@ -122,13 +122,11 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 
 	// Repeatable --header "Key: Value".
 	if hdrs, _ := flagutil.GetStringArrayFlag(cmd, "header"); len(hdrs) > 0 {
-		for _, h := range hdrs {
-			k, v, ok := strings.Cut(h, ":")
-			if !ok {
-				return nil, fmt.Errorf("invalid header format %q: expected \"Key: Value\"", h)
-			}
-			t.headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		parsedHeaders, err := flagutil.ParseHeaderFlags(hdrs)
+		if err != nil {
+			return nil, err
 		}
+		t.headers = parsedHeaders
 	}
 
 	// Timeout: flag > env/config.
@@ -139,7 +137,10 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	if timeoutStr != "" {
 		d, err := time.ParseDuration(timeoutStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid --timeout value %q: %w", timeoutStr, err)
+			return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid --timeout value %q: %w", timeoutStr, err))
+		}
+		if d <= 0 {
+			return nil, flagutil.WithCLIValidation(fmt.Errorf("invalid --timeout value %q: must be a positive Go duration", timeoutStr))
 		}
 		t.timeout = d
 	}
@@ -200,8 +201,11 @@ func (t *rawTransport) newRequest(ctx context.Context, method, absURL string, bo
 	if t.apiRevision != "" {
 		req.Header.Set("Api-Revision", t.apiRevision)
 	}
-	for k, v := range t.headers {
-		req.Header.Set(k, v)
+	for k, vals := range t.headers {
+		req.Header.Del(k)
+		for _, v := range vals {
+			req.Header.Add(k, v)
+		}
 	}
 	// Exactly one scheme leaves the process, as on generated requests: a
 	// caller-supplied Authorization header displaces the API key.
