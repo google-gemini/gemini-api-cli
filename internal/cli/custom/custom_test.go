@@ -1826,6 +1826,54 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 			t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
 		}
 	})
+
+	t.Run("body and stdin preserve exact integer digits with and without -i and reject trailing JSON", func(t *testing.T) {
+		const rawJSON = `{"input":[{"type":"function_result","call_id":"c1","name":"fn","result":{"id":1234567890123456789,"cursor":9007199254740993,"ratio":0.25,"code":"1234567890123456789"}}],"response_format":{"type":"text","mime_type":"application/json","schema":{"type":"object","properties":{"n":{"type":"integer","maximum":9223372036854775807}}}}}`
+
+		for _, withInput := range []bool{false, true} {
+			var gotBody string
+			var gotArgs []string
+			root := newTestTree(&gotBody, &gotArgs)
+			args := []string{"generate", "--body", rawJSON}
+			if withInput {
+				args = append(args, "-i", localImg)
+			}
+			root.SetArgs(args)
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute(withInput=%v) failed: %v", withInput, err)
+			}
+			for _, want := range []string{
+				`"id":1234567890123456789`,
+				`"cursor":9007199254740993`,
+				`"maximum":9223372036854775807`,
+				`"ratio":0.25`,
+				`"code":"1234567890123456789"`,
+			} {
+				if !strings.Contains(gotBody, want) {
+					t.Errorf("withInput=%v: body missing %s; got %s", withInput, want, gotBody)
+				}
+			}
+		}
+
+		for _, badStdin := range []string{
+			`{"input":"hi"}{"extra":1}`,
+			`{"input":"hi"} trailing`,
+		} {
+			var gotBody string
+			var gotArgs []string
+			root := newTestTree(&gotBody, &gotArgs)
+			root.SetIn(strings.NewReader(badStdin))
+			root.SetArgs([]string{"generate"})
+			rawErr := root.Execute()
+			if rawErr == nil {
+				t.Fatalf("expected error for trailing stdin JSON %q", badStdin)
+			}
+			err := output.CLIError(root, rawErr)
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode(%q) = %d, want %d (ExitUsage)", badStdin, got, clierrors.ExitUsage)
+			}
+		}
+	})
 }
 
 func TestResolveEnvUploadAndDownloadArgsCoverage(t *testing.T) {

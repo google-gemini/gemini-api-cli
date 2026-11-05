@@ -851,7 +851,7 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 				c.SetIn(bytes.NewReader(rawBody))
 				bodySource = "stdin"
 			}
-			if err := json.Unmarshal(rawBody, &bodyMap); err != nil || bodyMap == nil {
+			if err := decodeBodyJSON(rawBody, &bodyMap); err != nil || bodyMap == nil {
 				if err != nil && stdinAttached && in.stdin {
 					return usageError(fmt.Sprintf("failed to parse stdin as JSON: %v", err),
 						"Piped stdin is read as the JSON request body; add --stdin to send it as prompt text instead")
@@ -940,16 +940,55 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 	return nil
 }
 
+func decodeBodyJSON(raw []byte, dst *map[string]any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("invalid character after top-level value")
+		}
+		return err
+	}
+	return nil
+}
+
 func contentToMap(blk interactions.Content) (map[string]any, error) {
 	raw, err := json.Marshal(blk)
 	if err != nil {
 		return nil, err
 	}
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := decodeBodyJSON(raw, &m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func isContentBlockMap(m map[string]any) bool {
+	t, _ := m["type"].(string)
+	switch t {
+	case "text", "image", "audio", "video", "document":
+		return true
+	default:
+		return false
+	}
+}
+
+func isStepSlice(items []any) bool {
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t != "" && !isContentBlockMap(m) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeMediaBlocksIntoInput(mediaBlocks []any, existing any) (any, error) {
@@ -965,11 +1004,29 @@ func mergeMediaBlocksIntoInput(mediaBlocks []any, existing any) (any, error) {
 		}
 		return out, nil
 	case []any:
+		if isStepSlice(v) {
+			out := make([]any, 0, 1+len(v))
+			out = append(out, map[string]any{
+				"type":    "user_input",
+				"content": mediaBlocks,
+			})
+			out = append(out, v...)
+			return out, nil
+		}
 		out := make([]any, 0, len(mediaBlocks)+len(v))
 		out = append(out, mediaBlocks...)
 		out = append(out, v...)
 		return out, nil
 	case map[string]any:
+		if t, _ := v["type"].(string); t != "" && !isContentBlockMap(v) {
+			return []any{
+				map[string]any{
+					"type":    "user_input",
+					"content": mediaBlocks,
+				},
+				v,
+			}, nil
+		}
 		out := make([]any, 0, len(mediaBlocks)+1)
 		out = append(out, mediaBlocks...)
 		out = append(out, v)
