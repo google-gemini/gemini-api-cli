@@ -121,11 +121,15 @@ func formatErrorBody(body string) string {
 // 2. Agent mode default (TOON)
 // 3. Default "pretty"
 func resolveOutputFormat(cmd *cobra.Command) string {
+	if preparsedRendering.outputFormat == "" && WantsRawResponse(cmd) {
+		return flagutil.ResolveOutputFormat(cmd, "json", IsAgentMode())
+	}
+	return resolveErrorOutputFormat(cmd)
+}
+
+func resolveErrorOutputFormat(cmd *cobra.Command) string {
 	if format := preparsedRendering.outputFormat; format != "" {
 		return flagutil.ResolveOutputFormat(cmd, format, IsAgentMode())
-	}
-	if WantsRawResponse(cmd) {
-		return flagutil.ResolveOutputFormat(cmd, "json", IsAgentMode())
 	}
 	return flagutil.ResolveOutputFormat(cmd, config.GetString("output-format"), IsAgentMode())
 }
@@ -589,7 +593,7 @@ func Error(cmd *cobra.Command, err error) error {
 	if err == nil {
 		return nil
 	}
-	format := resolveOutputFormat(cmd)
+	format := resolveErrorOutputFormat(cmd)
 	jqExpr, _ := flagutil.GetStringFlag(cmd, "jq")
 	classification := Classify(cmd, withErrorOrigin(err, ErrorOriginAPI))
 	structured := shouldRenderStructuredError(format, jqExpr)
