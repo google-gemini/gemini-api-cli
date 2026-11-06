@@ -208,15 +208,12 @@ func resolveModel(cmd *cobra.Command, def string) (string, error) {
 
 // normalizeModelFlag holds an explicit --model on a generated command to the
 // same id shape as resolveModel, stripping a models/ prefix in place. An unset
-// or blank flag is left to the command's own default.
+// flag is left to the command's own default.
 func normalizeModelFlag(cmd *cobra.Command) error {
 	if cmd.Flags().Lookup("model") == nil || !flagutil.FlagChanged(cmd, "model") {
 		return nil
 	}
 	model, _ := flagutil.GetStringFlag(cmd, "model")
-	if strings.TrimSpace(model) == "" {
-		return nil
-	}
 	id, err := normalizeModelPositional(model)
 	if err != nil {
 		return usageError("--model: " + err.Error())

@@ -464,3 +464,133 @@ func TestIntentBodyPreservesLargeIntegers(t *testing.T) {
 		})
 	}
 }
+
+// TestIntentBlankModelFlagRejected verifies that explicitly empty or
+// whitespace-only -m / --model values on generated intent commands reject
+// locally with CLI_VALIDATION (exit code 2) without sending network requests,
+// while omitted -m, models/<id> stripping, agent-vs-model dispatch, and custom
+// tts/analyze/transcribe fallback behavior remain intact.
+func TestIntentBlankModelFlagRejected(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	commands := []struct {
+		name        string
+		args        []string
+		wantDefault string
+	}{
+		{name: "generate", args: []string{"generate", "hi"}, wantDefault: "gemini-3.8-flash"},
+		{name: "image", args: []string{"image", "a cat"}, wantDefault: "gemini-nano-banana-2.1"},
+		{name: "video", args: []string{"video", "waves"}, wantDefault: "gemini-omni-1.1-flash"},
+		{name: "music", args: []string{"music", "jazz"}, wantDefault: "lyria-3.5"},
+		{name: "agent run", args: []string{"agent", "run", "hi"}, wantDefault: "gemini-3.8-flash"},
+	}
+
+	for _, cmd := range commands {
+		for _, blank := range []string{"", " ", "   ", "\t\n", os.Getenv("UNSET_MODEL_FOR_TEST")} {
+			t.Run(fmt.Sprintf("%s dry-run blank=%q", cmd.name, blank), func(t *testing.T) {
+				before := requests.Load()
+				args := append(append([]string(nil), baseArgs(server.URL)...), "--dry-run", "-o", "json")
+				args = append(args, cmd.args...)
+				args = append(args, "-m", blank)
+				res := runCLI(t, t.TempDir(), nil, args...)
+				if code := exitCode(t, res); code != 2 {
+					t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+				}
+				env := decodeEnvelope(t, res.stderr)
+				if env.ErrorReason != "CLI_VALIDATION" {
+					t.Errorf("error_reason = %q, want CLI_VALIDATION\nstderr: %s", env.ErrorReason, res.stderr)
+				}
+				if got := requests.Load() - before; got != 0 {
+					t.Errorf("requests sent = %d, want 0", got)
+				}
+			})
+
+			t.Run(fmt.Sprintf("%s sink blank=%q", cmd.name, blank), func(t *testing.T) {
+				before := requests.Load()
+				args := append(append([]string(nil), baseArgs(server.URL)...), "--api-key", "test", "-o", "json")
+				args = append(args, cmd.args...)
+				args = append(args, "-m", blank)
+				res := runCLI(t, t.TempDir(), nil, args...)
+				if code := exitCode(t, res); code != 2 {
+					t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+				}
+				env := decodeEnvelope(t, res.stderr)
+				if env.ErrorReason != "CLI_VALIDATION" {
+					t.Errorf("error_reason = %q, want CLI_VALIDATION\nstderr: %s", env.ErrorReason, res.stderr)
+				}
+				if got := requests.Load() - before; got != 0 {
+					t.Errorf("requests sent = %d, want 0", got)
+				}
+			})
+		}
+
+		t.Run(cmd.name+" omitted -m retains default", func(t *testing.T) {
+			res := runCLI(t, t.TempDir(), nil, intentDryRunArgs(cmd.args...)...)
+			if res.err != nil {
+				t.Fatalf("omitted -m failed: %v\nstderr: %s", res.err, res.stderr)
+			}
+			body := parseDryRunBody(t, res.stdout)
+			if got := body["model"]; got != cmd.wantDefault {
+				t.Errorf("model = %v, want default %q", got, cmd.wantDefault)
+			}
+		})
+
+		t.Run(cmd.name+" bare and models/ prefixed controls", func(t *testing.T) {
+			for _, in := range []string{"gemini-2.5-pro", "models/gemini-2.5-pro"} {
+				args := append(append([]string(nil), cmd.args...), "-m", in)
+				res := runCLI(t, t.TempDir(), nil, intentDryRunArgs(args...)...)
+				if res.err != nil {
+					t.Fatalf("-m %q failed: %v\nstderr: %s", in, res.err, res.stderr)
+				}
+				body := parseDryRunBody(t, res.stdout)
+				if got := body["model"]; got != "gemini-2.5-pro" {
+					t.Errorf("-m %q -> model = %v, want gemini-2.5-pro", in, got)
+				}
+			}
+		})
+	}
+
+	t.Run("agent run with --agent and omitted -m dispatches to agent", func(t *testing.T) {
+		res := runCLI(t, t.TempDir(), nil, intentDryRunArgs("agent", "run", "hi", "--agent", "deep-research-pro-preview-12-2025")...)
+		if res.err != nil {
+			t.Fatalf("agent run --agent failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		body := parseDryRunBody(t, res.stdout)
+		if got := body["agent"]; got != "deep-research-pro-preview-12-2025" {
+			t.Errorf("agent = %v, want deep-research-pro-preview-12-2025", got)
+		}
+		if _, hasModel := body["model"]; hasModel {
+			t.Errorf("unexpected model field in agent run body: %#v", body)
+		}
+	})
+
+	t.Run("tts analyze and transcribe blank -m fallback does not regress", func(t *testing.T) {
+		dir := t.TempDir()
+		audioPath := filepath.Join(dir, "clip.wav")
+		if err := os.WriteFile(audioPath, []byte("RIFFxxxxWAVEfmt "), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			args      []string
+			wantModel string
+		}{
+			{args: []string{"tts", "hello", "-m", ""}, wantModel: "gemini-3.8-flash-tts"},
+			{args: []string{"analyze", "what is this", "-i", audioPath, "-m", "   "}, wantModel: "gemini-3.8-flash"},
+			{args: []string{"transcribe", "-i", audioPath, "-m", ""}, wantModel: "gemini-3.5-transcribe"},
+		} {
+			res := runCLI(t, dir, nil, intentDryRunArgs(tc.args...)...)
+			if res.err != nil {
+				t.Fatalf("%v failed: %v\nstderr: %s", tc.args, res.err, res.stderr)
+			}
+			body := parseDryRunBody(t, res.stdout)
+			if got := body["model"]; got != tc.wantModel {
+				t.Errorf("%v -> model = %v, want %q", tc.args, got, tc.wantModel)
+			}
+		}
+	})
+}
