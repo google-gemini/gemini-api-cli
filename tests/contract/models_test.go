@@ -293,3 +293,125 @@ func TestModelsHelpSurface(t *testing.T) {
 		t.Errorf("models get --help does not show a real model id example:\n%s", get.stdout)
 	}
 }
+
+// TestModelsListAPIVersionValidation verifies that invalid --api-version values
+// are classified as CLI_VALIDATION (exit code 2) without sending network
+// requests in both human and --dry-run -o json modes, while valid API versions,
+// raw HTTP uploads, and environment root-list paths remain intact.
+func TestModelsListAPIVersionValidation(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-2.5-flash"}]}`))
+	}))
+	defer server.Close()
+
+	for _, badVersion := range []string{"..", "../x", "v1/x", "v1 beta", ""} {
+		t.Run("human mode "+badVersion, func(t *testing.T) {
+			before := requests.Load()
+			args := []string{
+				"--server-url", server.URL,
+				"--api-key", "test-key",
+				"--no-interactive",
+				"--no-retries",
+				"--color", "never",
+				"--api-version=" + badVersion,
+				"models", "list",
+			}
+			res := runCLI(t, t.TempDir(), nil, args...)
+			if code := exitCode(t, res); code != 2 {
+				t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+			}
+			if !strings.Contains(res.stderr, "Error (validation_error):") || !strings.Contains(res.stderr, "Reason: CLI_VALIDATION") {
+				t.Errorf("stderr missing validation_error/CLI_VALIDATION:\n%s", res.stderr)
+			}
+			if got := requests.Load() - before; got != 0 {
+				t.Errorf("requests sent = %d, want 0", got)
+			}
+		})
+
+		t.Run("dry-run json "+badVersion, func(t *testing.T) {
+			before := requests.Load()
+			args := []string{
+				"--server-url", server.URL,
+				"--api-key", "test-key",
+				"--no-interactive",
+				"--no-retries",
+				"--color", "never",
+				"--dry-run", "-o", "json",
+				"--api-version=" + badVersion,
+				"models", "list",
+			}
+			res := runCLI(t, t.TempDir(), nil, args...)
+			if code := exitCode(t, res); code != 2 {
+				t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+			}
+			env := decodeEnvelope(t, res.stderr)
+			if env.ErrorType != "validation_error" || env.ErrorReason != "CLI_VALIDATION" {
+				t.Errorf("envelope = %+v, want validation_error/CLI_VALIDATION", env)
+			}
+			if got := requests.Load() - before; got != 0 {
+				t.Errorf("requests sent = %d, want 0", got)
+			}
+		})
+	}
+
+	t.Run("files upload --api-version .. remains exit 2", func(t *testing.T) {
+		before := requests.Load()
+		src := writeTempFile(t, "sample.txt", "hello\n")
+		args := []string{
+			"--server-url", server.URL,
+			"--api-key", "test-key",
+			"--no-interactive",
+			"--color", "never",
+			"--api-version=..",
+			"files", "upload", src,
+		}
+		res := runCLI(t, t.TempDir(), nil, args...)
+		if code := exitCode(t, res); code != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr: %s", code, res.stderr)
+		}
+		if got := requests.Load() - before; got != 0 {
+			t.Errorf("requests sent = %d, want 0", got)
+		}
+	})
+
+	t.Run("valid configured API versions remain unchanged", func(t *testing.T) {
+		for _, validVersion := range []string{"v1", "v1beta"} {
+			before := requests.Load()
+			args := []string{
+				"--server-url", server.URL,
+				"--api-key", "test-key",
+				"--no-interactive",
+				"--color", "never",
+				"--api-version=" + validVersion,
+				"models", "list",
+			}
+			res := runCLI(t, t.TempDir(), nil, args...)
+			if res.err != nil {
+				t.Fatalf("models list --api-version=%s failed: %v\nstderr: %s", validVersion, res.err, res.stderr)
+			}
+			if got := requests.Load() - before; got != 1 {
+				t.Errorf("requests sent = %d, want 1", got)
+			}
+		}
+	})
+
+	t.Run("environments files list root paths remain supported", func(t *testing.T) {
+		for _, pathArgs := range [][]string{nil, {"--path", "."}, {"--path", "/"}} {
+			args := append([]string{
+				"--server-url", server.URL,
+				"--api-key", "test-key",
+				"--no-interactive",
+				"--color", "never",
+				"--dry-run", "-o", "json",
+				"environments", "files", "list", "--environment", "env_123",
+			}, pathArgs...)
+			res := runCLI(t, t.TempDir(), nil, args...)
+			if res.err != nil {
+				t.Fatalf("environments files list %v failed: %v\nstderr: %s", pathArgs, res.err, res.stderr)
+			}
+		}
+	})
+}
