@@ -334,7 +334,8 @@ func modelPtr(model string) *interactions.Model {
 // one-shot transformation — nothing continues or manages the interaction
 // afterwards — so retaining the prompt, media, and output would serve no one.
 func newModelInteraction(model string, content ...interactions.Content) interactions.CreateModelInteraction {
-	input := interactions.CreateInteractionsInputArrayOfContent(content)
+	step := interactions.CreateStepUserInput(interactions.UserInputStep{Content: content})
+	input := interactions.CreateInteractionsInputArrayOfStep([]interactions.Step{step})
 	return interactions.CreateModelInteraction{
 		Model:  modelPtr(model),
 		Stream: boolPtr(false),
