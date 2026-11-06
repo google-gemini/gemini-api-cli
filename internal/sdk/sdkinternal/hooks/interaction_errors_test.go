@@ -16,10 +16,13 @@ package hooks
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 )
 
 type closeTrackingBody struct {
@@ -330,5 +333,57 @@ func TestSanitizeInteractionErrorBody(t *testing.T) {
 				t.Errorf("sanitized body = %q, want %q", string(body), tt.want)
 			}
 		})
+	}
+}
+
+func TestRequestContractHookAPIVersionValidation(t *testing.T) {
+	h := New()
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, invalid := range []*string{
+		nil,
+		func() *string { s := ""; return &s }(),
+		func() *string { s := "."; return &s }(),
+		func() *string { s := ".."; return &s }(),
+		func() *string { s := "../x"; return &s }(),
+		func() *string { s := "v1/x"; return &s }(),
+		func() *string { s := "v1 beta"; return &s }(),
+	} {
+		cfg := config.SDKConfiguration{}
+		cfg.Globals.APIVersion = invalid
+		cfg = h.SDKInit(cfg)
+		_, gotErr := h.BeforeRequest(BeforeRequestContext{
+			HookContext: HookContext{
+				SDKConfiguration: cfg,
+				OperationID:      "ModelsList",
+			},
+		}, req)
+		if gotErr == nil {
+			t.Fatalf("expected validation error for APIVersion=%v", invalid)
+		}
+		wrapped := fmt.Errorf("sdk wrapper: %w", gotErr)
+		var typed interface{ CLIReason() string }
+		if !errors.As(wrapped, &typed) || typed.CLIReason() != "CLI_VALIDATION" {
+			t.Errorf("wrapped error %T (%v) did not unwrap to CLIReason()==CLI_VALIDATION", wrapped, wrapped)
+		}
+	}
+
+	for _, valid := range []string{"v1", "v1beta", "v1alpha", "v1_2-3.4"} {
+		v := valid
+		cfg := config.SDKConfiguration{}
+		cfg.Globals.APIVersion = &v
+		cfg = h.SDKInit(cfg)
+		gotReq, gotErr := h.BeforeRequest(BeforeRequestContext{
+			HookContext: HookContext{
+				SDKConfiguration: cfg,
+				OperationID:      "ModelsList",
+			},
+		}, req.Clone(req.Context()))
+		if gotErr != nil || gotReq == nil {
+			t.Errorf("unexpected error for valid APIVersion=%q: %v", valid, gotErr)
+		}
 	}
 }
