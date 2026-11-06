@@ -33,6 +33,7 @@ type SDKDefaultError struct {
 var _ error = &SDKDefaultError{}
 
 func NewSDKDefaultError(message string, statusCode int, body string, httpRes *http.Response) *SDKDefaultError {
+	message = messageFromBody(message, body)
 	return &SDKDefaultError{
 		Message:     message,
 		StatusCode:  statusCode,
