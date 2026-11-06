@@ -127,7 +127,10 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 	if isDryRun(cmd) {
 		_, err := s.Agent.Run(cmd.Context(), req, opts...)
-		return err
+		if err != nil {
+			return output.Error(cmd, err)
+		}
+		return nil
 	}
 
 	progress(cmd, "Analyzing %d input(s) with %s...", len(sources), model)

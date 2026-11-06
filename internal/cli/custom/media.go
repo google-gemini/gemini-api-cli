@@ -40,6 +40,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
 )
@@ -223,11 +224,31 @@ func (m *mediaSource) block(cmd *cobra.Command) (interactions.Content, error) {
 	if isDryRun(cmd) {
 		// No bytes leave the machine under --dry-run; keep the preview
 		// readable instead of streaming the payload to stderr.
-		info, err := os.Stat(m.path)
-		if err != nil {
-			return interactions.Content{}, usageError(fmt.Sprintf("%s: cannot read file: %v", m.ref, err))
+		var size int64
+		var realPayloadJSONLen int64
+		if class == contentText {
+			raw, err := os.ReadFile(m.path)
+			if err != nil {
+				return interactions.Content{}, usageError(fmt.Sprintf("%s: cannot read file: %v", m.ref, err))
+			}
+			size = int64(len(raw))
+			realJSON, _ := json.Marshal(string(raw))
+			realPayloadJSONLen = int64(len(realJSON))
+		} else {
+			info, err := os.Stat(m.path)
+			if err != nil {
+				return interactions.Content{}, usageError(fmt.Sprintf("%s: cannot read file: %v", m.ref, err))
+			}
+			size = info.Size()
+			realPayloadJSONLen = 2 + int64(base64.StdEncoding.EncodedLen(int(size)))
 		}
-		data = fmt.Appendf(nil, "<bytes:%d>", info.Size())
+		m.inlineBytes = inlineCost(size, class)
+		if m.inlineBytes > maxInlineBytes {
+			return interactions.Content{}, usageError(fmt.Sprintf("%s: file grew past the inline limit while the command ran", m.ref))
+		}
+		data = fmt.Appendf(nil, "<bytes:%d>", size)
+		previewJSON, _ := json.Marshal(string(data))
+		cmd.SetContext(hooks.WithDryRunBodyDelta(cmd.Context(), realPayloadJSONLen-int64(len(previewJSON))))
 	} else {
 		raw, err := os.ReadFile(m.path)
 		if err != nil {

@@ -657,3 +657,207 @@ func TestPorcelainModelOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
+	const limit = 20 << 20
+
+	newCountingSink := func(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int64) {
+		t.Helper()
+		var calls atomic.Int32
+		var lastBytes atomic.Int64
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			raw, _ := io.ReadAll(r.Body)
+			lastBytes.Store(int64(len(raw)))
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, completedInteraction("ok", ""))
+		}))
+		t.Cleanup(srv.Close)
+		return srv, &calls, &lastBytes
+	}
+
+	assertRejected := func(t *testing.T, res commandResult, calls *atomic.Int32, jsonMode bool) {
+		t.Helper()
+		if code := exitCode(t, res); code != 2 {
+			t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+		}
+		if res.stdout != "" {
+			t.Errorf("stdout = %q, want empty on rejected request", res.stdout)
+		}
+		if calls != nil && calls.Load() != 0 {
+			t.Errorf("network calls = %d, want 0", calls.Load())
+		}
+		if jsonMode {
+			env := decodeEnvelope(t, res.stderr)
+			if env.ErrorReason != "CLI_VALIDATION" {
+				t.Errorf("error_reason = %q, want CLI_VALIDATION\nstderr: %s", env.ErrorReason, res.stderr)
+			}
+		}
+		for _, want := range []string{"20 MB", "gemini-api files upload"} {
+			if !strings.Contains(res.stderr, want) {
+				t.Errorf("stderr missing %q:\n%s", want, res.stderr)
+			}
+		}
+	}
+
+	t.Run("wire byte capture across encodings and surfaces", func(t *testing.T) {
+		srv, calls, lastBytes := newCountingSink(t)
+		dir := t.TempDir()
+		textFile := filepath.Join(dir, "special.txt")
+		// Plain text, <>&, quotes/backslashes, control chars, and Unicode (\u2028 + emoji).
+		specialText := "plain <>& \"\\ \x01\t\n \u2028 café 🚀"
+		if err := os.WriteFile(textFile, []byte(specialText), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pngFile := filepath.Join(dir, "img.png")
+		if err := os.WriteFile(pngFile, []byte{0x89, 'P', 'N', 'G', 1, 2, 3, 4, 5}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		res := runCLIWithStdin(t, dir, nil, "stdin part <>&",
+			append(plainArgs(srv.URL), "generate", "--stream=false", "-i", textFile, "-i", pngFile, "--stdin", "prompt part", "--system", "sys <>&")...)
+		if res.err != nil {
+			t.Fatalf("generate failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		if calls.Load() != 1 || lastBytes.Load() <= 0 {
+			t.Fatalf("calls=%d bytes=%d, want 1 positive wire capture", calls.Load(), lastBytes.Load())
+		}
+	})
+
+	t.Run("generate exact boundary vs one byte over via body and stdin", func(t *testing.T) {
+		srv, calls, lastBytes := newCountingSink(t)
+		dir := t.TempDir()
+
+		// Measure baseline wire size for 1-char input.
+		probe := runCLI(t, dir, nil, append(plainArgs(srv.URL), "generate", "--stream=false", "a")...)
+		if probe.err != nil {
+			t.Fatalf("probe failed: %v\nstderr: %s", probe.err, probe.stderr)
+		}
+		framing := int(lastBytes.Load()) - 1
+
+		exactPrompt := strings.Repeat("a", limit-framing)
+		exactBodyPath := filepath.Join(dir, "exact.json")
+		if err := os.WriteFile(exactBodyPath, []byte(`{"stream":false,"input":"`+exactPrompt+`"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls.Store(0)
+		okRes := runCLI(t, dir, nil, append(plainArgs(srv.URL), "generate", "--body", "@"+exactBodyPath)...)
+		if okRes.err != nil {
+			t.Fatalf("exact-limit generate failed: %v\nstderr: %s", okRes.err, okRes.stderr)
+		}
+		if calls.Load() != 1 || lastBytes.Load() != limit {
+			t.Errorf("calls=%d wireBytes=%d, want 1 call of %d bytes", calls.Load(), lastBytes.Load(), limit)
+		}
+
+		overPrompt := exactPrompt + "b"
+		overBodyJSON := `{"stream":false,"input":"` + overPrompt + `"}`
+		overBodyPath := filepath.Join(dir, "over.json")
+		if err := os.WriteFile(overBodyPath, []byte(overBodyJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		calls.Store(0)
+		badRes := runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "generate", "--body", "@"+overBodyPath)...)
+		assertRejected(t, badRes, calls, true)
+
+		calls.Store(0)
+		badStdin := runCLIWithStdin(t, dir, nil, overBodyJSON, append(plainArgs(srv.URL), "-o", "json", "generate")...)
+		assertRejected(t, badStdin, calls, true)
+
+		// Dry-run -o json: exact limit succeeds even though indented preview formatting is larger than wire size.
+		dryExact := runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--body", "@"+exactBodyPath)...)
+		if dryExact.err != nil {
+			t.Fatalf("dry-run at exact wire limit failed: %v\nstderr: %s", dryExact.err, dryExact.stderr)
+		}
+		if len(dryExact.stdout) <= limit {
+			t.Errorf("expected formatted dry-run preview (%d bytes) to exceed wire limit (%d)", len(dryExact.stdout), limit)
+		}
+
+		// Dry-run -o json: 1 byte over limit rejects with exit 2 and no preview output.
+		dryOver := runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--body", "@"+overBodyPath)...)
+		assertRejected(t, dryOver, calls, true)
+
+		dryOverStdin := runCLIWithStdin(t, dir, nil, overPrompt, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--stream=false", "--stdin")...)
+		assertRejected(t, dryOverStdin, calls, true)
+	})
+
+	t.Run("analyze and generate escaping and combined overhead", func(t *testing.T) {
+		srv, calls, lastBytes := newCountingSink(t)
+		dir := t.TempDir()
+
+		// Measure analyze baseline with a 1-byte text file.
+		oneByteFile := filepath.Join(dir, "one.txt")
+		if err := os.WriteFile(oneByteFile, []byte("a"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		probe := runCLI(t, dir, nil, append(plainArgs(srv.URL), "analyze", "-i", oneByteFile, "q")...)
+		if probe.err != nil {
+			t.Fatalf("analyze probe failed: %v\nstderr: %s", probe.err, probe.stderr)
+		}
+		analyzeFraming := int(lastBytes.Load()) - 1
+
+		// 3.5 MiB of '<' is 3,670,016 raw bytes (well under 19 MiB preflight),
+		// but escapes to 6 * 3,670,016 = 22,020,096 wire bytes (> 20 MiB).
+		htmlFile := filepath.Join(dir, "angles.txt")
+		if err := os.WriteFile(htmlFile, bytes.Repeat([]byte{'<'}, 3584*1024), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls.Store(0)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "-i", htmlFile, "q")...), calls, true)
+
+		// Quotes/backslashes (2x wire expansion) + control chars (6x wire expansion) + Unicode \u2028 (2x byte expansion).
+		escapedMix := filepath.Join(dir, "mix.txt")
+		mixPayload := append(bytes.Repeat([]byte{'\x01'}, 3<<20), bytes.Repeat([]byte{'"', '\\'}, 2<<20)...)
+		if err := os.WriteFile(escapedMix, mixPayload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls.Store(0)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", escapedMix, "q")...), calls, true)
+
+		// Exact boundary and +1 byte on analyze using '<' (6 wire bytes each) + ASCII filler.
+		remaining := limit - analyzeFraming
+		numAngles := 3_000_000 // 18,000,000 wire bytes, only 3,000,000 raw bytes
+		asciiFill := remaining - numAngles*6
+		exactAnalyzeFile := filepath.Join(dir, "exact_analyze.txt")
+		exactContent := append(bytes.Repeat([]byte{'<'}, numAngles), bytes.Repeat([]byte{'a'}, asciiFill)...)
+		if err := os.WriteFile(exactAnalyzeFile, exactContent, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		calls.Store(0)
+		okAnalyze := runCLI(t, dir, nil, append(plainArgs(srv.URL), "analyze", "-i", exactAnalyzeFile, "q")...)
+		if okAnalyze.err != nil {
+			t.Fatalf("exact-limit analyze failed: %v\nstderr: %s", okAnalyze.err, okAnalyze.stderr)
+		}
+		if calls.Load() != 1 || lastBytes.Load() != limit {
+			t.Errorf("analyze calls=%d wireBytes=%d, want 1 call of %d bytes", calls.Load(), lastBytes.Load(), limit)
+		}
+
+		// Dry-run at exact limit succeeds and redacts file content; adding 1 byte to question rejects!
+		dryOkAnalyze := runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", exactAnalyzeFile, "q")...)
+		if dryOkAnalyze.err != nil {
+			t.Fatalf("dry-run exact-limit analyze failed: %v\nstderr: %s", dryOkAnalyze.err, dryOkAnalyze.stderr)
+		}
+		if !strings.Contains(dryOkAnalyze.stdout, `"dry_run":true`) {
+			t.Errorf("dry-run stdout missing preview:\n%s", dryOkAnalyze.stdout)
+		}
+
+		calls.Store(0)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
+		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
+
+		// Base64 media (13.5 MB raw = 18,000,000 bytes base64, under 19 MiB preflight) + 3,000,000 bytes --stdin text exceeds 20 MiB (20,971,520 bytes) final body.
+		mediaFile := filepath.Join(dir, "clip.png")
+		if err := os.WriteFile(mediaFile, bytes.Repeat([]byte{0x42}, 13_500_000), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		extraStdin := strings.Repeat("s", 3_000_000)
+		calls.Store(0)
+		assertRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
+			append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", mediaFile, "--stdin", "q")...), calls, true)
+		assertRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
+			append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", mediaFile, "--stdin", "q")...), calls, true)
+	})
+}

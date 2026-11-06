@@ -15,11 +15,16 @@
 package hooks
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 )
 
 type closeTrackingBody struct {
@@ -331,4 +336,247 @@ func TestSanitizeInteractionErrorBody(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequestContractHookAPIVersionValidation(t *testing.T) {
+	h := New()
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, invalid := range []*string{
+		nil,
+		func() *string { s := ""; return &s }(),
+		func() *string { s := "."; return &s }(),
+		func() *string { s := ".."; return &s }(),
+		func() *string { s := "../x"; return &s }(),
+		func() *string { s := "v1/x"; return &s }(),
+		func() *string { s := "v1 beta"; return &s }(),
+	} {
+		cfg := config.SDKConfiguration{}
+		cfg.Globals.APIVersion = invalid
+		cfg = h.SDKInit(cfg)
+		_, gotErr := h.BeforeRequest(BeforeRequestContext{
+			HookContext: HookContext{
+				SDKConfiguration: cfg,
+				OperationID:      "ModelsList",
+			},
+		}, req)
+		if gotErr == nil {
+			t.Fatalf("expected validation error for APIVersion=%v", invalid)
+		}
+		wrapped := fmt.Errorf("sdk wrapper: %w", gotErr)
+		var typed interface{ CLIReason() string }
+		if !errors.As(wrapped, &typed) || typed.CLIReason() != "CLI_VALIDATION" {
+			t.Errorf("wrapped error %T (%v) did not unwrap to CLIReason()==CLI_VALIDATION", wrapped, wrapped)
+		}
+	}
+
+	for _, valid := range []string{"v1", "v1beta", "v1alpha", "v1_2-3.4"} {
+		v := valid
+		cfg := config.SDKConfiguration{}
+		cfg.Globals.APIVersion = &v
+		cfg = h.SDKInit(cfg)
+		gotReq, gotErr := h.BeforeRequest(BeforeRequestContext{
+			HookContext: HookContext{
+				SDKConfiguration: cfg,
+				OperationID:      "ModelsList",
+			},
+		}, req.Clone(req.Context()))
+		if gotErr != nil || gotReq == nil {
+			t.Errorf("unexpected error for valid APIVersion=%q: %v", valid, gotErr)
+		}
+	}
+}
+
+type countingReader struct {
+	r    io.Reader
+	read int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += int64(n)
+	return n, err
+}
+
+func TestRequestContractHookCreateInteractionSizeLimit(t *testing.T) {
+	h := New()
+	v1 := "v1"
+	cfg := config.SDKConfiguration{}
+	cfg.Globals.APIVersion = &v1
+	hookCtx := BeforeRequestContext{
+		HookContext: HookContext{
+			SDKConfiguration: cfg,
+			OperationID:      "CreateInteraction",
+		},
+	}
+
+	assertValidationErr := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected validation error, got nil")
+		}
+		wrapped := fmt.Errorf("sdk wrapper: %w", err)
+		var reason interface{ CLIReason() string }
+		if !errors.As(wrapped, &reason) || reason.CLIReason() != "CLI_VALIDATION" {
+			t.Errorf("wrapped error %T (%v) did not unwrap to CLIReason()==CLI_VALIDATION", wrapped, wrapped)
+		}
+		var hinted interface{ CLIHints() []string }
+		if !errors.As(wrapped, &hinted) || len(hinted.CLIHints()) == 0 || !strings.Contains(hinted.CLIHints()[0], "gemini-api files upload") {
+			t.Errorf("wrapped error hints = %v, want files upload hint", hinted)
+		}
+	}
+
+	t.Run("known ContentLength at exact limit passes and preserves body", func(t *testing.T) {
+		prefix := `{"stream":true,"input":"`
+		suffix := `"}`
+		fillLen := maxInlineRequestBytes - len(prefix) - len(suffix)
+		payload := make([]byte, maxInlineRequestBytes)
+		copy(payload, prefix)
+		bytes.Repeat([]byte{'a'}, 1)
+		for i := len(prefix); i < len(prefix)+fillLen; i++ {
+			payload[i] = 'a'
+		}
+		copy(payload[len(prefix)+fillLen:], suffix)
+
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		origBody := &closeTrackingBody{Reader: bytes.NewReader(payload)}
+		req.Body = origBody
+
+		gotReq, err := h.BeforeRequest(hookCtx, req)
+		if err != nil {
+			t.Fatalf("unexpected error at exact limit: %v", err)
+		}
+		if origBody.closed {
+			t.Error("original body was unexpectedly closed")
+		}
+		if got := gotReq.Header.Get("Accept"); got != "text/event-stream" {
+			t.Errorf("Accept = %q, want text/event-stream", got)
+		}
+		readBack, err := io.ReadAll(gotReq.Body)
+		if err != nil || int64(len(readBack)) != maxInlineRequestBytes {
+			t.Errorf("read back %d bytes (err=%v), want %d", len(readBack), err, maxInlineRequestBytes)
+		}
+	})
+
+	t.Run("known ContentLength one byte over limit fails and closes body", func(t *testing.T) {
+		payload := make([]byte, maxInlineRequestBytes+1)
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		origBody := &closeTrackingBody{Reader: bytes.NewReader(payload)}
+		req.Body = origBody
+
+		_, err = h.BeforeRequest(hookCtx, req)
+		assertValidationErr(t, err)
+		if !origBody.closed {
+			t.Error("expected original body to be closed on rejection")
+		}
+	})
+
+	t.Run("unknown ContentLength uses bounded GetBody copy and preserves original body", func(t *testing.T) {
+		payload := bytes.Repeat([]byte{'x'}, maxInlineRequestBytes)
+		origCounter := &countingReader{r: bytes.NewReader(payload)}
+		origBody := &closeTrackingBody{Reader: origCounter}
+		var copyBody *closeTrackingBody
+
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/interactions", origBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.ContentLength = -1
+		req.GetBody = func() (io.ReadCloser, error) {
+			c := &closeTrackingBody{Reader: bytes.NewReader(payload)}
+			copyBody = c
+			return c, nil
+		}
+
+		gotReq, err := h.BeforeRequest(hookCtx, req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if origCounter.read != 0 || origBody.closed {
+			t.Errorf("original body read=%d closed=%v, want untouched", origCounter.read, origBody.closed)
+		}
+		if copyBody == nil || !copyBody.closed {
+			t.Error("expected GetBody copy to be closed")
+		}
+		replayed, err := gotReq.GetBody()
+		if err != nil {
+			t.Fatalf("GetBody replay failed: %v", err)
+		}
+		_ = replayed.Close()
+	})
+
+	t.Run("unknown ContentLength over limit stops reading at limit+1 and closes bodies", func(t *testing.T) {
+		huge := bytes.Repeat([]byte{'x'}, maxInlineRequestBytes+1024)
+		origBody := &closeTrackingBody{Reader: bytes.NewReader(huge)}
+		copyCounter := &countingReader{r: bytes.NewReader(huge)}
+		copyBody := &closeTrackingBody{Reader: copyCounter}
+
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/v1/interactions", origBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.ContentLength = -1
+		req.GetBody = func() (io.ReadCloser, error) {
+			return copyBody, nil
+		}
+
+		_, err = h.BeforeRequest(hookCtx, req)
+		assertValidationErr(t, err)
+		if copyCounter.read != maxInlineRequestBytes+1 {
+			t.Errorf("GetBody copy read %d bytes, want bounded read of %d", copyCounter.read, maxInlineRequestBytes+1)
+		}
+		if !copyBody.closed {
+			t.Error("expected GetBody copy to be closed")
+		}
+		if !origBody.closed {
+			t.Error("expected original body to be closed on rejection")
+		}
+	})
+
+	t.Run("non-CreateInteraction operation ignores inline limit", func(t *testing.T) {
+		payload := make([]byte, maxInlineRequestBytes+100)
+		req, err := http.NewRequest(http.MethodPost, "https://example.com/upload/v1/files", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherCtx := BeforeRequestContext{
+			HookContext: HookContext{
+				SDKConfiguration: cfg,
+				OperationID:      "FilesUpload",
+			},
+		}
+		if _, err := h.BeforeRequest(otherCtx, req); err != nil {
+			t.Fatalf("unexpected error on non-CreateInteraction operation: %v", err)
+		}
+	})
+
+	t.Run("dry-run delta accumulates and is consumed on CreateInteraction size check", func(t *testing.T) {
+		body := []byte(`{"model":"gemini-3.8-flash","input":[{"type":"text","text":"\u003cbytes:4000000\u003e"}]}`)
+		ctx := WithDryRunBodyDelta(context.Background(), 100)
+		ctx = WithDryRunBodyDelta(ctx, maxInlineRequestBytes-int64(len(body))-100+1)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = h.BeforeRequest(hookCtx, req)
+		assertValidationErr(t, err)
+
+		// Second request on the same context starts with a fresh 0 delta.
+		req2, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.BeforeRequest(hookCtx, req2); err != nil {
+			t.Fatalf("unexpected error after delta was consumed: %v", err)
+		}
+	})
 }
