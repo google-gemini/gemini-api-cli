@@ -289,7 +289,7 @@ func TestModelsHelpSurface(t *testing.T) {
 	if !strings.Contains(get.stdout, "gemini-api models get [model]") {
 		t.Errorf("models get --help does not document the positional:\n%s", get.stdout)
 	}
-	if !strings.Contains(get.stdout, "gemini-api models get --model gemini-flash-latest") {
+	if !strings.Contains(get.stdout, "gemini-api models get --model gemini-3.8-flash") {
 		t.Errorf("models get --help does not show a real model id example:\n%s", get.stdout)
 	}
 }

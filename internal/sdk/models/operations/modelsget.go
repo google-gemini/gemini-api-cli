@@ -48,7 +48,7 @@ func (m *ModelsGetGlobals) GetAPIVersion() *string {
 type ModelsGetRequest struct {
 	// Which version of the API to use. Defaults to v1.
 	APIVersion *string `default:"v1" pathParam:"style=simple,explode=false,name=api_version"`
-	// Model id, e.g. gemini-flash-latest
+	// Model id, e.g. gemini-3.8-flash
 	Model string `pathParam:"style=simple,explode=false,name=model"`
 }
 
