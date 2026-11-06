@@ -16,6 +16,9 @@ package custom
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,8 +26,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
+	"github.com/spf13/cobra"
 )
 
 func TestSameService(t *testing.T) {
@@ -223,4 +228,155 @@ func TestStreamUploadSendsTheDeclaredSize(t *testing.T) {
 	if string(received) != "0123456789" {
 		t.Errorf("received = %q, want \"0123456789\"", string(received))
 	}
+}
+
+func newTestFilesUploadCmd(serverURL string) *cobra.Command {
+	root, _, _ := newTestEnvironmentFilesRoot(serverURL)
+	root.PersistentFlags().Bool("no-retries", true, "")
+	filesCmd := &cobra.Command{Use: "files"}
+	uploadCmd := newFilesUploadCmd()
+	filesCmd.AddCommand(uploadCmd)
+	root.AddCommand(filesCmd)
+	return uploadCmd
+}
+
+func TestWaitActiveCancellationAndDeadline(t *testing.T) {
+	t.Run("caller cancellation during in-flight poll is not relabeled as wait timeout", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cancel()
+			<-r.Context().Done()
+		}))
+		defer srv.Close()
+
+		cmd := newTestFilesUploadCmd(srv.URL)
+		_ = cmd.Flags().Set("wait-timeout", "5s")
+		cmd.SetContext(ctx)
+
+		tr, err := newRawTransport(cmd)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		_, err = tr.waitActive(cmd, "files/xyz789")
+		if err == nil {
+			t.Fatal("expected error on caller cancellation")
+		}
+		if strings.Contains(err.Error(), "did not become ACTIVE within") {
+			t.Errorf("caller cancellation relabeled as wait timeout: %v", err)
+		}
+		if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+			t.Errorf("expected context canceled error, got %v", err)
+		}
+	})
+
+	t.Run("caller cancellation during inter-poll sleep returns context.Canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		polls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			polls++
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"PROCESSING"}`)
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				cancel()
+			}()
+		}))
+		defer srv.Close()
+
+		cmd := newTestFilesUploadCmd(srv.URL)
+		_ = cmd.Flags().Set("wait-timeout", "5s")
+		cmd.SetContext(ctx)
+
+		tr, err := newRawTransport(cmd)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		_, err = tr.waitActive(cmd, "files/xyz789")
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error = %v, want context.Canceled", err)
+		}
+		if polls != 1 {
+			t.Errorf("polls = %d, want 1", polls)
+		}
+	})
+
+	t.Run("non-positive wait-timeout fails immediately with wait-timeout message and zero polls", func(t *testing.T) {
+		polls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			polls++
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"ACTIVE"}`)
+		}))
+		defer srv.Close()
+
+		cmd := newTestFilesUploadCmd(srv.URL)
+		_ = cmd.Flags().Set("wait-timeout", "0s")
+		cmd.SetContext(t.Context())
+
+		tr, err := newRawTransport(cmd)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		_, err = tr.waitActive(cmd, "files/xyz789")
+		if err == nil || !strings.Contains(err.Error(), "files/xyz789 did not become ACTIVE within 0s") {
+			t.Errorf("error = %v, want wait-timeout message", err)
+		}
+		if polls != 0 {
+			t.Errorf("polls = %d, want 0", polls)
+		}
+	})
+
+	t.Run("hanging poll times out with wait-timeout message", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		}))
+		defer srv.Close()
+
+		cmd := newTestFilesUploadCmd(srv.URL)
+		_ = cmd.Flags().Set("wait-timeout", "50ms")
+		cmd.SetContext(t.Context())
+
+		tr, err := newRawTransport(cmd)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		_, err = tr.waitActive(cmd, "files/xyz789")
+		if err == nil || !strings.Contains(err.Error(), "files/xyz789 did not become ACTIVE within 50ms") {
+			t.Errorf("error = %v, want wait-timeout message", err)
+		}
+	})
+
+	t.Run("processing then active before deadline succeeds", func(t *testing.T) {
+		polls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			polls++
+			w.Header().Set("Content-Type", "application/json")
+			if polls == 1 {
+				fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"PROCESSING"}`)
+				return
+			}
+			fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"ACTIVE"}`)
+		}))
+		defer srv.Close()
+
+		cmd := newTestFilesUploadCmd(srv.URL)
+		_ = cmd.Flags().Set("wait-timeout", "5s")
+		cmd.SetContext(t.Context())
+
+		tr, err := newRawTransport(cmd)
+		if err != nil {
+			t.Fatalf("newRawTransport: %v", err)
+		}
+		file, err := tr.waitActive(cmd, "files/xyz789")
+		if err != nil {
+			t.Fatalf("waitActive: %v", err)
+		}
+		if file == nil || file.Name == nil || *file.Name != "files/xyz789" {
+			t.Errorf("file = %+v, want files/xyz789", file)
+		}
+	})
 }

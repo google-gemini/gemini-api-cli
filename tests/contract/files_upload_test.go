@@ -16,6 +16,7 @@ package contract_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,6 +42,7 @@ type uploadRequest struct {
 	command string
 	headers http.Header
 	body    []byte
+	ctx     context.Context
 }
 
 // uploadMock records every request of the resumable protocol. respond may
@@ -59,7 +61,7 @@ func newUploadMock(t *testing.T) *uploadMock {
 		body, _ := io.ReadAll(r.Body)
 		req := uploadRequest{
 			method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, command: r.Header.Get("X-Goog-Upload-Command"),
-			headers: r.Header.Clone(), body: body,
+			headers: r.Header.Clone(), body: body, ctx: r.Context(),
 		}
 		mock.mu.Lock()
 		mock.requests = append(mock.requests, req)
@@ -846,6 +848,147 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 		}
 		if !strings.Contains(result.stderr, "file vanished") || result.stdout != "" {
 			t.Errorf("stdout = %q, stderr = %q", result.stdout, result.stderr)
+		}
+	})
+
+	t.Run("prompt active and delayed processing then delayed active before deadline", func(t *testing.T) {
+		// Prompt ACTIVE on first poll.
+		mockPrompt := newUploadMock(t)
+		mockPrompt.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			switch r.command {
+			case "upload, finalize":
+				finalizeProcessing(w)
+			case "":
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"ACTIVE"}`)
+			default:
+				return false
+			}
+			return true
+		}
+		src := writeTempFile(t, "clip.mp4", "some video bytes")
+		resPrompt := runCLI(t, t.TempDir(), nil, append(plainArgs(mockPrompt.URL), "files", "upload", src, "--wait", "--wait-timeout", "3s")...)
+		if resPrompt.err != nil {
+			t.Fatalf("prompt active upload failed: %v\nstderr: %s", resPrompt.err, resPrompt.stderr)
+		}
+		if got := strings.TrimSpace(resPrompt.stdout); got != "files/xyz789" {
+			t.Errorf("stdout = %q, want files/xyz789", got)
+		}
+
+		// Delayed PROCESSING on poll 1, then delayed ACTIVE on poll 2 before the deadline.
+		mockDelayed := newUploadMock(t)
+		mockDelayed.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			switch r.command {
+			case "upload, finalize":
+				finalizeProcessing(w)
+			case "":
+				time.Sleep(150 * time.Millisecond)
+				w.Header().Set("Content-Type", "application/json")
+				if len(polls(mockDelayed)) == 1 {
+					fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"PROCESSING"}`)
+				} else {
+					fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"ACTIVE"}`)
+				}
+			default:
+				return false
+			}
+			return true
+		}
+		resDelayed := runCLI(t, t.TempDir(), nil, append(plainArgs(mockDelayed.URL), "files", "upload", src, "--wait", "--wait-timeout", "4s")...)
+		if resDelayed.err != nil {
+			t.Fatalf("delayed active upload failed: %v\nstderr: %s", resDelayed.err, resDelayed.stderr)
+		}
+		if got := strings.TrimSpace(resDelayed.stdout); got != "files/xyz789" {
+			t.Errorf("stdout = %q, want files/xyz789", got)
+		}
+		if got := len(polls(mockDelayed)); got != 2 {
+			t.Errorf("polls = %d, want 2", got)
+		}
+	})
+
+	t.Run("hanging poll exits near wait-timeout with wait-timeout message and never late success", func(t *testing.T) {
+		mock := newUploadMock(t)
+		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			switch r.command {
+			case "upload, finalize":
+				finalizeProcessing(w)
+			case "":
+				select {
+				case <-r.ctx.Done():
+					return true
+				case <-time.After(8 * time.Second):
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprint(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":"ACTIVE"}`)
+				}
+			default:
+				return false
+			}
+			return true
+		}
+		src := writeTempFile(t, "clip.mp4", "some video bytes")
+		start := time.Now()
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "files", "upload", src, "--wait", "--wait-timeout", "3s")...)
+		elapsed := time.Since(start)
+		if code := exitCode(t, result); code != 1 {
+			t.Fatalf("exit code = %d, want 1\nstdout: %s\nstderr: %s", code, result.stdout, result.stderr)
+		}
+		if elapsed >= 6*time.Second {
+			t.Errorf("elapsed = %v, want near 3s wait-timeout (< 6s)", elapsed)
+		}
+		if !strings.Contains(result.stderr, "files/xyz789 did not become ACTIVE within 3s") {
+			t.Errorf("stderr = %q, want wait-timeout message", result.stderr)
+		}
+		if result.stdout != "" {
+			t.Errorf("stdout = %q, want empty", result.stdout)
+		}
+	})
+
+	t.Run("earlier per-request --timeout 1s is not relabeled as --wait-timeout 3s expiry", func(t *testing.T) {
+		mock := newUploadMock(t)
+		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			switch r.command {
+			case "upload, finalize":
+				finalizeProcessing(w)
+			case "":
+				select {
+				case <-r.ctx.Done():
+					return true
+				case <-time.After(5 * time.Second):
+				}
+			default:
+				return false
+			}
+			return true
+		}
+		src := writeTempFile(t, "clip.mp4", "some video bytes")
+		start := time.Now()
+		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "--timeout", "1s", "files", "upload", src, "--wait", "--wait-timeout", "3s")...)
+		elapsed := time.Since(start)
+		if code := exitCode(t, result); code != 1 {
+			t.Fatalf("exit code = %d, want 1\nstderr: %s", code, result.stderr)
+		}
+		if elapsed >= 2500*time.Millisecond {
+			t.Errorf("elapsed = %v, want near 1s request timeout (< 2.5s)", elapsed)
+		}
+		if strings.Contains(result.stderr, "did not become ACTIVE within") {
+			t.Errorf("earlier --timeout 1s was relabeled as wait-timeout expiry:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("dry-run with --wait and --wait-timeout preserves preview without polling or network", func(t *testing.T) {
+		mock := newUploadMock(t)
+		src := writeTempFile(t, "sample.txt", "hello world\n")
+		args := append(plainArgs(mock.URL), "--dry-run", "-o", "json", "files", "upload", src, "--wait", "--wait-timeout", "3s")
+		res := runCLI(t, t.TempDir(), nil, args...)
+		if res.err != nil {
+			t.Fatalf("dry-run failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		if got := len(mock.recorded()); got != 0 {
+			t.Errorf("dry-run sent %d network requests, want 0", got)
+		}
+		lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("dry-run preview lines = %d, want 2 (start + chunk):\n%s", len(lines), res.stdout)
 		}
 	})
 }
