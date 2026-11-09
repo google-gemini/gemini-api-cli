@@ -185,7 +185,7 @@ func runConfigureCmd(cmd *cobra.Command, args []string) error {
 			forms.NewInput(&cfgGlobalApiVersion).
 				Title("Which version of the API to use").
 				Description("--api-version").
-				Placeholder(cmp.Or(cfg.Globals.ApiVersion, "v1")),
+				Placeholder(cmp.Or(cfg.Globals.ApiVersion, "v1beta")),
 			forms.NewInput(&cfgGlobalApiRevision).
 				Title("Interactions API revision to request").
 				Description("--api-revision").

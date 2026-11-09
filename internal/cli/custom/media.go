@@ -1086,7 +1086,7 @@ func normalizeInputValueFileURIs(cmd *cobra.Command, s **sdk.GeminiAPI, val any)
 // uri in a files.get response does.
 func expandedFilesURI(cmd *cobra.Command, name string) string {
 	base := "https://generativelanguage.googleapis.com"
-	ver := "v1"
+	ver := "v1beta"
 	if cmd != nil && flagutil.FlagChanged(cmd, "api-version") {
 		if v, ok := flagutil.GetStringFlag(cmd, "api-version"); ok && strings.TrimSpace(v) != "" {
 			ver = strings.Trim(strings.TrimSpace(v), "/")
