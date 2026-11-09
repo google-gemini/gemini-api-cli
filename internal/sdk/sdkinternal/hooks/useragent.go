@@ -21,12 +21,16 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 )
 
+// cliVersion is the release version of the Gemini API CLI.
+const cliVersion = "0.4.5" // x-release-please-version
+
 // userAgentHook rewrites the default Speakeasy User-Agent into the
 // google-genai client convention: {product}/{version} gl-{lang}/{runtime},
 // e.g. "google-genai-cli/0.5.4 gl-go/go1.24.0".
 type userAgentHook struct{}
 
 func (userAgentHook) SDKInit(cfg config.SDKConfiguration) config.SDKConfiguration {
+	cfg.SDKVersion = cliVersion
 	cfg.UserAgent = fmt.Sprintf("google-genai-cli/%s gl-go/%s", cfg.SDKVersion, runtime.Version())
 	return cfg
 }
