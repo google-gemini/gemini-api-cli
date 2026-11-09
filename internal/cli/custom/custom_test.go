@@ -2563,4 +2563,3 @@ func TestMergeMediaBlocksIntoInput(t *testing.T) {
 		})
 	}
 }
-
