@@ -15,7 +15,9 @@ gemini-api image "A friendly robot mascot for a developer tool" --out ./assets/
 
 A prompt goes in. An image lands in your project. Your agent gets the file path and keeps building. The same binary can return an analysis, a voiceover, a transcript, or the interaction ID of a background managed-agent run.
 
-[Installation](#installation) · [Quick start](#quick-start) · [Command overview](#command-overview) · [Agent discovery](#agent-discovery-and-machine-interface) · [Workflows](#agent-workflows) · [Gemini API docs](https://aistudio.google.com/docs)
+[Installation](#installation) · [Quick start](#quick-start) · [Command overview](#command-overview) · [Agent discovery](#agent-discovery-and-machine-interface) · [Workflows](#agent-workflows) · [Contributing](CONTRIBUTING.md) · [Gemini API docs](https://aistudio.google.com/docs)
+
+> **Bugs and feedback:** Open a [GitHub Issue](https://github.com/google-gemini/gemini-api-cli/issues). We do **not** accept pull requests — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -315,8 +317,8 @@ The CLI stores no local conversation state—server-side interactions and upload
 > [!NOTE]
 > `gemini-api` is in **beta** and evolving alongside the [Gemini Interactions API](https://aistudio.google.com/docs/interactions-overview). Breaking changes may occur between releases; we recommend pinning to a specific [release version](https://github.com/google-gemini/gemini-api-cli/releases) in CI and automated workflows.
 
-- **Feedback & bug reports:** Try `gemini-api` in your agent workflow and let us know where it helps or where it gets in the way by opening an issue in [GitHub Issues](https://github.com/google-gemini/gemini-api-cli/issues).
-- **Contributions:** We are **not** accepting open source contributions (pull requests) at this time.
+- **Bugs & feedback:** Found a bug or have feedback on `gemini-api`? Please open an issue in [GitHub Issues](https://github.com/google-gemini/gemini-api-cli/issues).
+- **Contributions (pull requests not accepted):** At this time, we are **not** accepting external pull requests or code contributions, and any opened PRs will be closed without review — see [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Releases:** Browse changelog notes and prebuilt binaries on [GitHub Releases](https://github.com/google-gemini/gemini-api-cli/releases).
 
 ---
