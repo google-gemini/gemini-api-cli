@@ -397,10 +397,10 @@ func TestVideoConversationalEditingAndOutputFormat(t *testing.T) {
 			b, _ := io.ReadAll(r.Body)
 			posts <- b
 			turn++
-			fmt.Fprintf(w, `{"id":"int-vid-%d","object":"interaction","status":"in_progress","model":"gemini-omni-1.1-flash"}`, turn)
+			fmt.Fprintf(w, `{"id":"int-vid-%d","object":"interaction","status":"in_progress","model":"gemini-omni-1.2-flash"}`, turn)
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/interactions/int-vid-"):
 			id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
-			fmt.Fprintf(w, `{"id":%q,"object":"interaction","status":"completed","model":"gemini-omni-1.1-flash",`+
+			fmt.Fprintf(w, `{"id":%q,"object":"interaction","status":"completed","model":"gemini-omni-1.2-flash",`+
 				`"steps":[{"type":"model_output","content":[{"type":"video","data":"%s","mime_type":"video/mp4"}]}]}`, id, videoB64)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -451,7 +451,7 @@ func TestVideoConversationalEditingAndOutputFormat(t *testing.T) {
 	if err := json.Unmarshal(<-posts, &sent1); err != nil {
 		t.Fatalf("turn 1 request body is not JSON: %v", err)
 	}
-	if sent1.Model != "gemini-omni-1.1-flash" || sent1.Input != "ocean waves at dawn" ||
+	if sent1.Model != "gemini-omni-1.2-flash" || sent1.Input != "ocean waves at dawn" ||
 		sent1.Stream == nil || *sent1.Stream || sent1.Background == nil || !*sent1.Background {
 		t.Errorf("turn 1 top-level fields = %+v", sent1)
 	}

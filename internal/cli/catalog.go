@@ -91,7 +91,8 @@ func newModelsCatalogCmd() *cobra.Command {
 				{"value": "lyria-3.5", "description": "Our flagship music generation model, optimized for full-length songs with complex structural coherence.", "default": false, "default_for": []string{"music"}, "group": "Music"},
 				{"value": "gemini-robotics-er-1.6-preview", "description": "Gemini Robotics-ER 1.6 Preview", "default": false, "group": "Robotics"},
 				{"value": "gemini-robotics-er-2-preview", "description": "Gemini Robotics Embodied Reasoning 2 Preview", "default": false, "group": "Robotics"},
-				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "default_for": []string{"video"}, "group": "Video"},
+				{"value": "gemini-omni-1.2-flash", "description": "Gemini Omni 1.2 Flash - Our latest multimodal model for fast, conversational video generation, editing, and cinematic control.", "default": false, "default_for": []string{"video"}, "group": "Video"},
+				{"value": "gemini-omni-1.1-flash", "description": "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.", "default": false, "group": "Video"},
 				{"value": "gemini-omni-flash-preview", "description": "Preview release of our multimodal model for conversational video generation, editing, and cinematic control.", "default": false, "group": "Video"},
 			}
 			if output.IsMachineMode(cmd) {
@@ -144,7 +145,8 @@ func newModelsCatalogCmd() *cobra.Command {
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-robotics-er-2-preview", "Gemini Robotics Embodied Reasoning 2 Preview")
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "Video:")
-			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-1.1-flash (default: video)", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-1.2-flash (default: video)", "Gemini Omni 1.2 Flash - Our latest multimodal model for fast, conversational video generation, editing, and cinematic control.")
+			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-1.1-flash", "Our high-performance multimodal model designed for fast, conversational video generation, editing, and cinematic control.")
 			fmt.Fprintf(out, "  %-42s %s\n", "gemini-omni-flash-preview", "Preview release of our multimodal model for conversational video generation, editing, and cinematic control.")
 			return nil
 		},
