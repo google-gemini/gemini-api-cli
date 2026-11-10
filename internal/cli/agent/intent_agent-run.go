@@ -41,7 +41,8 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 			"speakeasy_strict_body_keys":     "true",
 			"speakeasy_help_defaults":        "model gemini-3.8-flash · stream true",
 			"speakeasy_help_escalate":        "exact request JSON via --body @request.json (schema with --schema)",
-			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointers\":[\"/data/status\",\"/data/interaction/status\"],\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"continue\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_continuation":         "{\"bind\":[{\"pointer\":\"/continuation_token\",\"streamPointers\":[\"/data/continuation_token\",\"/data/interaction/continuation_token\"],\"to\":\"$.continuation_token\",\"toPath\":[\"continuation_token\"],\"flag\":\"continuation-token\"},{\"pointer\":\"/id\",\"streamPointers\":[\"/data/interaction_id\",\"/data/interaction/id\"],\"to\":\"$.previous_interaction_id\",\"toPath\":[\"previous_interaction_id\"],\"optional\":true,\"unlessRequest\":{\"pointer\":\"/store\",\"equals\":false},\"flag\":\"previous-interaction-id\"}],\"merge\":[\"/steps\"],\"sum\":[\"/usage/total_input_tokens\",\"/usage/total_output_tokens\",\"/usage/total_thought_tokens\",\"/usage/total_tool_use_tokens\",\"/usage/total_cached_tokens\",\"/usage/total_tokens\"],\"maxHops\":10}",
 			"speakeasy_stream_select":        "/data/delta/text",
 			"speakeasy_stream_metadata":      "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
 		},
@@ -73,12 +74,21 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 
 		BodySources: []string{"body"},
 	})
+	cmd.Flags().StringP("continuation-token", "", "", "Resume a cut-off interaction from its checkpoint token")
+	flagutil.MarkRequestInput(cmd, "continuation-token")
+	_ = flagutil.AnnotatePromptFlag(cmd, "continuation-token", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    2,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-3.8-flash)")
 	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    2,
+		Order:    3,
 
 		BodySources: []string{"body"},
 	})
@@ -89,7 +99,16 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    3,
+		Order:    4,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().BoolP("store", "", false, "Store the interaction server-side for later retrieval or multi-turn continuation")
+	flagutil.MarkRequestInput(cmd, "store")
+	_ = flagutil.AnnotatePromptFlag(cmd, "store", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "bool",
+		Order:    5,
 
 		BodySources: []string{"body"},
 	})
@@ -98,7 +117,7 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
-		Order:    4,
+		Order:    6,
 
 		BodySources: []string{"body"},
 	})
@@ -112,6 +131,8 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for intent agent-run: %w", err)
 	}
+	cmd.Flags().Bool("auto-continue", true, "Keep sending the request while the response asks to continue, and combine the responses")
+	cmd.Flags().Int("max-continuations", 10, "Maximum number of responses to request when continuing automatically")
 	for _, sibling := range parent.Commands() {
 		if sibling.Name() == cmd.Name() || sibling.HasAlias(cmd.Name()) {
 			return fmt.Errorf("intent command %q collides with the name or alias of an existing %q command; rename the declared command", "agent-run", sibling.Name())
@@ -169,6 +190,12 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 			RequiredRouteIDs: []string{},
 		},
 		{
+			Name: "continuation-token", BodyKey: "continuation_token",
+			Kind: flagutil.FlagKindString, Positional: false,
+			RouteIDs:         []string{"agent", "model"},
+			RequiredRouteIDs: []string{},
+		},
+		{
 			Name: "model", BodyKey: "model",
 			Kind: flagutil.FlagKindString, Positional: false,
 			RouteIDs:         []string{"model"},
@@ -177,6 +204,12 @@ var intentAgentRunDispatch = flagutil.DispatchTable{
 		{
 			Name: "previous-interaction-id", BodyKey: "previous_interaction_id",
 			Kind: flagutil.FlagKindString, Positional: false,
+			RouteIDs:         []string{"agent", "model"},
+			RequiredRouteIDs: []string{},
+		},
+		{
+			Name: "store", BodyKey: "store",
+			Kind: flagutil.FlagKindBool, Positional: false,
 			RouteIDs:         []string{"agent", "model"},
 			RequiredRouteIDs: []string{},
 		},
@@ -303,7 +336,7 @@ func runIntentAgentRunCmd(cmd *cobra.Command, args []string) error {
 	if requested, _ := cmd.Flags().GetBool("schema"); requested {
 		return usage.EmitBodySchema(cmd.OutOrStdout(), "CreateInteraction")
 	}
-	if len(args) == 0 && !flagutil.FlagChanged(cmd, "agent") && !flagutil.FlagChanged(cmd, "background") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") {
+	if len(args) == 0 && !flagutil.FlagChanged(cmd, "agent") && !flagutil.FlagChanged(cmd, "background") && !flagutil.FlagChanged(cmd, "continuation-token") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "store") && !flagutil.FlagChanged(cmd, "stream") {
 		bodySupplied, err := flagutil.PrimeDispatchBody(cmd, "body")
 		if err != nil {
 			return err

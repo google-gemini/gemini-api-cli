@@ -44,7 +44,8 @@ func initRunCmd(parent *cobra.Command) error {
 			"speakeasy_operation":       "CreateInteraction",
 			"speakeasy_stream_select":   "/data/delta/text",
 			"speakeasy_stream_metadata": "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
-			"speakeasy_outcome":         "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_outcome":         "{\"statePointer\":\"/status\",\"streamStatePointers\":[\"/data/status\",\"/data/interaction/status\"],\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"continue\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_continuation":    "{\"bind\":[{\"pointer\":\"/continuation_token\",\"streamPointers\":[\"/data/continuation_token\",\"/data/interaction/continuation_token\"],\"to\":\"$.continuation_token\",\"toPath\":[\"continuation_token\"],\"flag\":\"continuation-token\"},{\"pointer\":\"/id\",\"streamPointers\":[\"/data/interaction_id\",\"/data/interaction/id\"],\"to\":\"$.previous_interaction_id\",\"toPath\":[\"previous_interaction_id\"],\"optional\":true,\"unlessRequest\":{\"pointer\":\"/store\",\"equals\":false},\"flag\":\"previous-interaction-id\"}],\"merge\":[\"/steps\"],\"sum\":[\"/usage/total_input_tokens\",\"/usage/total_output_tokens\",\"/usage/total_thought_tokens\",\"/usage/total_tool_use_tokens\",\"/usage/total_cached_tokens\",\"/usage/total_tokens\"],\"maxHops\":10}",
 		},
 	}
 	flagutil.RegisterFlags(cmd, runCmdMeta)
@@ -59,6 +60,38 @@ func initRunCmd(parent *cobra.Command) error {
 	}
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	cmd.Flags().Bool("auto-continue", true, "Keep sending the request while the response asks to continue, and combine the responses")
+	cmd.Flags().Int("max-continuations", 10, "Maximum number of responses to request when continuing automatically")
+	cmd.Flags().StringP("continuation-token", "", "", "Resume a cut-off interaction from its checkpoint token")
+	if err := cmd.Flags().SetAnnotation("continuation-token", flagutil.AnnotationOpDeclaredInput, []string{"continuation_token"}); err != nil {
+		return err
+	}
+	flagutil.MarkRequestInput(cmd, "continuation-token")
+	_ = flagutil.AnnotatePromptFlag(cmd, "continuation-token", flagutil.PromptFlagSpec{
+		PromptOptional:  true,
+		Kind:            "string",
+		DefaultResolves: false,
+	})
+	cmd.Flags().StringP("previous-interaction-id", "", "", "Continue from an earlier interaction by passing its interaction ID")
+	if err := cmd.Flags().SetAnnotation("previous-interaction-id", flagutil.AnnotationOpDeclaredInput, []string{"previous_interaction_id"}); err != nil {
+		return err
+	}
+	flagutil.MarkRequestInput(cmd, "previous-interaction-id")
+	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
+		PromptOptional:  true,
+		Kind:            "string",
+		DefaultResolves: false,
+	})
+	cmd.Flags().BoolP("store", "", false, "Store the interaction server-side for later retrieval or multi-turn continuation")
+	if err := cmd.Flags().SetAnnotation("store", flagutil.AnnotationOpDeclaredInput, []string{"store"}); err != nil {
+		return err
+	}
+	flagutil.MarkRequestInput(cmd, "store")
+	_ = flagutil.AnnotatePromptFlag(cmd, "store", flagutil.PromptFlagSpec{
+		PromptOptional:  true,
+		Kind:            "bool",
+		DefaultResolves: false,
+	})
 	cmd.Flags().BoolP("stream", "", true, "Stream the reply as it is generated; use --stream=false for one complete interaction")
 	if err := cmd.Flags().SetAnnotation("stream", flagutil.AnnotationOpDeclaredInput, []string{"stream"}); err != nil {
 		return err
@@ -125,6 +158,21 @@ func executeRunCmd(cmd *cobra.Command, args []string, asyncIntent bool) (*operat
 	}
 	if asyncIntent || output.WantsRawJSON(cmd) {
 		sdkOpts = append(sdkOpts, operations.WithSkipDeserialization())
+	}
+	if !asyncIntent && output.ContinuationActive(cmd) {
+		hop := func() (interface{}, error) {
+			stopProgress := output.StartRequestProgress(cmd)
+			defer stopProgress()
+			res, err := s.Agent.Run(cmd.Context(), *req, sdkOpts...)
+			if err != nil {
+				return nil, err
+			}
+			return res, nil
+		}
+		if !client.IsDryRun(cmd) {
+			return nil, output.ContinuationStream(cmd, &req, hop, "InteractionSSEStreamEvent")
+		}
+		return nil, output.ContinuationResult(cmd, &req, hop)
 	}
 	if !client.IsDryRun(cmd) && !asyncIntent {
 		stopProgress := output.StartRequestProgress(cmd)
