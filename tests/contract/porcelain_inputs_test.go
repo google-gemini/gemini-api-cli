@@ -72,16 +72,16 @@ func TestAnalyzeMultiInputRequestAndEnvelope(t *testing.T) {
 		t.Fatalf("files.get calls = %d, want 1", fileGets.Load())
 	}
 
-	// The interaction input is a flat ordered array of content blocks:
-	// the three media inputs followed by the text question.
-	parts, ok := generateBody["input"].([]any)
-	if !ok || len(parts) != 4 {
-		t.Fatalf("request input = %#v, want four ordered content blocks", generateBody["input"])
+	// The interaction input is a single user_input step containing four
+	// ordered content blocks: the three media inputs followed by the text question.
+	parts := assertUserInputStepParts(t, generateBody)
+	if len(parts) != 4 {
+		t.Fatalf("request input parts = %#v, want four ordered content blocks", parts)
 	}
-	part0, _ := parts[0].(map[string]any)
-	part1, _ := parts[1].(map[string]any)
-	part2, _ := parts[2].(map[string]any)
-	part3, _ := parts[3].(map[string]any)
+	part0 := parts[0]
+	part1 := parts[1]
+	part2 := parts[2]
+	part3 := parts[3]
 	// Local file: inline base64 data.
 	if part0["type"] != "image" || part0["data"] == nil {
 		t.Errorf("block 1 is not an inline image block: %#v", part0)

@@ -15,6 +15,8 @@
 package contract_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,9 +25,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/google-gemini/gemini-api-cli/internal/cli"
+	"github.com/google-gemini/gemini-api-cli/internal/config"
+	"github.com/google-gemini/gemini-api-cli/internal/output"
 )
 
 // interactionStub serves one fixed interaction response and captures the last
@@ -65,15 +72,10 @@ func assertNotStored(t *testing.T, reqBody map[string]any) {
 	}
 }
 
-// inputParts returns the request's input content blocks.
+// inputParts returns the content blocks inside the request's single user_input step.
 func (s *interactionStub) inputParts(t *testing.T) []map[string]any {
 	t.Helper()
-	raw, _ := s.body["input"].([]any)
-	parts := make([]map[string]any, 0, len(raw))
-	for _, p := range raw {
-		part, _ := p.(map[string]any)
-		parts = append(parts, part)
-	}
+	parts := assertUserInputStepParts(t, s.body)
 	if len(parts) == 0 {
 		t.Fatalf("request has no input content blocks: %v", s.body)
 	}
@@ -967,6 +969,623 @@ func TestMediaMIMEMatchesInteractionsEnum(t *testing.T) {
 			part := stub.inputParts(t)[0]
 			if part["type"] != "video" || part["mime_type"] != want {
 				t.Errorf("media part type/mime = %v/%v, want video/%s", part["type"], part["mime_type"], want)
+			}
+		})
+	}
+}
+
+func executeRealRoot(t *testing.T, stdin string, args ...string) (string, string, error) {
+	t.Helper()
+	clearAgentModeEnvironment(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("GEMINI_API_VERSION", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("GEMINI_ACCESS_TOKEN", "")
+	config.Reset()
+	output.ResetAgentMode()
+	t.Cleanup(func() {
+		config.Reset()
+		output.ResetAgentMode()
+	})
+	root, err := cli.NewRootCommand()
+	if err != nil {
+		t.Fatalf("NewRootCommand: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetIn(strings.NewReader(stdin))
+	err = cli.ExecuteRoot(context.Background(), root, args)
+	return stdout.String(), stderr.String(), err
+}
+
+func assertUserInputStepParts(t *testing.T, body map[string]any) []map[string]any {
+	t.Helper()
+	steps, ok := body["input"].([]any)
+	if !ok || len(steps) != 1 {
+		t.Fatalf("request input = %#v, want a single-element step array [{\"type\":\"user_input\",\"content\":[...]}]", body["input"])
+	}
+	step, ok := steps[0].(map[string]any)
+	if !ok || step["type"] != "user_input" {
+		t.Fatalf("request input[0] = %#v, want a user_input step object", steps[0])
+	}
+	rawContent, ok := step["content"].([]any)
+	if !ok {
+		t.Fatalf("request input[0].content = %#v, want a content block array", step["content"])
+	}
+	parts := make([]map[string]any, 0, len(rawContent))
+	for i, item := range rawContent {
+		part, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("request input[0].content[%d] = %#v, want a JSON object", i, item)
+		}
+		parts = append(parts, part)
+	}
+	return parts
+}
+
+// TestDefaultV1MediaRequestsUseUserInputStep pins issue #177:
+// with the real root command and no --api-version override or ambient version
+// configuration, convenience media/text builders route to /v1/interactions and
+// wrap content blocks in a user_input step rather than a bare content array.
+func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
+	const pngB64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYAAAAAMAAVCiT19+AAAAAElFTkSuQmCC"
+	dir := t.TempDir()
+	imgFile := writeTempFile(t, "sample.png", "png-bytes")
+	audioFile := writeTempFile(t, "sample.mp3", "mp3-bytes")
+	videoFile := writeTempFile(t, "sample.mp4", "mp4-bytes")
+	notesFile := writeTempFile(t, "notes.txt", "notes from file")
+	wantImgB64 := base64.StdEncoding.EncodeToString([]byte("png-bytes"))
+	wantAudioB64 := base64.StdEncoding.EncodeToString([]byte("mp3-bytes"))
+	wantVideoB64 := base64.StdEncoding.EncodeToString([]byte("mp4-bytes"))
+
+	type capturedReq struct {
+		path string
+		body map[string]any
+	}
+	var lastReq capturedReq
+	var reqCount atomic.Int32
+
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/interactions/int-vid") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"int-vid","status":"completed","model":"gemini-omni-1.1-flash","steps":[{"type":"model_output","content":[{"type":"video","data":"%s","mime_type":"video/mp4"}]}]}`, wantVideoB64)
+			return
+		}
+		reqCount.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Errorf("request body is not JSON: %v\n%s", err, raw)
+			}
+		}
+		lastReq = capturedReq{path: r.URL.Path, body: body}
+
+		// Emulate the v1 server validation from issue #177 across all convenience
+		// requests: top-level input arrays must contain step objects, never bare content blocks.
+		if arr, ok := body["input"].([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					switch m["type"] {
+					case "text", "image", "audio", "video", "document":
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"error":{"code":400,"message":"input[%d].type=%v is unavailable in v1 and available in v1beta","status":"INVALID_ARGUMENT"}}`, i, m["type"])
+						return
+					}
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		rf, _ := body["response_format"].(map[string]any)
+		switch {
+		case rf["type"] == "audio":
+			_, _ = io.WriteString(w, ttsAudioResponse([]byte{0x01, 0x02}, "audio/l16", 24000, 1))
+		case rf["type"] == "image":
+			fmt.Fprintf(w, `{"id":"int-img","status":"completed","model":"gemini-nano-banana-2.1","steps":[{"type":"model_output","content":[{"type":"image","data":"%s","mime_type":"image/png"}]}]}`, pngB64)
+		case rf["type"] == "video":
+			fmt.Fprintf(w, `{"id":"int-vid","status":"completed","model":"gemini-omni-1.1-flash","steps":[{"type":"model_output","content":[{"type":"video","data":"%s","mime_type":"video/mp4"}]}]}`, wantVideoB64)
+		case rf["schema"] != nil:
+			_, _ = io.WriteString(w, completedInteraction(`{"segments":[{"speaker":"Speaker 1","start_time":"00:00","end_time":"00:01","content":"hello world"}]}`, ""))
+		default:
+			_, _ = io.WriteString(w, completedInteraction("ok response", ""))
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	defaultRootArgs := func(extra ...string) []string {
+		base := []string{"--server-url", serverURL, "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test-key"}
+		return append(base, extra...)
+	}
+
+	// 1. Exact reported reproduction from issue #177 via NewRootCommand (no --api-version flag)
+	// and via explicit --api-version v1 and --api-version v1beta.
+	for _, tc := range []struct {
+		name     string
+		verArgs  []string
+		wantPath string
+	}{
+		{name: "default (no --api-version flag)", verArgs: nil, wantPath: "/v1beta/interactions"},
+		{name: "explicit --api-version v1", verArgs: []string{"--api-version", "v1"}, wantPath: "/v1/interactions"},
+		{name: "explicit --api-version v1beta", verArgs: []string{"--api-version", "v1beta"}, wantPath: "/v1beta/interactions"},
+	} {
+		t.Run("analyze YouTube "+tc.name, func(t *testing.T) {
+			args := append(defaultRootArgs(tc.verArgs...),
+				"analyze",
+				"-i", "https://www.youtube.com/watch?v=rRJ7Jhun12I",
+				"Transcribe the spoken audio verbatim.",
+				"--output-format", "json",
+			)
+			stdout, stderr, err := executeRealRoot(t, "", args...)
+			if err != nil {
+				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", args, err, stderr)
+			}
+			if lastReq.path != tc.wantPath {
+				t.Errorf("request path = %q, want %q", lastReq.path, tc.wantPath)
+			}
+			assertNotStored(t, lastReq.body)
+			if lastReq.body["stream"] != false {
+				t.Errorf("stream = %v, want false", lastReq.body["stream"])
+			}
+			parts := assertUserInputStepParts(t, lastReq.body)
+			wantParts := []map[string]any{
+				{"type": "video", "uri": "https://www.youtube.com/watch?v=rRJ7Jhun12I"},
+				{"type": "text", "text": "Transcribe the spoken audio verbatim."},
+			}
+			if !reflect.DeepEqual(parts, wantParts) {
+				t.Errorf("user_input content = %#v, want %#v", parts, wantParts)
+			}
+			if !strings.Contains(stdout, "ok response") {
+				t.Errorf("stdout = %q, want response text", stdout)
+			}
+		})
+	}
+
+	// 2. Also verify subprocess invocation via runCLI with explicit --api-version v1.
+	t.Run("subprocess analyze local video with v1 routing", func(t *testing.T) {
+		res := runCLI(t, t.TempDir(), nil, defaultRootArgs("--api-version", "v1", "analyze", "-i", videoFile, "Describe this clip.")...)
+		if res.err != nil {
+			t.Fatalf("runCLI analyze failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		if lastReq.path != "/v1/interactions" {
+			t.Errorf("request path = %q, want /v1/interactions", lastReq.path)
+		}
+		parts := assertUserInputStepParts(t, lastReq.body)
+		wantParts := []map[string]any{
+			{"type": "video", "mime_type": "video/mp4", "data": wantVideoB64},
+			{"type": "text", "text": "Describe this clip."},
+		}
+		if !reflect.DeepEqual(parts, wantParts) {
+			t.Errorf("user_input content = %#v, want %#v", parts, wantParts)
+		}
+	})
+
+	// 3. Shared-helper callers: transcribe (default diarized & structured output), tts,
+	// generate, image, video, music, agent run — all with no --api-version override.
+	callerCases := []struct {
+		name      string
+		stdin     string
+		args      []string
+		wantParts []map[string]any
+		checkBody func(t *testing.T, body map[string]any)
+	}{
+		{
+			name: "transcribe default diarized",
+			args: []string{"transcribe", "-i", audioFile, "--out", filepath.Join(dir, "transcript.md")},
+			wantParts: []map[string]any{
+				{"type": "audio", "mime_type": "audio/mp3", "data": wantAudioB64},
+			},
+			checkBody: func(t *testing.T, body map[string]any) {
+				assertNotStored(t, body)
+				gc, _ := body["generation_config"].(map[string]any)
+				if _, ok := gc["transcription_config"].(map[string]any); !ok {
+					t.Errorf("generation_config = %#v, want transcription_config", gc)
+				}
+			},
+		},
+		{
+			name: "transcribe structured json output on general model",
+			args: []string{"transcribe", "-m", "gemini-3.8-flash", "-i", audioFile, "--format", "json", "--out", filepath.Join(dir, "transcript.json")},
+			wantParts: []map[string]any{
+				{"type": "audio", "mime_type": "audio/mp3", "data": wantAudioB64},
+				{"type": "text", "text": "Transcribe the speech in this recording accurately and completely. Identify and label distinct speakers (Speaker 1, Speaker 2, ...). Include accurate timestamps (mm:ss or hh:mm:ss) for each segment. Return JSON matching the response schema: one segment per utterance."},
+			},
+			checkBody: func(t *testing.T, body map[string]any) {
+				assertNotStored(t, body)
+				rf, _ := body["response_format"].(map[string]any)
+				if rf["type"] != "text" || rf["schema"] == nil {
+					t.Errorf("response_format = %#v, want type=text with schema", rf)
+				}
+			},
+		},
+		{
+			name: "tts single speaker",
+			args: []string{"tts", "Hello from v1", "--out", filepath.Join(dir, "tts.wav")},
+			wantParts: []map[string]any{
+				{"type": "text", "text": "Hello from v1"},
+			},
+			checkBody: func(t *testing.T, body map[string]any) {
+				assertNotStored(t, body)
+				assertAudioResponseFormat(t, body)
+			},
+		},
+		{
+			name: "generate with local image and prompt",
+			args: []string{"generate", "-i", imgFile, "Describe this image", "--stream=false"},
+			wantParts: []map[string]any{
+				{"type": "image", "mime_type": "image/png", "data": wantImgB64},
+				{"type": "text", "text": "Describe this image"},
+			},
+		},
+		{
+			name:  "generate with stdin and prompt",
+			stdin: "stdin context\n",
+			args:  []string{"generate", "--stdin", "Summarize", "--stream=false"},
+			wantParts: []map[string]any{
+				{"type": "text", "text": "stdin context"},
+				{"type": "text", "text": "Summarize"},
+			},
+		},
+		{
+			name: "image with input image and prompt",
+			args: []string{"image", "-i", imgFile, "Make it watercolor", "--out", filepath.Join(dir, "out.png")},
+			wantParts: []map[string]any{
+				{"type": "image", "mime_type": "image/png", "data": wantImgB64},
+				{"type": "text", "text": "Make it watercolor"},
+			},
+		},
+		{
+			name: "video with input image and prompt",
+			args: []string{"video", "-i", imgFile, "Animate the clouds", "--out", filepath.Join(dir, "out.mp4")},
+			wantParts: []map[string]any{
+				{"type": "image", "mime_type": "image/png", "data": wantImgB64},
+				{"type": "text", "text": "Animate the clouds"},
+			},
+		},
+		{
+			name: "music with file and prompt",
+			args: []string{"music", "-f", notesFile, "upbeat synthwave", "--out", filepath.Join(dir, "out.wav")},
+			wantParts: []map[string]any{
+				{"type": "text", "text": "notes from file"},
+				{"type": "text", "text": "upbeat synthwave"},
+			},
+		},
+		{
+			name: "agent run with media input and prompt",
+			args: []string{"agent", "run", "-i", imgFile, "Inspect this diagram", "--model", "gemini-3.6-flash", "--stream=false"},
+			wantParts: []map[string]any{
+				{"type": "image", "mime_type": "image/png", "data": wantImgB64},
+				{"type": "text", "text": "Inspect this diagram"},
+			},
+		},
+	}
+
+	for _, tc := range callerCases {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"--api-version", "v1"}, tc.args...)
+			_, stderr, err := executeRealRoot(t, tc.stdin, defaultRootArgs(args...)...)
+			if err != nil {
+				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", args, err, stderr)
+			}
+			if lastReq.path != "/v1/interactions" {
+				t.Errorf("request path = %q, want /v1/interactions", lastReq.path)
+			}
+			parts := assertUserInputStepParts(t, lastReq.body)
+			if !reflect.DeepEqual(parts, tc.wantParts) {
+				t.Errorf("user_input content = %#v, want %#v", parts, tc.wantParts)
+			}
+			if tc.checkBody != nil {
+				tc.checkBody(t, lastReq.body)
+			}
+		})
+	}
+}
+
+// TestIntentBodyAndInputMergeSemantics pins raw --body preservation when no
+// convenience transformation is requested, unambiguous --body + --input merging
+// into user_input steps, preservation of step ordering/roles, and clear usage
+// errors on mixed or ambiguous step combinations.
+func TestIntentBodyAndInputMergeSemantics(t *testing.T) {
+	imgFile := writeTempFile(t, "merge.png", "png-bytes")
+	wantImgBlock := map[string]any{
+		"type":      "image",
+		"mime_type": "image/png",
+		"data":      base64.StdEncoding.EncodeToString([]byte("png-bytes")),
+	}
+
+	var gotPath string
+	var gotBody map[string]any
+	var reqCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount.Add(1)
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = nil
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, completedInteraction("ok", ""))
+	}))
+	defer server.Close()
+
+	base := func(extra ...string) []string {
+		return append([]string{"--server-url", server.URL, "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test-key"}, extra...)
+	}
+
+	// 1. Raw --body without convenience inputs preserves input shape as-is.
+	rawCases := []struct {
+		name      string
+		cmdArgs   []string
+		wantInput any
+	}{
+		{
+			name:      "raw string input preserved",
+			cmdArgs:   []string{"generate", "--stream=false", "--body", `{"input":"raw string prompt"}`},
+			wantInput: "raw string prompt",
+		},
+		{
+			name:      "raw single content object preserved",
+			cmdArgs:   []string{"generate", "--stream=false", "--body", `{"input":{"type":"text","text":"single content object"}}`},
+			wantInput: map[string]any{"type": "text", "text": "single content object"},
+		},
+		{
+			name:    "raw multi-turn step array preserved",
+			cmdArgs: []string{"agent", "run", "--stream=false", "--body", `{"model":"gemini-3.6-flash","input":[{"type":"user_input","content":[{"type":"text","text":"turn 1"}]},{"type":"model_output","content":[{"type":"text","text":"reply 1"}]},{"type":"user_input","content":[{"type":"text","text":"turn 2"}]}]}`},
+			wantInput: []any{
+				map[string]any{"type": "user_input", "content": []any{map[string]any{"type": "text", "text": "turn 1"}}},
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "reply 1"}}},
+				map[string]any{"type": "user_input", "content": []any{map[string]any{"type": "text", "text": "turn 2"}}},
+			},
+		},
+	}
+	for _, tc := range rawCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, stderr, err := executeRealRoot(t, "", base(tc.cmdArgs...)...)
+			if err != nil {
+				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", tc.cmdArgs, err, stderr)
+			}
+			if gotPath != "/v1beta/interactions" {
+				t.Errorf("path = %q, want /v1beta/interactions", gotPath)
+			}
+			if !reflect.DeepEqual(gotBody["input"], tc.wantInput) {
+				t.Errorf("input = %#v, want %#v", gotBody["input"], tc.wantInput)
+			}
+		})
+	}
+
+	// 2. Unambiguous --body + --input merging produces valid step arrays and preserves step order/roles.
+	mergeCases := []struct {
+		name      string
+		cmdArgs   []string
+		wantInput []any
+	}{
+		{
+			name:    "body without input + -i + positional prompt",
+			cmdArgs: []string{"generate", "describe this", "-i", imgFile, "--stream=false", "--body", `{"model":"gemini-3.8-flash"}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "describe this"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with string input + -i",
+			cmdArgs: []string{"generate", "-i", imgFile, "--stream=false", "--body", `{"input":"from body string"}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "from body string"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with single content object + -i",
+			cmdArgs: []string{"generate", "-i", imgFile, "--stream=false", "--body", `{"input":{"type":"text","text":"from content map"}}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "from content map"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with content array + -i",
+			cmdArgs: []string{"generate", "-i", imgFile, "--stream=false", "--body", `{"input":[{"type":"text","text":"from content array"}]}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "from content array"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with single user_input step array + -i merges inside user_input content",
+			cmdArgs: []string{"agent", "run", "-i", imgFile, "--stream=false", "--body", `{"model":"gemini-3.6-flash","input":[{"type":"user_input","content":[{"type":"text","text":"from step"}]}]}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "from step"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with prior model_output step and trailing user_input step preserves step order and roles",
+			cmdArgs: []string{"agent", "run", "-i", imgFile, "--stream=false", "--body", `{"model":"gemini-3.6-flash","input":[{"type":"model_output","content":[{"type":"text","text":"prior assistant message"}]},{"type":"user_input","content":[{"type":"text","text":"current user prompt"}]}]}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "model_output",
+					"content": []any{
+						map[string]any{"type": "text", "text": "prior assistant message"},
+					},
+				},
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "current user prompt"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with multi-turn history including google_maps_call and google_maps_result merges into final user_input",
+			cmdArgs: []string{"agent", "run", "-i", imgFile, "--stream=false", "--body", `{"model":"gemini-3.6-flash","input":[{"type":"user_input","content":[{"type":"text","text":"turn 1"}]},{"type":"model_output","content":[{"type":"text","text":"reply 1"}]},{"type":"google_maps_call","id":"m1"},{"type":"google_maps_result","call_id":"m1","result":[]},{"type":"model_output","content":[{"type":"text","text":"reply 2"}]},{"type":"user_input","content":[{"type":"text","text":"turn 2"}]}]}`},
+			wantInput: []any{
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						map[string]any{"type": "text", "text": "turn 1"},
+					},
+				},
+				map[string]any{
+					"type": "model_output",
+					"content": []any{
+						map[string]any{"type": "text", "text": "reply 1"},
+					},
+				},
+				map[string]any{"type": "google_maps_call", "id": "m1"},
+				map[string]any{"type": "google_maps_result", "call_id": "m1", "result": []any{}},
+				map[string]any{
+					"type": "model_output",
+					"content": []any{
+						map[string]any{"type": "text", "text": "reply 2"},
+					},
+				},
+				map[string]any{
+					"type": "user_input",
+					"content": []any{
+						wantImgBlock,
+						map[string]any{"type": "text", "text": "turn 2"},
+					},
+				},
+			},
+		},
+		{
+			name:    "body with function_result step array appends user_input step after function_result",
+			cmdArgs: []string{"generate", "-i", imgFile, "--stream=false", "--body", `{"input":[{"type":"function_result","call_id":"c1","name":"lookup","result":{"ok":true}}]}`},
+			wantInput: []any{
+				map[string]any{
+					"type":    "function_result",
+					"call_id": "c1",
+					"name":    "lookup",
+					"result":  map[string]any{"ok": true},
+				},
+				map[string]any{
+					"type":    "user_input",
+					"content": []any{wantImgBlock},
+				},
+			},
+		},
+	}
+	for _, tc := range mergeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, stderr, err := executeRealRoot(t, "", base(tc.cmdArgs...)...)
+			if err != nil {
+				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", tc.cmdArgs, err, stderr)
+			}
+			if !reflect.DeepEqual(gotBody["input"], tc.wantInput) {
+				t.Errorf("input = %#v, want %#v", gotBody["input"], tc.wantInput)
+			}
+		})
+	}
+
+	// 3. Ambiguous or invalid --body + --input combinations fail clearly with exit code 2 and zero HTTP requests.
+	rejectCases := []struct {
+		name    string
+		cmdArgs []string
+		wantSub string
+	}{
+		{
+			name:    "consecutive user_input steps rejected",
+			cmdArgs: []string{"generate", "-i", imgFile, "--body", `{"input":[{"type":"user_input","content":[{"type":"text","text":"turn 1"}]},{"type":"user_input","content":[{"type":"text","text":"turn 2"}]}]}`},
+			wantSub: `multiple consecutive "user_input" steps`,
+		},
+		{
+			name:    "user_input step followed by model_output step rejected",
+			cmdArgs: []string{"generate", "-i", imgFile, "--body", `{"input":[{"type":"user_input","content":[{"type":"text","text":"turn 1"}]},{"type":"model_output","content":[{"type":"text","text":"reply"}]}]}`},
+			wantSub: `"user_input" is not the final step`,
+		},
+		{
+			name:    "step array without user_input rejected",
+			cmdArgs: []string{"generate", "-i", imgFile, "--body", `{"input":[{"type":"model_output","content":[{"type":"text","text":"reply"}]}]}`},
+			wantSub: `do not contain a "user_input" step`,
+		},
+		{
+			name:    "single model_output step object rejected",
+			cmdArgs: []string{"generate", "-i", imgFile, "--body", `{"input":{"type":"model_output","content":[{"type":"text","text":"reply"}]}}`},
+			wantSub: `cannot combine --input with "model_output" step`,
+		},
+		{
+			name:    "mixed step and bare content array rejected",
+			cmdArgs: []string{"generate", "-i", imgFile, "--body", `{"input":[{"type":"user_input","content":[{"type":"text","text":"turn 1"}]},{"type":"text","text":"bare content"}]}`},
+			wantSub: `mixes step objects and bare content blocks`,
+		},
+	}
+	for _, tc := range rejectCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reqCount.Store(0)
+			res := runCLI(t, t.TempDir(), nil, base(tc.cmdArgs...)...)
+			if code := exitCode(t, res); code != 2 {
+				t.Errorf("exit code = %d, want 2\nstderr: %s", code, res.stderr)
+			}
+			if !strings.Contains(res.stderr, tc.wantSub) {
+				t.Errorf("stderr = %q, want substring %q", res.stderr, tc.wantSub)
+			}
+			if got := reqCount.Load(); got != 0 {
+				t.Errorf("server received %d requests, want 0", got)
+			}
+		})
+	}
+}
+
+// TestOptInLiveSmokeDefaultV1AndV1Beta runs a live smoke check against the
+// default API (v1) and explicit v1beta when GEMINI_LIVE_SMOKE=1 and
+// GEMINI_API_KEY are set in the environment.
+func TestOptInLiveSmokeDefaultV1AndV1Beta(t *testing.T) {
+	if os.Getenv("GEMINI_LIVE_SMOKE") != "1" || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
+		t.Skip("skipping opt-in live smoke test: set GEMINI_LIVE_SMOKE=1 and GEMINI_API_KEY to run against the live Developer API")
+	}
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	note := writeTempFile(t, "live_note.md", "The capital of France is Paris.\n")
+
+	for _, tc := range []struct {
+		name    string
+		verArgs []string
+	}{
+		{name: "default v1", verArgs: nil},
+		{name: "explicit v1beta", verArgs: []string{"--api-version", "v1beta"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"--no-interactive", "--color", "never"}, tc.verArgs...)
+			args = append(args, "analyze", "-i", note, "Reply with the single word Paris.", "--output-format", "json")
+			res := runCLI(t, t.TempDir(), map[string]string{"GEMINI_API_KEY": apiKey}, args...)
+			if res.err != nil {
+				t.Fatalf("live smoke (%s) failed: %v\nstderr: %s", tc.name, res.err, res.stderr)
+			}
+			if !strings.Contains(strings.ToLower(res.stdout), "paris") {
+				t.Errorf("live smoke (%s) stdout = %q, want mention of Paris", tc.name, res.stdout)
 			}
 		})
 	}

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"mime"
 	"net/url"
 	"os"
@@ -992,32 +993,90 @@ func contentToMap(blk interactions.Content) (map[string]any, error) {
 	return m, nil
 }
 
-func isContentBlockMap(m map[string]any) bool {
-	t, _ := m["type"].(string)
-	switch t {
-	case "text", "image", "audio", "video", "document":
+func wrapUserInputStep(content []any) []any {
+	return []any{
+		map[string]any{
+			"type":    string(interactions.StepTypeUserInput),
+			"content": content,
+		},
+	}
+}
+
+func objectType(m map[string]any) string {
+	if m == nil {
+		return ""
+	}
+	s, _ := m["type"].(string)
+	return strings.TrimSpace(s)
+}
+
+func isContentBlockType(typ string) bool {
+	switch interactions.ContentType(typ) {
+	case interactions.ContentTypeText,
+		interactions.ContentTypeImage,
+		interactions.ContentTypeAudio,
+		interactions.ContentTypeDocument,
+		interactions.ContentTypeVideo:
 		return true
 	default:
 		return false
 	}
 }
 
-func isStepSlice(items []any) bool {
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _ := m["type"].(string); t != "" && !isContentBlockMap(m) {
-			return true
-		}
+func isStepType(typ string) bool {
+	return typ != "" && !isContentBlockType(typ)
+}
+
+func mergeMediaIntoUserInputStep(mediaBlocks []any, step map[string]any) (map[string]any, error) {
+	cloned := maps.Clone(step)
+	if cloned == nil {
+		cloned = make(map[string]any, 2)
 	}
-	return false
+	cloned["type"] = string(interactions.StepTypeUserInput)
+
+	rawContent, exists := step["content"]
+	if !exists || rawContent == nil {
+		cloned["content"] = append([]any(nil), mediaBlocks...)
+		return cloned, nil
+	}
+	switch c := rawContent.(type) {
+	case string:
+		out := make([]any, 0, len(mediaBlocks)+1)
+		out = append(out, mediaBlocks...)
+		if c != "" {
+			out = append(out, map[string]any{"type": "text", "text": c})
+		}
+		cloned["content"] = out
+		return cloned, nil
+	case map[string]any:
+		if !isContentBlockType(objectType(c)) {
+			return nil, usageError("cannot combine --input with non-content object in \"user_input\" step content")
+		}
+		out := make([]any, 0, len(mediaBlocks)+1)
+		out = append(out, mediaBlocks...)
+		out = append(out, c)
+		cloned["content"] = out
+		return cloned, nil
+	case []any:
+		for _, item := range c {
+			m, ok := item.(map[string]any)
+			if !ok || !isContentBlockType(objectType(m)) {
+				return nil, usageError("cannot combine --input with non-content element in \"user_input\" step content")
+			}
+		}
+		out := make([]any, 0, len(mediaBlocks)+len(c))
+		out = append(out, mediaBlocks...)
+		out = append(out, c...)
+		cloned["content"] = out
+		return cloned, nil
+	default:
+		return nil, usageError("cannot combine --input with non-content \"content\" in \"user_input\" step")
+	}
 }
 
 func mergeMediaBlocksIntoInput(mediaBlocks []any, existing any) (any, error) {
 	if existing == nil {
-		return mediaBlocks, nil
+		return wrapUserInputStep(append([]any(nil), mediaBlocks...)), nil
 	}
 	switch v := existing.(type) {
 	case string:
@@ -1026,35 +1085,103 @@ func mergeMediaBlocksIntoInput(mediaBlocks []any, existing any) (any, error) {
 		if v != "" {
 			out = append(out, map[string]any{"type": "text", "text": v})
 		}
-		return out, nil
-	case []any:
-		if isStepSlice(v) {
-			out := make([]any, 0, 1+len(v))
-			out = append(out, map[string]any{
-				"type":    "user_input",
-				"content": mediaBlocks,
-			})
-			out = append(out, v...)
-			return out, nil
-		}
-		out := make([]any, 0, len(mediaBlocks)+len(v))
-		out = append(out, mediaBlocks...)
-		out = append(out, v...)
-		return out, nil
+		return wrapUserInputStep(out), nil
 	case map[string]any:
-		if t, _ := v["type"].(string); t != "" && !isContentBlockMap(v) {
+		typ := objectType(v)
+		switch {
+		case isContentBlockType(typ):
+			out := make([]any, 0, len(mediaBlocks)+1)
+			out = append(out, mediaBlocks...)
+			out = append(out, v)
+			return wrapUserInputStep(out), nil
+		case typ == string(interactions.StepTypeUserInput):
+			mergedStep, err := mergeMediaIntoUserInputStep(mediaBlocks, v)
+			if err != nil {
+				return nil, err
+			}
+			return []any{mergedStep}, nil
+		case typ == string(interactions.StepTypeFunctionResult):
 			return []any{
-				map[string]any{
-					"type":    "user_input",
-					"content": mediaBlocks,
-				},
 				v,
+				map[string]any{
+					"type":    string(interactions.StepTypeUserInput),
+					"content": append([]any(nil), mediaBlocks...),
+				},
 			}, nil
+		case isStepType(typ):
+			return nil, usageError(fmt.Sprintf("cannot combine --input with %q step in request body; expected a \"user_input\" step or content blocks", typ))
+		default:
+			return nil, usageError("cannot combine --input with unrecognized input object in request body; expected a content block or \"user_input\" step")
 		}
-		out := make([]any, 0, len(mediaBlocks)+1)
-		out = append(out, mediaBlocks...)
-		out = append(out, v)
-		return out, nil
+	case []any:
+		if len(v) == 0 {
+			return wrapUserInputStep(append([]any(nil), mediaBlocks...)), nil
+		}
+		var (
+			hasContent        bool
+			hasStep           bool
+			allFunctionResult = true
+			userInputCount    int
+			lastUserInputIdx  = -1
+		)
+		for i, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok {
+				return nil, usageError("cannot combine --input with non-object element in request body \"input\" array")
+			}
+			typ := objectType(m)
+			switch {
+			case isContentBlockType(typ):
+				hasContent = true
+				allFunctionResult = false
+			case isStepType(typ):
+				hasStep = true
+				if typ != string(interactions.StepTypeFunctionResult) {
+					allFunctionResult = false
+				}
+				if typ == string(interactions.StepTypeUserInput) {
+					userInputCount++
+					lastUserInputIdx = i
+				}
+			default:
+				return nil, usageError("cannot combine --input with unrecognized element in request body \"input\" array")
+			}
+		}
+		if hasContent && hasStep {
+			return nil, usageError("cannot combine --input with a request body that mixes step objects and bare content blocks in \"input\"")
+		}
+		if hasContent {
+			out := make([]any, 0, len(mediaBlocks)+len(v))
+			out = append(out, mediaBlocks...)
+			out = append(out, v...)
+			return wrapUserInputStep(out), nil
+		}
+		if userInputCount == 0 {
+			if allFunctionResult {
+				outSteps := make([]any, 0, len(v)+1)
+				outSteps = append(outSteps, v...)
+				outSteps = append(outSteps, map[string]any{
+					"type":    string(interactions.StepTypeUserInput),
+					"content": append([]any(nil), mediaBlocks...),
+				})
+				return outSteps, nil
+			}
+			return nil, usageError("cannot combine --input with request body steps that do not contain a \"user_input\" step")
+		}
+		if lastUserInputIdx != len(v)-1 {
+			return nil, usageError("cannot combine --input with a request body where \"user_input\" is not the final step; place the media block in the target step in --body")
+		}
+		if len(v) >= 2 && objectType(v[len(v)-2].(map[string]any)) == string(interactions.StepTypeUserInput) {
+			return nil, usageError("cannot combine --input with a request body containing multiple consecutive \"user_input\" steps; place the media block in the target step in --body")
+		}
+		mergedStep, err := mergeMediaIntoUserInputStep(mediaBlocks, v[lastUserInputIdx].(map[string]any))
+		if err != nil {
+			return nil, err
+		}
+		outSteps := make([]any, len(v))
+		copy(outSteps, v)
+		outSteps[lastUserInputIdx] = mergedStep
+		return outSteps, nil
 	default:
 		return nil, usageError("cannot combine --input with non-content input in request body")
 	}

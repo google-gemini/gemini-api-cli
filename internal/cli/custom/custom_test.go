@@ -1583,6 +1583,23 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		return root
 	}
 
+	unwrapSingleUserInputContent := func(t *testing.T, parsed map[string]any) []any {
+		t.Helper()
+		steps, ok := parsed["input"].([]any)
+		if !ok || len(steps) != 1 {
+			t.Fatalf("input = %#v, want a single-element user_input step array", parsed["input"])
+		}
+		step, ok := steps[0].(map[string]any)
+		if !ok || step["type"] != "user_input" {
+			t.Fatalf("input[0] = %#v, want user_input step", steps[0])
+		}
+		content, ok := step["content"].([]any)
+		if !ok {
+			t.Fatalf("input[0].content = %#v, want content array", step["content"])
+		}
+		return content
+	}
+
 	t.Run("image -i local file with prompt encodes inline base64 and appends text block", func(t *testing.T) {
 		var gotBody string
 		var gotArgs []string
@@ -1598,9 +1615,9 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
 			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
 		}
-		inputs, _ := parsed["input"].([]any)
+		inputs := unwrapSingleUserInputContent(t, parsed)
 		if len(inputs) != 2 {
-			t.Fatalf("input len = %d, want 2: %v", len(inputs), parsed["input"])
+			t.Fatalf("content len = %d, want 2: %v", len(inputs), inputs)
 		}
 		imgPart, _ := inputs[0].(map[string]any)
 		if imgPart["type"] != "image" || imgPart["mime_type"] != "image/png" || imgPart["data"] != wantB64 {
@@ -1703,9 +1720,9 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
 			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
 		}
-		inputs, _ := parsed["input"].([]any)
+		inputs := unwrapSingleUserInputContent(t, parsed)
 		if len(inputs) != 2 {
-			t.Fatalf("input len = %d, want 2: %v", len(inputs), parsed["input"])
+			t.Fatalf("content len = %d, want 2: %v", len(inputs), inputs)
 		}
 		imgPart, _ := inputs[0].(map[string]any)
 		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" || imgPart["mime_type"] != "image/jpeg" {
@@ -1760,6 +1777,8 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		for _, bodyJSON := range []string{
 			`{"input":[{"type":"text","text":"existing array item"}]}`,
 			`{"input":{"type":"text","text":"existing map item"}}`,
+			`{"input":[{"type":"user_input","content":[{"type":"text","text":"existing step item"}]}]}`,
+			`{"input":{"type":"user_input","content":[{"type":"text","text":"existing step map item"}]}}`,
 		} {
 			var gotBody string
 			var gotArgs []string
@@ -1772,9 +1791,9 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 			if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
 				t.Fatalf("Unmarshal body %q: %v", gotBody, err)
 			}
-			inputs, _ := parsed["input"].([]any)
+			inputs := unwrapSingleUserInputContent(t, parsed)
 			if len(inputs) != 2 {
-				t.Errorf("input len for %s = %d, want 2: %v", bodyJSON, len(inputs), parsed["input"])
+				t.Errorf("content len for %s = %d, want 2: %v", bodyJSON, len(inputs), inputs)
 			}
 		}
 	})
@@ -2264,3 +2283,284 @@ func TestMediaSourceBlockDryRun(t *testing.T) {
 		}
 	})
 }
+
+func TestNewModelInteractionUsesUserInputStep(t *testing.T) {
+	video := interactions.CreateContentVideo(interactions.VideoContent{URI: stringPtr("https://www.youtube.com/watch?v=rRJ7Jhun12I")})
+	text := textContentBlock("Describe the video.")
+	req := newModelInteraction("gemini-3.8-flash", video, text)
+	if req.Input == nil || req.Input.Type != interactions.InteractionsInputTypeArrayOfStep {
+		t.Fatalf("Input.Type = %v, want %v", req.Input, interactions.InteractionsInputTypeArrayOfStep)
+	}
+	if len(req.Input.ArrayOfStep) != 1 || req.Input.ArrayOfStep[0].UserInputStep == nil {
+		t.Fatalf("ArrayOfStep = %+v, want a single UserInputStep", req.Input.ArrayOfStep)
+	}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	wantInput := []any{
+		map[string]any{
+			"type": "user_input",
+			"content": []any{
+				map[string]any{"type": "video", "uri": "https://www.youtube.com/watch?v=rRJ7Jhun12I"},
+				map[string]any{"type": "text", "text": "Describe the video."},
+			},
+		},
+	}
+	if !reflect.DeepEqual(decoded["input"], wantInput) {
+		t.Errorf("serialized input = %#v, want %#v", decoded["input"], wantInput)
+	}
+}
+
+func TestMergeMediaBlocksIntoInput(t *testing.T) {
+	imgBlock := map[string]any{"type": "image", "mime_type": "image/png", "data": "b64"}
+	txtBlock := map[string]any{"type": "text", "text": "hello"}
+	media := []any{imgBlock}
+
+	successCases := []struct {
+		name     string
+		existing any
+		want     any
+	}{
+		{
+			name:     "nil existing",
+			existing: nil,
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+		{
+			name:     "empty slice existing",
+			existing: []any{},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+		{
+			name:     "string existing",
+			existing: "hello",
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "empty string existing",
+			existing: "",
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+		{
+			name:     "single content map existing",
+			existing: txtBlock,
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "content array existing",
+			existing: []any{txtBlock},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "single user_input step map with content slice",
+			existing: map[string]any{"type": "user_input", "content": []any{txtBlock}},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "single user_input step map with string content",
+			existing: map[string]any{"type": "user_input", "content": "hello"},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "single user_input step map with single content map",
+			existing: map[string]any{"type": "user_input", "content": txtBlock},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name:     "single user_input step map with nil content",
+			existing: map[string]any{"type": "user_input"},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+		{
+			name: "step array with prior model_output and trailing user_input preserves ordering and roles",
+			existing: []any{
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "prior"}}},
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+			},
+			want: []any{
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "prior"}}},
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name: "multi-turn history with google_maps, processing, retrieval, and future step types merges into final user_input",
+			existing: []any{
+				map[string]any{"type": "user_input", "content": []any{map[string]any{"type": "text", "text": "turn 1"}}},
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "reply 1"}}},
+				map[string]any{"type": "google_maps_call", "id": "m1"},
+				map[string]any{"type": "google_maps_result", "call_id": "m1"},
+				map[string]any{"type": "processing_call", "id": "p1"},
+				map[string]any{"type": "processing_result", "call_id": "p1"},
+				map[string]any{"type": "retrieval_call", "id": "r1"},
+				map[string]any{"type": "retrieval_result", "call_id": "r1"},
+				map[string]any{"type": "future_server_step", "id": "f1"},
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "reply 2"}}},
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+			},
+			want: []any{
+				map[string]any{"type": "user_input", "content": []any{map[string]any{"type": "text", "text": "turn 1"}}},
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "reply 1"}}},
+				map[string]any{"type": "google_maps_call", "id": "m1"},
+				map[string]any{"type": "google_maps_result", "call_id": "m1"},
+				map[string]any{"type": "processing_call", "id": "p1"},
+				map[string]any{"type": "processing_result", "call_id": "p1"},
+				map[string]any{"type": "retrieval_call", "id": "r1"},
+				map[string]any{"type": "retrieval_result", "call_id": "r1"},
+				map[string]any{"type": "future_server_step", "id": "f1"},
+				map[string]any{"type": "model_output", "content": []any{map[string]any{"type": "text", "text": "reply 2"}}},
+				map[string]any{"type": "user_input", "content": []any{imgBlock, txtBlock}},
+			},
+		},
+		{
+			name: "function_result step array appends user_input step after function_result",
+			existing: []any{
+				map[string]any{"type": "function_result", "call_id": "c1", "name": "fn", "result": map[string]any{"ok": true}},
+			},
+			want: []any{
+				map[string]any{"type": "function_result", "call_id": "c1", "name": "fn", "result": map[string]any{"ok": true}},
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+		{
+			name:     "single function_result step map appends user_input step after function_result",
+			existing: map[string]any{"type": "function_result", "call_id": "c1", "name": "fn", "result": map[string]any{"ok": true}},
+			want: []any{
+				map[string]any{"type": "function_result", "call_id": "c1", "name": "fn", "result": map[string]any{"ok": true}},
+				map[string]any{"type": "user_input", "content": []any{imgBlock}},
+			},
+		},
+	}
+
+	for _, tc := range successCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := mergeMediaBlocksIntoInput(media, tc.existing)
+			if err != nil {
+				t.Fatalf("mergeMediaBlocksIntoInput(%v) unexpected error: %v", tc.existing, err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("mergeMediaBlocksIntoInput(%v) = %#v, want %#v", tc.existing, got, tc.want)
+			}
+		})
+	}
+
+	errorCases := []struct {
+		name     string
+		existing any
+		wantSub  string
+	}{
+		{
+			name:     "primitive number existing",
+			existing: 42,
+			wantSub:  "non-content input",
+		},
+		{
+			name:     "non-user_input step map",
+			existing: map[string]any{"type": "model_output", "content": []any{txtBlock}},
+			wantSub:  `cannot combine --input with "model_output" step`,
+		},
+		{
+			name:     "untyped object map",
+			existing: map[string]any{"foo": "bar"},
+			wantSub:  "unrecognized input object",
+		},
+		{
+			name:     "non-object in array",
+			existing: []any{"bad"},
+			wantSub:  "non-object element",
+		},
+		{
+			name:     "untyped object in array",
+			existing: []any{map[string]any{"foo": "bar"}},
+			wantSub:  "unrecognized element",
+		},
+		{
+			name: "mixed step and content array",
+			existing: []any{
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+				txtBlock,
+			},
+			wantSub: "mixes step objects and bare content blocks",
+		},
+		{
+			name: "step array without user_input",
+			existing: []any{
+				map[string]any{"type": "model_output", "content": []any{txtBlock}},
+			},
+			wantSub: `do not contain a "user_input" step`,
+		},
+		{
+			name: "step array with consecutive user_input steps",
+			existing: []any{
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+			},
+			wantSub: `multiple consecutive "user_input" steps`,
+		},
+		{
+			name: "step array where user_input is not final step",
+			existing: []any{
+				map[string]any{"type": "user_input", "content": []any{txtBlock}},
+				map[string]any{"type": "model_output", "content": []any{txtBlock}},
+			},
+			wantSub: `"user_input" is not the final step`,
+		},
+		{
+			name:     "user_input step with invalid content object",
+			existing: map[string]any{"type": "user_input", "content": map[string]any{"type": "model_output"}},
+			wantSub:  `non-content object in "user_input" step content`,
+		},
+		{
+			name:     "user_input step with invalid content array element",
+			existing: map[string]any{"type": "user_input", "content": []any{"bad"}},
+			wantSub:  `non-content element in "user_input" step content`,
+		},
+		{
+			name:     "user_input step with invalid content primitive",
+			existing: map[string]any{"type": "user_input", "content": 123},
+			wantSub:  `non-content "content" in "user_input" step`,
+		},
+	}
+
+	for _, tc := range errorCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rawErr := func() error {
+				_, err := mergeMediaBlocksIntoInput(media, tc.existing)
+				return err
+			}()
+			if rawErr == nil || !strings.Contains(rawErr.Error(), tc.wantSub) {
+				t.Fatalf("mergeMediaBlocksIntoInput(%v) error = %v, want substring %q", tc.existing, rawErr, tc.wantSub)
+			}
+			root, _, _ := newTestEnvironmentFilesRoot("http://127.0.0.1:0")
+			err := output.CLIError(root, rawErr)
+			if got := clierrors.ExitCode(err); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
+			}
+		})
+	}
+}
+
