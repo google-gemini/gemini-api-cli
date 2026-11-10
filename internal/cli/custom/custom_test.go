@@ -2055,3 +2055,67 @@ func TestRawTransportHeadersTimeoutAndServerURL(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeModelFlag(t *testing.T) {
+	newModelCmd := func() *cobra.Command {
+		cmd := &cobra.Command{Use: "generate"}
+		cmd.Flags().StringP("model", "m", "gemini-flash-latest", "")
+		return cmd
+	}
+
+	t.Run("omitted flag leaves default untouched", func(t *testing.T) {
+		cmd := newModelCmd()
+		if err := cmd.Flags().Parse(nil); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if err := normalizeModelFlag(cmd); err != nil {
+			t.Fatalf("normalizeModelFlag: %v", err)
+		}
+		if flagutil.FlagChanged(cmd, "model") {
+			t.Error("expected model flag to remain unchanged when omitted")
+		}
+	})
+
+	t.Run("explicit empty or whitespace values fail with CLI_VALIDATION exit 2", func(t *testing.T) {
+		for _, blank := range []string{"", " ", "   ", "\t\n", "models/", "models/   "} {
+			cmd := newModelCmd()
+			if err := cmd.Flags().Parse([]string{"-m", blank}); err != nil {
+				t.Fatalf("Parse(-m %q): %v", blank, err)
+			}
+			err := normalizeModelFlag(cmd)
+			if err == nil {
+				t.Fatalf("normalizeModelFlag(-m %q) succeeded; want validation error", blank)
+			}
+			c := output.Classify(cmd, err)
+			if c.Reason != "CLI_VALIDATION" {
+				t.Errorf("Classify(-m %q).Reason = %q, want CLI_VALIDATION", blank, c.Reason)
+			}
+			if got := output.ExitCodeFor(c); got != clierrors.ExitUsage {
+				t.Errorf("ExitCodeFor(-m %q) = %d, want %d", blank, got, clierrors.ExitUsage)
+			}
+		}
+	})
+
+	t.Run("valid bare and prefixed models normalize in place", func(t *testing.T) {
+		for _, tc := range []struct {
+			in   string
+			want string
+		}{
+			{"gemini-2.5-pro", "gemini-2.5-pro"},
+			{"models/gemini-2.5-pro", "gemini-2.5-pro"},
+			{"  models/gemini-flash-latest  ", "gemini-flash-latest"},
+		} {
+			cmd := newModelCmd()
+			if err := cmd.Flags().Parse([]string{"-m", tc.in}); err != nil {
+				t.Fatalf("Parse(-m %q): %v", tc.in, err)
+			}
+			if err := normalizeModelFlag(cmd); err != nil {
+				t.Fatalf("normalizeModelFlag(-m %q): %v", tc.in, err)
+			}
+			got, _ := cmd.Flags().GetString("model")
+			if got != tc.want {
+				t.Errorf("model after normalize(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		}
+	})
+}
