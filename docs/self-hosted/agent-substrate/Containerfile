@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-stage Containerfile building the ate-gemini Agent Substrate bridge
+# and packaging it alongside the gemini-api self-hosted CLI runtime.
+
+FROM docker.io/library/golang:1.26-bookworm AS ate-builder
+ARG TARGETARCH=amd64
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY cmd/ ./cmd/
+COPY pkg/ ./pkg/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOTOOLCHAIN=auto go build \
+    -trimpath -ldflags="-s -w" \
+    -o /out/ate-gemini ./cmd/ate-gemini
+
+FROM docker.io/library/golang:1.26-bookworm AS cli-builder
+ARG TARGETARCH=amd64
+# Pin to a release tag or commit SHA in production builds via:
+#   --build-arg GEMINI_API_CLI_PKG=github.com/google-gemini/gemini-api-cli/cmd/gemini-api@v0.4.5
+ARG GEMINI_API_CLI_PKG="github.com/google-gemini/gemini-api-cli/cmd/gemini-api@main"
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=${TARGETARCH} \
+    GOTOOLCHAIN=auto
+RUN go install -trimpath -ldflags="-s -w" "${GEMINI_API_CLI_PKG}" \
+    && mkdir -p /out \
+    && (cp /go/bin/gemini-api /out/gemini-api 2>/dev/null || cp "/go/bin/linux_${TARGETARCH}/gemini-api" /out/gemini-api)
+
+FROM docker.io/library/ubuntu:24.04
+RUN apt-get -o APT::Sandbox::User=root update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    jq \
+    procps \
+    python3 \
+    ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && (userdel -r ubuntu 2>/dev/null || true) \
+    && groupadd --gid 1000 agent \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash agent \
+    && mkdir -p /workspace /home/agent \
+    && chown -R 1000:1000 /workspace /home/agent
+
+COPY --from=cli-builder /out/gemini-api /usr/local/bin/gemini-api
+COPY --from=ate-builder /out/ate-gemini /usr/local/bin/ate-gemini
+
+ENV HOME=/home/agent \
+    PATH="/usr/local/bin:/usr/bin:/bin" \
+    LANG=C.UTF-8
+
+USER 1000:1000
+WORKDIR /workspace
+ENTRYPOINT ["ate-gemini"]

@@ -22,6 +22,17 @@ go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 \
 go test ./... -count=1
 go build ./...
 
+(
+	cd docs/self-hosted/agent-substrate
+	if unformatted_sub=$(find . -name '*.go' -type f -print0 | xargs -0 gofmt -l) && [[ -n "$unformatted_sub" ]]; then
+		printf 'agent-substrate Go files need gofmt:\n%s\n' "$unformatted_sub" >&2
+		exit 1
+	fi
+	GOTOOLCHAIN=auto go vet ./...
+	GOTOOLCHAIN=auto go test ./... -count=1
+	GOTOOLCHAIN=auto go build ./...
+)
+
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 GOBIN="$tmp_dir/bin" go install ./cmd/gemini-api

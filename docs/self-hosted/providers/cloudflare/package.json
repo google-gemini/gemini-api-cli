@@ -1,0 +1,15 @@
+{
+  "name": "gemini-api-self-hosted-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "types": "wrangler types --env-interface CloudflareEnv",
+    "typecheck": "wrangler types --env-interface CloudflareEnv && tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "wrangler": "^4.0.0"
+  }
+}

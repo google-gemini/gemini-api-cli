@@ -15,7 +15,7 @@ gemini-api image "A friendly robot mascot for a developer tool" --out ./assets/
 
 A prompt goes in. An image lands in your project. Your agent gets the file path and keeps building. The same binary can return an analysis, a voiceover, a transcript, or the interaction ID of a background managed-agent run.
 
-[Installation](#installation) · [Quick start](#quick-start) · [Command overview](#command-overview) · [Agent discovery](#agent-discovery-and-machine-interface) · [Workflows](#agent-workflows) · [Contributing](CONTRIBUTING.md) · [Gemini API docs](https://aistudio.google.com/docs)
+[Installation](#installation) · [Quick start](#quick-start) · [Command overview](#command-overview) · [Agent discovery](#agent-discovery-and-machine-interface) · [Workflows](#agent-workflows) · [Self-hosted environments](docs/self-hosted/README.md) · [Contributing](CONTRIBUTING.md) · [Gemini API docs](https://aistudio.google.com/docs)
 
 > **Bugs and feedback:** Open a [GitHub Issue](https://github.com/google-gemini/gemini-api-cli/issues). We do **not** accept pull requests — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -128,7 +128,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |
 | | `gemini-api configure` | `--api-key`, `--interactive`, `--output-format` | Configure authentication, global parameters, and persistent preferences |
 | | `gemini-api auth` / `whoami` | `auth login`, `auth whoami`, `auth logout` | Manage stored credentials (`auth`) or inspect active authentication and configuration (`whoami`) |
-| **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`) | Manage sandbox environments and upload, list, or download environment files |
+| **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`), `connect`, `poll`, `serve` | Manage sandbox environments, upload/list/download environment files, or run [self-hosted environments](docs/self-hosted/README.md) |
 | | `gemini-api credentials` | `create`, `list`, `get`, `update`, `delete` | Manage stored server-side credentials for managed agents |
 | | `gemini-api webhooks` | `create`, `list`, `get`, `update`, `ping`, `rotate-signing-secret`, `delete` | Manage webhook endpoints and signing secrets for event delivery |
 | | `gemini-api triggers` | `list`, `get`, `update`, `run`, `list-executions`, `delete` | Inspect, run, update, and delete cron triggers for managed agents |

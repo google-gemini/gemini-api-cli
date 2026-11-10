@@ -1,0 +1,91 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Internal gRPC protocol between the ate-gemini controller and the
+// ate-gemini actor-daemon running inside each Agent Substrate actor.
+//
+// Regenerate worker_service.pb.go and worker_service_grpc.pb.go from this
+// directory with:
+//
+//   protoc --go_out=. --go_opt=paths=source_relative \
+//       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+//       worker_service.proto
+//
+// using protoc-gen-go v1.36.11 and protoc-gen-go-grpc v1.6.1.
+
+syntax = "proto3";
+
+package gemini.selfhosted.worker;
+
+option go_package = "github.com/google-gemini/gemini-api-cli/docs/self-hosted/agent-substrate/pkg/workerpb;workerpb";
+
+// Per-interaction settings forwarded from the provision hook to the worker.
+message EnvironmentConfig {
+  reserved 2 to 4;
+  reserved "allowlist_domains", "denylist_domains", "network_mode";
+
+  // Environment variables for the `gemini-api environments serve` process.
+  map<string, string> env = 1;
+}
+
+// Asks the actor daemon to serve one leased interaction.
+message StartWorkRequest {
+  reserved 6;
+  reserved "grpc_target";
+
+  // Gemini API interaction to serve.
+  string interaction_id = 1;
+
+  // Gemini API environment that owns the interaction.
+  string environment_id = 2;
+
+  // Short-lived, interaction-scoped lease token (`lt_v1_...`).
+  string lease_token = 3;
+
+  EnvironmentConfig environment_config = 4;
+
+  // Gemini API base URL. Empty means the actor daemon's `--server-url` (or
+  // `GEMINI_API_BASE_URL`), falling back to the `gemini-api` CLI default.
+  string control_plane_url = 5;
+}
+
+// Result of a StartWork call.
+message StartWorkResponse {
+  // "accepted" when a worker process was started, or "already_running" when
+  // the interaction is already being served.
+  string status = 1;
+}
+
+// Asks whether the actor is serving any interaction.
+message GetIdleStatusRequest {}
+
+// Current activity of the actor daemon.
+message GetIdleStatusResponse {
+  // Whether any interaction is being served.
+  bool running = 1;
+
+  // Number of interactions being served.
+  int32 active_interactions = 2;
+}
+
+// Served by `ate-gemini actor-daemon`; called by the controller through
+// atenet-router.
+service WorkerService {
+  // Starts a one-shot `gemini-api environments serve` process for an
+  // interaction.
+  rpc StartWork(StartWorkRequest) returns (StartWorkResponse);
+
+  // Reports whether the actor is serving any interaction, for idle sweeping.
+  rpc GetIdleStatus(GetIdleStatusRequest) returns (GetIdleStatusResponse);
+}
