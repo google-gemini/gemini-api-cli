@@ -36,6 +36,8 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/spf13/cobra"
 )
 
@@ -2115,6 +2117,149 @@ func TestNormalizeModelFlag(t *testing.T) {
 			got, _ := cmd.Flags().GetString("model")
 			if got != tc.want {
 				t.Errorf("model after normalize(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		}
+	})
+}
+
+func TestMediaSourceBlockDryRun(t *testing.T) {
+	dir := t.TempDir()
+	sdkHooks := hooks.New()
+	cfg := config.SDKConfiguration{}
+	cfg.Globals.APIVersion = stringPtr("v1")
+	hookCtx := hooks.BeforeRequestContext{
+		HookContext: hooks.HookContext{
+			SDKConfiguration: cfg,
+			OperationID:      "CreateInteraction",
+		},
+	}
+
+	newDryRunCmd := func() *cobra.Command {
+		cmd := &cobra.Command{Use: "test"}
+		cmd.Flags().Bool("dry-run", true, "")
+		cmd.SetContext(t.Context())
+		return cmd
+	}
+
+	t.Run("text file dry-run records exact escaped JSON delta and inlineBytes", func(t *testing.T) {
+		txtPath := filepath.Join(dir, "sample.txt")
+		raw := []byte("hello <&> world")
+		if err := os.WriteFile(txtPath, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		root := newDryRunCmd()
+
+		src := &mediaSource{path: txtPath, mimeType: "text/plain", ref: "--input sample.txt"}
+		content, err := src.block(root)
+		if err != nil {
+			t.Fatalf("block: %v", err)
+		}
+		if src.inlineBytes != int64(len(raw)) {
+			t.Errorf("inlineBytes = %d, want %d", src.inlineBytes, len(raw))
+		}
+		if content.TextContent == nil || content.TextContent.Text != fmt.Sprintf("<bytes:%d>", len(raw)) {
+			t.Fatalf("content = %+v, want <bytes:%d>", content, len(raw))
+		}
+
+		previewJSON, _ := json.Marshal(content.TextContent.Text)
+		realJSON, _ := json.Marshal(string(raw))
+		wantDelta := int64(len(realJSON) - len(previewJSON))
+
+		// Verify exact boundary: previewBodyLen + wantDelta == maxInlineRequestBytes passes; +1 fails.
+		previewBody := bytes.Repeat([]byte{'a'}, int(maxInlineRequestBytes-wantDelta))
+		req, err := http.NewRequestWithContext(root.Context(), http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(previewBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sdkHooks.BeforeRequest(hookCtx, req); err != nil {
+			t.Fatalf("expected exact limit to pass, got: %v", err)
+		}
+
+		// Re-run block to record delta again and test 1 byte over limit.
+		if _, err := src.block(root); err != nil {
+			t.Fatalf("block: %v", err)
+		}
+		overBody := bytes.Repeat([]byte{'a'}, int(maxInlineRequestBytes-wantDelta+1))
+		reqOver, err := http.NewRequestWithContext(root.Context(), http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(overBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sdkHooks.BeforeRequest(hookCtx, reqOver); err == nil {
+			t.Fatal("expected 1 byte over limit to fail")
+		}
+	})
+
+	t.Run("binary file dry-run records exact base64 JSON delta and inlineBytes", func(t *testing.T) {
+		binPath := filepath.Join(dir, "sample.png")
+		raw := bytes.Repeat([]byte{0x89, 0x50, 0x4e}, 100)
+		if err := os.WriteFile(binPath, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		root := newDryRunCmd()
+
+		src := &mediaSource{path: binPath, mimeType: "image/png", ref: "--input sample.png"}
+		content, err := src.block(root)
+		if err != nil {
+			t.Fatalf("block: %v", err)
+		}
+		wantInline := int64(base64.StdEncoding.EncodedLen(len(raw)))
+		if src.inlineBytes != wantInline {
+			t.Errorf("inlineBytes = %d, want %d", src.inlineBytes, wantInline)
+		}
+		if content.ImageContent == nil || content.ImageContent.Data == nil || *content.ImageContent.Data != fmt.Sprintf("<bytes:%d>", len(raw)) {
+			t.Fatalf("content = %+v, want <bytes:%d>", content, len(raw))
+		}
+
+		previewJSON, _ := json.Marshal(*content.ImageContent.Data)
+		wantDelta := (2 + wantInline) - int64(len(previewJSON))
+
+		previewBody := bytes.Repeat([]byte{'a'}, int(maxInlineRequestBytes-wantDelta))
+		req, err := http.NewRequestWithContext(root.Context(), http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(previewBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sdkHooks.BeforeRequest(hookCtx, req); err != nil {
+			t.Fatalf("expected exact limit to pass, got: %v", err)
+		}
+
+		if _, err := src.block(root); err != nil {
+			t.Fatalf("block: %v", err)
+		}
+		overBody := bytes.Repeat([]byte{'a'}, int(maxInlineRequestBytes-wantDelta+1))
+		reqOver, err := http.NewRequestWithContext(root.Context(), http.MethodPost, "https://example.com/v1/interactions", bytes.NewReader(overBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sdkHooks.BeforeRequest(hookCtx, reqOver); err == nil {
+			t.Fatal("expected 1 byte over limit to fail")
+		}
+	})
+
+	t.Run("oversized file under dry-run is rejected", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			mime string
+			size int64
+		}{
+			{"big.png", "image/png", 16 << 20},
+			{"big.txt", "text/plain", maxInlineBytes + 1},
+		} {
+			bigPath := filepath.Join(dir, tc.name)
+			f, err := os.Create(bigPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Truncate(tc.size); err != nil {
+				_ = f.Close()
+				t.Fatal(err)
+			}
+			_ = f.Close()
+
+			root := newDryRunCmd()
+			src := &mediaSource{path: bigPath, mimeType: tc.mime, ref: "--input " + tc.name}
+			_, err = src.block(root)
+			if err == nil || !strings.Contains(err.Error(), "file grew past the inline limit") {
+				t.Fatalf("%s: expected inline limit error, got: %v", tc.name, err)
 			}
 		}
 	})

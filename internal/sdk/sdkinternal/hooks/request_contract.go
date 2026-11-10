@@ -16,6 +16,7 @@ package hooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,34 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 )
+
+const (
+	maxInlineRequestBytes  = 20 << 20
+	inlineRequestLimitHint = `Run "gemini-api files upload <path>" and pass the returned files/<id> instead`
+)
+
+type dryRunBodyDeltaKey struct{}
+
+// WithDryRunBodyDelta records the wire-byte difference between the real
+// payload and a dry-run placeholder so BeforeRequest validates the actual
+// serialised body size.
+func WithDryRunBodyDelta(ctx context.Context, delta int64) context.Context {
+	if p, ok := ctx.Value(dryRunBodyDeltaKey{}).(*int64); ok {
+		*p += delta
+		return ctx
+	}
+	v := delta
+	return context.WithValue(ctx, dryRunBodyDeltaKey{}, &v)
+}
+
+func consumeDryRunBodyDelta(ctx context.Context) int64 {
+	if p, ok := ctx.Value(dryRunBodyDeltaKey{}).(*int64); ok {
+		delta := *p
+		*p = 0
+		return delta
+	}
+	return 0
+}
 
 type apiHTTPError struct {
 	StatusCode  int
@@ -37,6 +66,7 @@ func (e *apiHTTPError) Error() string {
 
 type requestValidationError struct {
 	message string
+	hints   []string
 }
 
 func (e *requestValidationError) Error() string {
@@ -45,6 +75,10 @@ func (e *requestValidationError) Error() string {
 
 func (e *requestValidationError) CLIReason() string {
 	return "CLI_VALIDATION"
+}
+
+func (e *requestValidationError) CLIHints() []string {
+	return e.hints
 }
 
 var apiVersionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -73,10 +107,47 @@ func (h *requestContractHook) BeforeRequest(hookCtx BeforeRequestContext, req *h
 	if req.Header.Get("Authorization") != "" {
 		req.Header.Del("x-goog-api-key")
 	}
+	if err := enforceInteractionRequestSize(hookCtx.OperationID, req); err != nil {
+		return nil, err
+	}
 	if isStreamingInteraction(hookCtx.OperationID, req) {
 		req.Header.Set("Accept", "text/event-stream")
 	}
 	return req, nil
+}
+
+func enforceInteractionRequestSize(operationID string, req *http.Request) error {
+	if operationID != "CreateInteraction" || req == nil {
+		return nil
+	}
+	delta := consumeDryRunBodyDelta(req.Context())
+	var size int64
+	switch {
+	case req.ContentLength > 0:
+		size = req.ContentLength
+	case req.GetBody != nil:
+		bodyCopy, err := req.GetBody()
+		if err != nil {
+			return err
+		}
+		defer bodyCopy.Close()
+		n, err := io.Copy(io.Discard, io.LimitReader(bodyCopy, maxInlineRequestBytes+1))
+		if err != nil {
+			return err
+		}
+		size = n
+	}
+	totalSize := size + delta
+	if totalSize > maxInlineRequestBytes {
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
+		return &requestValidationError{
+			message: fmt.Sprintf("request body is %d bytes, which exceeds this CLI's %d MB request budget; this CLI keeps inline requests under %d MB", totalSize, maxInlineRequestBytes>>20, maxInlineRequestBytes>>20),
+			hints:   []string{inlineRequestLimitHint},
+		}
+	}
+	return nil
 }
 
 func isStreamingInteraction(operationID string, req *http.Request) bool {
