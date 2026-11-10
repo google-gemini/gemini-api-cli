@@ -145,7 +145,7 @@ func CLIError(cmd *cobra.Command, err error) error {
 	if !changed || jqExpr == "" {
 		jqExpr = preparsedRendering.jq
 	}
-	format := resolveOutputFormat(cmd)
+	format := resolveErrorOutputFormat(cmd)
 	classification := Classify(cmd, withErrorOrigin(err, ErrorOriginCLI))
 	if shouldClassifyError(format, jqExpr) {
 		return renderClassifiedError(cmd, err, classification, shouldRenderStructuredError(format, jqExpr))
