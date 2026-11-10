@@ -346,7 +346,8 @@ func (t *rawTransport) streamUpload(ctx context.Context, uploadURL string, sourc
 }
 
 // waitActive polls files.get until the file is ACTIVE, fails, or the
-// --wait-timeout deadline passes; the last sleep is cut to that deadline.
+// --wait-timeout deadline passes; every poll and sleep is bounded by that
+// deadline.
 func (t *rawTransport) waitActive(cmd *cobra.Command, name string) (*genai.File, error) {
 	s, err := client.NewClient(cmd)
 	if err != nil {
@@ -357,20 +358,42 @@ func (t *rawTransport) waitActive(cmd *cobra.Command, name string) (*genai.File,
 		return nil, err
 	}
 	timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+	waitTimedOut := func() error {
+		return runtimeError(fmt.Sprintf("%s did not become ACTIVE within %s", name, timeout),
+			fmt.Sprintf("Check its state later: gemini-api files get %s", name))
+	}
+	parentCtx := cmd.Context()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		return nil, waitTimedOut()
+	}
 	deadline := time.Now().Add(timeout)
+	pollCtx, cancel := context.WithDeadline(parentCtx, deadline)
+	defer cancel()
+
 	id := strings.TrimPrefix(name, "files/")
 	delay := 2 * time.Second
 	for {
-		res, err := s.Files.FilesGet(cmd.Context(), operations.FilesGetRequest{File: id}, callOpts...)
+		res, err := s.Files.FilesGet(pollCtx, operations.FilesGetRequest{File: id}, callOpts...)
 		if err != nil {
+			if parentCtx.Err() == nil && (errors.Is(pollCtx.Err(), context.DeadlineExceeded) || time.Until(deadline) <= 0) {
+				return nil, waitTimedOut()
+			}
 			return nil, output.Error(cmd, err)
 		}
 		file := res.File
 		if file != nil && file.State != nil {
 			switch *file.State {
 			case genai.FileStateActive:
-				progress(cmd, "%s is ACTIVE.", name)
-				return file, nil
+				if pollCtx.Err() == nil && time.Until(deadline) > 0 {
+					progress(cmd, "%s is ACTIVE.", name)
+					return file, nil
+				}
 			case genai.FileStateFailed:
 				return nil, runtimeError(fmt.Sprintf("%s failed processing on the server", name))
 			case genai.FileStateProcessing, genai.FileStateStateUnspecified, "":
@@ -381,15 +404,22 @@ func (t *rawTransport) waitActive(cmd *cobra.Command, name string) (*genai.File,
 			}
 		}
 		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, runtimeError(fmt.Sprintf("%s did not become ACTIVE within %s", name, timeout),
-				fmt.Sprintf("Check its state later: gemini-api files get %s", name))
+		if remaining <= 0 || pollCtx.Err() != nil {
+			return nil, waitTimedOut()
 		}
 		progress(cmd, "Waiting for %s to become ACTIVE...", name)
+		timer := time.NewTimer(min(delay, remaining))
 		select {
-		case <-cmd.Context().Done():
-			return nil, cmd.Context().Err()
-		case <-time.After(min(delay, remaining)):
+		case <-parentCtx.Done():
+			timer.Stop()
+			return nil, parentCtx.Err()
+		case <-pollCtx.Done():
+			timer.Stop()
+			if err := parentCtx.Err(); err != nil {
+				return nil, err
+			}
+			return nil, waitTimedOut()
+		case <-timer.C:
 		}
 		if delay < 15*time.Second {
 			delay += 2 * time.Second

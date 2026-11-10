@@ -164,17 +164,18 @@ func TestTranscribeSRTPorcelain(t *testing.T) {
 // with a runtime error on FAILED, an unknown state, or the --wait-timeout.
 func TestFilesUploadWait(t *testing.T) {
 	cases := []struct {
-		name       string
-		states     []string // successive files.get states; the last one repeats
-		wantCode   int
-		wantStderr string
-		wantPolls  int32
+		name        string
+		states      []string // successive files.get states; the last one repeats
+		waitTimeout string
+		wantCode    int
+		wantStderr  string
+		wantPolls   int32
 	}{
-		{"processing then active", []string{"PROCESSING", "ACTIVE"}, 0, "files/xyz789 is ACTIVE", 2},
-		{"unspecified then active", []string{"STATE_UNSPECIFIED", "ACTIVE"}, 0, "files/xyz789 is ACTIVE", 2},
-		{"failed", []string{"FAILED"}, 1, "failed processing on the server", 1},
-		{"unknown state", []string{"SOMETHING_NEW"}, 1, "unexpected state SOMETHING_NEW", 1},
-		{"timeout", []string{"PROCESSING"}, 1, "did not become ACTIVE within 300ms", 2},
+		{"processing then active", []string{"PROCESSING", "ACTIVE"}, "5s", 0, "files/xyz789 is ACTIVE", 2},
+		{"unspecified then active", []string{"STATE_UNSPECIFIED", "ACTIVE"}, "5s", 0, "files/xyz789 is ACTIVE", 2},
+		{"failed", []string{"FAILED"}, "300ms", 1, "failed processing on the server", 1},
+		{"unknown state", []string{"SOMETHING_NEW"}, "300ms", 1, "unexpected state SOMETHING_NEW", 1},
+		{"timeout", []string{"PROCESSING"}, "300ms", 1, "did not become ACTIVE within 300ms", 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -199,7 +200,7 @@ func TestFilesUploadWait(t *testing.T) {
 			dir := t.TempDir()
 			src := filepath.Join(dir, "clip.mp4")
 			os.WriteFile(src, []byte("some video bytes"), 0o644)
-			args := append(plainArgs(server.URL), "files", "upload", src, "--wait", "--wait-timeout", "300ms")
+			args := append(plainArgs(server.URL), "files", "upload", src, "--wait", "--wait-timeout", tc.waitTimeout)
 			result := runCLI(t, dir, nil, args...)
 			if code := exitCode(t, result); code != tc.wantCode {
 				t.Errorf("exit code = %d, want %d\nstderr: %s", code, tc.wantCode, result.stderr)
