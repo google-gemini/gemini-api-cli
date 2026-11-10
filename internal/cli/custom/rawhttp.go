@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/cli/custom/envruntime"
 	"github.com/google-gemini/gemini-api-cli/internal/client"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
@@ -81,19 +82,9 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	}
 	t.baseURL = strings.TrimRight(t.baseURL, "/")
 
-	// API version: flag > env/config > flag default (v1beta). An explicitly
-	// empty flag is invalid; only an absent value may fall back to the default.
-	apiVersionExplicit := flagutil.FlagChanged(cmd, "api-version")
-	if apiVersionExplicit {
-		t.apiVersion, _ = flagutil.GetStringFlag(cmd, "api-version")
-	} else if v := config.GetString("api-version"); v != "" {
-		t.apiVersion = v
-	} else {
-		t.apiVersion, _ = flagutil.GetStringFlag(cmd, "api-version")
-	}
-	if t.apiVersion == "" && !apiVersionExplicit {
-		t.apiVersion = "v1beta"
-	}
+	// API version: flag > env/config > flag default > defaultAPIVersion. An
+	// explicitly empty flag is invalid; only an absent value may fall back.
+	t.apiVersion = resolveAPIVersion(cmd)
 	// The generated client's request hook holds the version to one path
 	// segment; that hook does not run here, and the version is spliced into the
 	// upload path ("/upload/../evil/files").
@@ -164,6 +155,29 @@ func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	}
 	t.client = httpClient
 	return t, nil
+}
+
+const defaultAPIVersion = envruntime.DefaultAPIVersion
+
+// resolveAPIVersion reads --api-version: flag > env/config > the command's
+// registered flag default > defaultAPIVersion. A flag explicitly set to an
+// empty value is returned as-is so callers can reject it rather than silently
+// falling back.
+func resolveAPIVersion(cmd *cobra.Command) string {
+	if cmd != nil && flagutil.FlagChanged(cmd, "api-version") {
+		v, _ := flagutil.GetStringFlag(cmd, "api-version")
+		return v
+	}
+	if v := config.GetString("api-version"); v != "" {
+		return v
+	}
+	if cmd != nil {
+		// The bool result is Changed, which is false here; read the value only.
+		if v, _ := flagutil.GetStringFlag(cmd, "api-version"); v != "" {
+			return v
+		}
+	}
+	return defaultAPIVersion
 }
 
 // resolveGlobalString reads a global parameter: flag > env/config.

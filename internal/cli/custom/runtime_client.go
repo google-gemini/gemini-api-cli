@@ -72,17 +72,7 @@ func newRuntimeTransport(cmd *cobra.Command, explicitRuntimeCred bool) (*runtime
 		return nil, usageError(fmt.Sprintf("invalid --server-url %q: %v", rt.baseURL, err))
 	}
 
-	apiVersionExplicit := flagutil.FlagChanged(cmd, "api-version")
-	if apiVersionExplicit {
-		rt.apiVersion, _ = flagutil.GetStringFlag(cmd, "api-version")
-	} else if v := config.GetString("api-version"); v != "" {
-		rt.apiVersion = v
-	} else {
-		rt.apiVersion, _ = flagutil.GetStringFlag(cmd, "api-version")
-	}
-	if rt.apiVersion == "" && !apiVersionExplicit {
-		rt.apiVersion = "v1beta"
-	}
+	rt.apiVersion = resolveAPIVersion(cmd)
 	if !validAPIVersion(rt.apiVersion) {
 		return nil, usageError("--api-version must be non-empty, contain only letters, numbers, '.', '_', or '-', and cannot be '.' or '..'")
 	}

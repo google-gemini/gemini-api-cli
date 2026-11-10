@@ -574,12 +574,15 @@ func newDefaultWSDialer(tlsCfg *tls.Config, timeout time.Duration) *websocket.Di
 	}
 }
 
+// DefaultAPIVersion is the default Gemini API version used when none is configured.
+const DefaultAPIVersion = "v1beta"
+
 // NewHTTPClient creates an HTTPClient from cfg.
 func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	apiVersion := strings.Trim(strings.TrimSpace(cfg.APIVersion), "/")
 	if apiVersion == "" {
-		apiVersion = "v1beta"
+		apiVersion = DefaultAPIVersion
 	}
 	streamAPIVersion := strings.Trim(strings.TrimSpace(cfg.StreamAPIVersion), "/")
 	if streamAPIVersion == "" {
