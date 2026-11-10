@@ -181,7 +181,7 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 		return err
 	}
 	if extensionMismatch && !IsMachineMode(cmd) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Note: %s contains %s content; its extension does not match\n", filepath.Base(finalPath), mimeType)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Note: %s contains %q content; its extension does not match\n", filepath.Base(finalPath), mimeType)
 	}
 	absPath, err := filepath.Abs(finalPath)
 	if err != nil {
@@ -193,14 +193,6 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 	}
 	if written.Size() <= 0 {
 		return fmt.Errorf("the written %s artifact is empty: %s", cfg.Kind, absPath)
-	}
-
-	if !IsMachineMode(cmd) {
-		mimeNote := ""
-		if mimeType != "" {
-			mimeNote = ", " + mimeType
-		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %s to %s (%d bytes%s)\n", cfg.Kind, absPath, written.Size(), mimeNote)
 	}
 
 	envelope := map[string]interface{}{
@@ -221,6 +213,17 @@ func artifactResult(cmd *cobra.Command, res interface{}, cfg *artifactConfig) er
 		if status, ok := m[cfg.StatusField].(string); ok && status != "" {
 			envelope["status"] = status
 		}
+	}
+	if !IsMachineMode(cmd) {
+		mimeNote := ""
+		if mimeType != "" {
+			mimeNote = fmt.Sprintf(", %q", mimeType)
+		}
+		idNote := ""
+		if id, ok := envelope["response_id"].(string); ok {
+			idNote = fmt.Sprintf(", response ID %q", id)
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %s to %s (%d bytes%s%s)\n", cfg.Kind, absPath, written.Size(), mimeNote, idNote)
 	}
 	return renderArtifactEnvelope(cmd, absPath, envelope)
 }

@@ -33,7 +33,7 @@ func InitIntentImage(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "image [prompt]",
 		Short:   "Generate or edit images (gemini-nano-banana-2.1)",
-		Long:    "Generate an image from a text prompt via the Interactions API (image\nresponse modality) and write it to a file; stdout carries the file path.\nUse --out to choose the file (or directory), or --raw-response for the API\nresponse. To edit an image conversationally, pass the interaction ID of\nthe prior turn (--out <file> --jq .response_id, or --raw-response --jq .id)\nas --previous-interaction-id.\n\nArguments:\n  <prompt>  Image prompt",
+		Long:    "Generate an image from a text prompt via the Interactions API (image response\nmodality) and write it to a file; stdout carries the file path (--out to choose\nthe file or directory; --raw-response for the API response). To edit an image\nconversationally, pass the prior turn's ID as --previous-interaction-id.\n\nArguments:\n  <prompt>  Image prompt",
 		Example: "  gemini-api image \"make the sky stormy\" --previous-interaction-id v1_ChdPU0F4YWFtNkFwS2kxZThQZ05lbXdROBIXT1NBeGFhbTZBcEtpMWU4UGdOZW13UTg\n  gemini-api image \"a lighthouse at sunset\"\n  gemini-api image \"product shot, white bg\" --aspect-ratio 16:9 --image-size 2K --out shots/hero.jpg",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentImageCmd,
@@ -45,7 +45,8 @@ func InitIntentImage(parent *cobra.Command) error {
 			"speakeasy_help_learn":           "https://aistudio.google.com/docs/image-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"image\",\"defaultPath\":\"gemini-image-{timestamp}-{rand}.{ext}\"}",
-			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointers\":[\"/data/status\",\"/data/interaction/status\"],\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"continue\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_continuation":         "{\"bind\":[{\"pointer\":\"/continuation_token\",\"streamPointers\":[\"/data/continuation_token\",\"/data/interaction/continuation_token\"],\"to\":\"$.continuation_token\",\"toPath\":[\"continuation_token\"]},{\"pointer\":\"/id\",\"streamPointers\":[\"/data/interaction_id\",\"/data/interaction/id\"],\"to\":\"$.previous_interaction_id\",\"toPath\":[\"previous_interaction_id\"],\"optional\":true,\"unlessRequest\":{\"pointer\":\"/store\",\"equals\":false},\"flag\":\"previous-interaction-id\"}],\"merge\":[\"/steps\"],\"sum\":[\"/usage/total_input_tokens\",\"/usage/total_output_tokens\",\"/usage/total_thought_tokens\",\"/usage/total_tool_use_tokens\",\"/usage/total_cached_tokens\",\"/usage/total_tokens\"],\"maxHops\":10}",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
@@ -117,6 +118,8 @@ func InitIntentImage(parent *cobra.Command) error {
 		Kind:         "string",
 	})
 	cmd.Flags().Bool("raw-response", false, "Print the raw API response instead of writing the image to a file")
+	cmd.Flags().Bool("auto-continue", true, "Keep sending the request while the response asks to continue, and combine the responses")
+	cmd.Flags().Int("max-continuations", 10, "Maximum number of responses to request when continuing automatically")
 	for _, sibling := range parent.Commands() {
 		if sibling.Name() == cmd.Name() || sibling.HasAlias(cmd.Name()) {
 			return fmt.Errorf("intent command %q collides with the name or alias of an existing %q command; rename the declared command", "image", sibling.Name())

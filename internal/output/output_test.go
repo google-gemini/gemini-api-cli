@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -28,9 +29,53 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 	"github.com/spf13/cobra"
 )
+
+func TestPathParameterErrorsAreUsageErrors(t *testing.T) {
+	for _, format := range []string{"pretty", "json"} {
+		for _, wrapped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/wrapped=%t", format, wrapped), func(t *testing.T) {
+				ResetAgentMode()
+				ResetPreparsedRendering()
+				var stderr bytes.Buffer
+				cmd := &cobra.Command{}
+				cmd.SetErr(&stderr)
+				cmd.Flags().String("output-format", "", "")
+				if err := cmd.Flags().Set("output-format", format); err != nil {
+					t.Fatal(err)
+				}
+				var err error = &utils.InvalidPathParameterError{Name: "resource"}
+				if wrapped {
+					err = fmt.Errorf("construct request: %w", err)
+				}
+				classification := Classify(cmd, err)
+				if classification.Type != ErrorTypeValidation || classification.Reason != ReasonCLIValidation || classification.Origin != ErrorOriginCLI || classification.StatusCode != 0 {
+					t.Fatalf("unexpected classification: %+v", classification)
+				}
+				rendered := Error(cmd, err)
+				if clierrors.ExitCode(rendered) != clierrors.ExitUsage {
+					t.Fatalf("expected exit 2, got %v", rendered)
+				}
+				var invalidPath *utils.InvalidPathParameterError
+				if !errors.As(rendered, &invalidPath) || invalidPath.Name != "resource" {
+					t.Fatalf("typed path error lost during rendering: %v", rendered)
+				}
+				if got := json.Valid(stderr.Bytes()); got != (format == "json") {
+					t.Fatalf("wrong error format: %s", stderr.String())
+				}
+				stderr.Reset()
+				untyped := Classify(cmd, errors.New(err.Error()))
+				if untyped.Reason == ReasonCLIValidation {
+					t.Fatal("an untyped error must not be classified by matching its text")
+				}
+			})
+		}
+	}
+}
 
 type tableTestRow struct {
 	ID   int64  `json:"id"`
@@ -1022,6 +1067,106 @@ func TestUnknownSubcommandKeepsHelpAndCompletionWorking(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status-get-error") {
 		t.Fatalf("expected completion candidates, got %q", out.String())
+	}
+}
+
+func TestOutcomeStreamStatePointerOrder(t *testing.T) {
+	cmd := &cobra.Command{Use: "compose"}
+	cfg := &outcomeConfig{
+		StreamStatePointers: []string{"/data/status", "/data/widget/status"},
+		States:              map[string]string{"done": "success", "failed": "failure"},
+	}
+	for _, tc := range []struct {
+		name        string
+		status      interface{}
+		wantFailure bool
+	}{
+		{"first wins", "done", false},
+		{"empty falls through", "", true},
+		{"non-string falls through", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			frame := map[string]interface{}{"data": map[string]interface{}{
+				"status": tc.status,
+				"widget": map[string]interface{}{"status": "failed"},
+			}}
+			if got := outcomeStreamFailure(cmd, cfg, nil, frame); (got != nil) != tc.wantFailure {
+				t.Fatalf("failure = %v, want failure %v", got, tc.wantFailure)
+			}
+		})
+	}
+}
+func TestContinuationBindingPointerOrder(t *testing.T) {
+	run := &continuationRun{
+		cfg: &continuationConfig{Bind: []continuationBinding{
+			{StreamPointers: []string{"/first", "/last"}, To: "token"},
+		}},
+		outcome: &outcomeConfig{}, values: map[string]string{},
+	}
+	run.capture(map[string]interface{}{"first": "older", "last": "newer"}, true)
+	if got := run.values["token"]; got != "newer" {
+		t.Fatalf("token = %q, want last present binding value", got)
+	}
+}
+
+func TestContinuationRequestCondition(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		body        map[string]interface{}
+		equals      interface{}
+		wantEnabled bool
+	}{
+		{"false matches", map[string]interface{}{"retain": false}, false, false},
+		{"true differs", map[string]interface{}{"retain": true}, false, true},
+		{"missing differs", map[string]interface{}{}, false, true},
+		{"null differs from false", map[string]interface{}{"retain": nil}, false, true},
+		{"null matches null", map[string]interface{}{"retain": nil}, nil, false},
+		{"missing differs from null", map[string]interface{}{}, nil, true},
+		{"string differs from boolean", map[string]interface{}{"retain": "false"}, false, true},
+		{"numbers compare by value", map[string]interface{}{"retain": json.Number("1.0")}, float64(1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &continuationRun{original: tc.body}
+			binding := continuationBinding{UnlessRequest: &continuationRequestCondition{Pointer: "/retain", Equals: tc.equals}}
+			if got := run.bindingEnabled(binding); got != tc.wantEnabled {
+				t.Fatalf("enabled = %v, want %v", got, tc.wantEnabled)
+			}
+		})
+	}
+}
+
+func TestContinuationCheckpointSnapshots(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload map[string]interface{}
+		want    map[string]interface{}
+	}{
+		{"empty new hop", map[string]interface{}{}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+		{"new id without token", map[string]interface{}{"id": "w2"}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+		{"new checkpoint", map[string]interface{}{"resumeToken": "token-2", "id": "w2"}, map[string]interface{}{"$.resumeToken": "token-2", "$.previousId": "w2"}},
+		{"new token without optional id", map[string]interface{}{"resumeToken": "token-2"}, map[string]interface{}{"$.resumeToken": "token-2"}},
+		{"failure token ignored", map[string]interface{}{"status": "failed", "resumeToken": "bad-token", "id": "w2"}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := map[string]interface{}{}
+			run := &continuationRun{
+				cfg: &continuationConfig{Bind: []continuationBinding{
+					{Pointer: "/resumeToken", To: "$.resumeToken", ToPath: []string{"resumeToken"}},
+					{Pointer: "/id", To: "$.previousId", ToPath: []string{"previousId"}, Optional: true},
+				}},
+				outcome: &outcomeConfig{StatePointer: "/status", States: map[string]string{"more": "continue", "failed": "failure"}},
+				request: &request, auto: true, limit: 3, hops: 1, values: map[string]string{},
+			}
+			run.capture(map[string]interface{}{"status": "more", "resumeToken": "token-1", "id": "w1"}, false)
+			if more, err := run.advance(); err != nil || !more {
+				t.Fatalf("advance = %v, %v", more, err)
+			}
+			run.beginHop()
+			run.capture(tc.payload, false)
+			if got := run.resumeFields(); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("resume = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 

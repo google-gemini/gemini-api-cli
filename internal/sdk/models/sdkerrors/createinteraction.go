@@ -33,6 +33,12 @@ type CreateInteractionServerError struct {
 var _ error = &CreateInteractionServerError{}
 
 func (e *CreateInteractionServerError) Error() string {
+	if e != nil {
+		if e.ErrorInfo.Message != nil {
+			return *e.ErrorInfo.Message
+		}
+	}
+
 	data, _ := json.Marshal(e)
 	return string(data)
 }
@@ -47,6 +53,12 @@ type CreateInteractionClientError struct {
 var _ error = &CreateInteractionClientError{}
 
 func (e *CreateInteractionClientError) Error() string {
+	if e != nil {
+		if e.ErrorInfo.Message != nil {
+			return *e.ErrorInfo.Message
+		}
+	}
+
 	data, _ := json.Marshal(e)
 	return string(data)
 }

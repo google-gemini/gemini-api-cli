@@ -45,7 +45,8 @@ func InitIntentMusic(parent *cobra.Command) error {
 			"speakeasy_help_learn":           "https://aistudio.google.com/docs/music-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
 			"speakeasy_artifact":             "{\"pointer\":[{\"field\":\"steps\"},{\"wild\":true},{\"field\":\"content\"},{\"wild\":true}],\"kind\":\"audio\",\"defaultPath\":\"gemini-music-{timestamp}-{rand}.{ext}\"}",
-			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointers\":[\"/data/status\",\"/data/interaction/status\"],\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"continue\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_continuation":         "{\"bind\":[{\"pointer\":\"/continuation_token\",\"streamPointers\":[\"/data/continuation_token\",\"/data/interaction/continuation_token\"],\"to\":\"$.continuation_token\",\"toPath\":[\"continuation_token\"]},{\"pointer\":\"/id\",\"streamPointers\":[\"/data/interaction_id\",\"/data/interaction/id\"],\"to\":\"$.previous_interaction_id\",\"toPath\":[\"previous_interaction_id\"],\"optional\":true,\"unlessRequest\":{\"pointer\":\"/store\",\"equals\":false\x7d\x7d],\"merge\":[\"/steps\"],\"sum\":[\"/usage/total_input_tokens\",\"/usage/total_output_tokens\",\"/usage/total_thought_tokens\",\"/usage/total_tool_use_tokens\",\"/usage/total_cached_tokens\",\"/usage/total_tokens\"],\"maxHops\":10}",
 		},
 	}
 	intentMeta := flagutil.NonBodyMeta(runCmdMeta, "Body")
@@ -81,6 +82,8 @@ func InitIntentMusic(parent *cobra.Command) error {
 		Kind:         "string",
 	})
 	cmd.Flags().Bool("raw-response", false, "Print the raw API response instead of writing the audio to a file")
+	cmd.Flags().Bool("auto-continue", true, "Keep sending the request while the response asks to continue, and combine the responses")
+	cmd.Flags().Int("max-continuations", 10, "Maximum number of responses to request when continuing automatically")
 	for _, sibling := range parent.Commands() {
 		if sibling.Name() == cmd.Name() || sibling.HasAlias(cmd.Name()) {
 			return fmt.Errorf("intent command %q collides with the name or alias of an existing %q command; rename the declared command", "music", sibling.Name())

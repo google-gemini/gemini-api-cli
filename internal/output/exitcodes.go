@@ -220,7 +220,7 @@ func renderingMode(cmd *cobra.Command) (format, jqExpr string) {
 	if !changed || jqExpr == "" {
 		jqExpr = preparsedRendering.jq
 	}
-	return resolveOutputFormat(cmd), jqExpr
+	return resolveErrorOutputFormat(cmd), jqExpr
 }
 
 func structuredErrorsRequested(cmd *cobra.Command) bool {

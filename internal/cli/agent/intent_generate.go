@@ -33,7 +33,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	cmd := &cobra.Command{
 		Use:     "generate [prompt]",
 		Short:   "Text & multimodal generation (gemini-3.8-flash)",
-		Long:    "Send a prompt to a Gemini model and print the reply as it is\ngenerated; text deltas are streamed directly to stdout. Uses the\nschema's default model (gemini-3.8-flash) unless --model or a full\n--body names one. --stream=false returns one complete interaction;\n--output-format json shows the raw NDJSON event stream. Thinking\nmodels such as gemini-3.8-flash may emit their deltas in a burst\nafter thinking; gemini-flash-lite-latest streams visibly. Full request\ncontrol: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
+		Long:    "Send a prompt to a Gemini model and stream text deltas to stdout. Uses the\nschema's default model (gemini-3.8-flash) unless --model or --body names one\n(--stream=false returns one complete interaction; --output-format json shows\nthe raw NDJSON event stream). Full request control: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model",
 		Example: "  gemini-api generate \"Write a haiku about APIs\" --model gemini-pro-latest\n  gemini-api generate \"Explain concurrency in one sentence\"",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentGenerateCmd,
@@ -44,7 +44,8 @@ func InitIntentGenerate(parent *cobra.Command) error {
 			"speakeasy_help_defaults":        "model gemini-3.8-flash · streams the reply (--stream=false for one result)",
 			"speakeasy_help_learn":           "https://aistudio.google.com/docs/text-generation",
 			"speakeasy_help_escalate":        "full request control via gemini-api agent run",
-			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointers\":[\"/data/status\",\"/data/interaction/status\"],\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"continue\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
+			"speakeasy_continuation":         "{\"bind\":[{\"pointer\":\"/continuation_token\",\"streamPointers\":[\"/data/continuation_token\",\"/data/interaction/continuation_token\"],\"to\":\"$.continuation_token\",\"toPath\":[\"continuation_token\"],\"flag\":\"continuation-token\"},{\"pointer\":\"/id\",\"streamPointers\":[\"/data/interaction_id\",\"/data/interaction/id\"],\"to\":\"$.previous_interaction_id\",\"toPath\":[\"previous_interaction_id\"],\"optional\":true,\"unlessRequest\":{\"pointer\":\"/store\",\"equals\":false},\"flag\":\"previous-interaction-id\"}],\"merge\":[\"/steps\"],\"sum\":[\"/usage/total_input_tokens\",\"/usage/total_output_tokens\",\"/usage/total_thought_tokens\",\"/usage/total_tool_use_tokens\",\"/usage/total_cached_tokens\",\"/usage/total_tokens\"],\"maxHops\":10}",
 			"speakeasy_stream_select":        "/data/delta/text",
 			"speakeasy_stream_metadata":      "[{\"label\":\"Interaction ID\",\"pointers\":[\"/data/interaction/id\"]}]",
 		},
@@ -56,12 +57,21 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "body", flagutil.PromptFlagSpec{Kind: "json", BodyFlag: true})
 	cmd.Flags().Bool("schema", false, "Print the exact JSON Schema of the request body and exit")
 	_ = flagutil.AnnotatePromptFlag(cmd, "schema", flagutil.PromptFlagSpec{Kind: "bool", DocSurface: true})
+	cmd.Flags().StringP("continuation-token", "", "", "Resume a cut-off interaction from its checkpoint token")
+	flagutil.MarkRequestInput(cmd, "continuation-token")
+	_ = flagutil.AnnotatePromptFlag(cmd, "continuation-token", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "string",
+		Order:    0,
+
+		BodySources: []string{"body"},
+	})
 	cmd.Flags().StringP("model", "m", "", "Model to use (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-3.8-flash)")
 	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    0,
+		Order:    1,
 
 		BodySources: []string{"body"},
 	})
@@ -70,7 +80,16 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "previous-interaction-id", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    1,
+		Order:    2,
+
+		BodySources: []string{"body"},
+	})
+	cmd.Flags().BoolP("store", "", false, "Store the interaction server-side for later retrieval or multi-turn continuation")
+	flagutil.MarkRequestInput(cmd, "store")
+	_ = flagutil.AnnotatePromptFlag(cmd, "store", flagutil.PromptFlagSpec{
+		Required: false,
+		Kind:     "bool",
+		Order:    3,
 
 		BodySources: []string{"body"},
 	})
@@ -79,7 +98,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "stream", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "bool",
-		Order:    2,
+		Order:    4,
 
 		BodySources: []string{"body"},
 	})
@@ -88,7 +107,7 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	_ = flagutil.AnnotatePromptFlag(cmd, "system", flagutil.PromptFlagSpec{
 		Required: false,
 		Kind:     "string",
-		Order:    3,
+		Order:    5,
 
 		BodySources: []string{"body"},
 	})
@@ -102,6 +121,8 @@ func InitIntentGenerate(parent *cobra.Command) error {
 	}}); err != nil {
 		return fmt.Errorf("declare interactive arguments for intent generate: %w", err)
 	}
+	cmd.Flags().Bool("auto-continue", true, "Keep sending the request while the response asks to continue, and combine the responses")
+	cmd.Flags().Int("max-continuations", 10, "Maximum number of responses to request when continuing automatically")
 	for _, sibling := range parent.Commands() {
 		if sibling.Name() == cmd.Name() || sibling.HasAlias(cmd.Name()) {
 			return fmt.Errorf("intent command %q collides with the name or alias of an existing %q command; rename the declared command", "generate", sibling.Name())
@@ -161,6 +182,12 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
+		if flagutil.FlagChanged(cmd, "continuation-token") {
+			v, _ := flagutil.GetStringFlag(cmd, "continuation-token")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "continuation_token", "--continuation-token", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "model", "--model", v); err != nil {
@@ -170,6 +197,12 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
 			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
 			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "previous_interaction_id", "--previous-interaction-id", v); err != nil {
+				return flagutil.WithCLIValidation(err)
+			}
+		}
+		if flagutil.FlagChanged(cmd, "store") {
+			v, _ := cmd.Flags().GetBool("store")
+			if err := flagutil.MergeInputIntoBody(cmd, suppliedBodyFlag, "store", "--store", v); err != nil {
 				return flagutil.WithCLIValidation(err)
 			}
 		}
@@ -186,7 +219,7 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "stream") && !flagutil.FlagChanged(cmd, "system") {
+	if len(args) == 0 && !bodySupplied && !flagutil.FlagChanged(cmd, "body") && !flagutil.FlagChanged(cmd, "continuation-token") && !flagutil.FlagChanged(cmd, "model") && !flagutil.FlagChanged(cmd, "previous-interaction-id") && !flagutil.FlagChanged(cmd, "store") && !flagutil.FlagChanged(cmd, "stream") && !flagutil.FlagChanged(cmd, "system") {
 		return output.UsageHelpError(cmd, fmt.Errorf("%s", "missing required argument <prompt> (or pass a full request with --body)"))
 	}
 	if !bodySupplied {
@@ -200,6 +233,10 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			body["input"] = strings.Join(args, " ")
 		}
+		if flagutil.FlagChanged(cmd, "continuation-token") {
+			v, _ := flagutil.GetStringFlag(cmd, "continuation-token")
+			body["continuation_token"] = v
+		}
 		if flagutil.FlagChanged(cmd, "model") {
 			v, _ := flagutil.GetStringFlag(cmd, "model")
 			body["model"] = v
@@ -207,6 +244,10 @@ func runIntentGenerateCmd(cmd *cobra.Command, args []string) error {
 		if flagutil.FlagChanged(cmd, "previous-interaction-id") {
 			v, _ := flagutil.GetStringFlag(cmd, "previous-interaction-id")
 			body["previous_interaction_id"] = v
+		}
+		if flagutil.FlagChanged(cmd, "store") {
+			v, _ := cmd.Flags().GetBool("store")
+			body["store"] = v
 		}
 		if flagutil.FlagChanged(cmd, "stream") {
 			v, _ := cmd.Flags().GetBool("stream")
