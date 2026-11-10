@@ -28,9 +28,12 @@ import (
 )
 
 var createEnvironmentCmdMeta = []flagutil.FlagMeta{
+	{FlagName: "custom-config", Shorthand: "c", FieldPath: "Body.CustomConfig", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"custom_config,omitempty"`, Description: "Optional. Arbitrary customer-defined JSON configuration passed through\nto the self-hosted environment poller. Only supported when 'mode' is\n'SELF_HOSTED'."},
 	{FlagName: "from-environment", Shorthand: "f", FieldPath: "Body.FromEnvironment", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. The source environment to copy/fork from.\nFormat: 'environments/{environment_id}' or '{environment_id}'.\nWhen specified, 'sources' and 'env' must be empty."},
+	{FlagName: "mode", Shorthand: "m", FieldPath: "Body.Mode", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"on_demand", "self_hosted"}, Description: "The compute lifecycle mode for an environment. (options: on_demand, self_hosted)"},
 	{FlagName: "network", Shorthand: "n", FieldPath: "Body.Network", Kind: flagutil.FlagKindUnion, Union: &flagutil.UnionMeta{Discriminated: false, Optional: true, TypeDescription: "JSON value (one of: { \"allowlist\": object[] | string } | CreateEnvironmentRequest_network_enum)"}},
-	{FlagName: "sources", Shorthand: "s", FieldPath: "Body.Sources", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"sources,omitempty"`, Description: "Sources to be mounted into the environment. (JSON array)"},
+	{FlagName: "sources", FieldPath: "Body.Sources", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"sources,omitempty"`, Description: "Sources to be mounted into the environment. (JSON array)"},
+	{FlagName: "system-instruction", FieldPath: "Body.SystemInstruction", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. System instruction applied to interactions running in this\nenvironment. Only supported for 'SELF_HOSTED' environments, where it is\nrecommended."},
 }
 
 // initCreateEnvironmentCmd initializes the create-environment command.

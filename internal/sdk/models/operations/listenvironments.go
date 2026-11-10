@@ -19,6 +19,7 @@ package operations
 import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/environments"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
@@ -48,6 +49,8 @@ func (l *ListEnvironmentsGlobals) GetAPIVersion() *string {
 type ListEnvironmentsRequest struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
+	// Optional. Filter environments by compute lifecycle mode.
+	Mode *interactions.EnvironmentMode `queryParam:"style=form,explode=true,name=mode"`
 	// Optional. Maximum number of environments to return.
 	// If unspecified, defaults to 50. Maximum is 1000.
 	PageSize *int `queryParam:"style=form,explode=true,name=page_size"`
@@ -71,6 +74,13 @@ func (l *ListEnvironmentsRequest) GetAPIVersion() *string {
 		return nil
 	}
 	return l.APIVersion
+}
+
+func (l *ListEnvironmentsRequest) GetMode() *interactions.EnvironmentMode {
+	if l == nil {
+		return nil
+	}
+	return l.Mode
 }
 
 func (l *ListEnvironmentsRequest) GetPageSize() *int {
