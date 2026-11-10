@@ -26,6 +26,7 @@ func initHooks(h *Hooks) {
 	h.registerSDKInitHook(userAgentHook{})
 
 	contractHook := &requestContractHook{}
+	h.registerSDKInitHook(contractHook)
 	h.registerBeforeRequestHook(contractHook)
 	h.registerAfterSuccessHook(contractHook)
 
