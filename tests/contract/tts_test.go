@@ -160,8 +160,9 @@ func TestTTSMultiSpeakerInput(t *testing.T) {
 			t.Fatalf("tts (model %q) failed: %v\nstderr: %s", model, result.err, result.stderr)
 		}
 		wantSteps := []any{map[string]any{"type": "user_input", "content": want}}
-		if got, _ := stub.body["input"].([]any); !reflect.DeepEqual(got, wantSteps) {
-			t.Errorf("model %q: input = %#v, want %#v", model, stub.body["input"], wantSteps)
+		body := stub.requestBody(t)
+		if got, _ := body["input"].([]any); !reflect.DeepEqual(got, wantSteps) {
+			t.Errorf("model %q: input = %#v, want %#v", model, body["input"], wantSteps)
 		}
 	}
 }
@@ -337,7 +338,7 @@ func (s *interactionStub) inputText(t *testing.T) string {
 	t.Helper()
 	parts := s.inputParts(t)
 	if len(parts) != 1 {
-		t.Fatalf("request input = %#v, want one text block", s.body["input"])
+		t.Fatalf("request input = %#v, want one text block", s.requestBody(t)["input"])
 	}
 	part := parts[0]
 	if part["type"] != "text" {
@@ -396,7 +397,7 @@ func TestTTSTextSources(t *testing.T) {
 		if got := stub.inputText(t); got != "from the file" {
 			t.Errorf("input text = %q, want the trimmed file content", got)
 		}
-		gc, _ := stub.body["generation_config"].(map[string]any)
+		gc, _ := stub.requestBody(t)["generation_config"].(map[string]any)
 		sc, _ := gc["speech_config"].([]any)
 		if len(sc) != 1 {
 			t.Fatalf("speech_config = %#v, want a single-element array", gc["speech_config"])
@@ -425,7 +426,7 @@ func TestTTSTextSources(t *testing.T) {
 		if result := runCLI(t, dir, nil, args...); result.err != nil {
 			t.Fatalf("tts failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		gc, _ := stub.body["generation_config"].(map[string]any)
+		gc, _ := stub.requestBody(t)["generation_config"].(map[string]any)
 		sc, _ := gc["speech_config"].(map[string]any)
 		speakers, _ := sc["speakers"].([]any)
 		if len(speakers) != 2 {

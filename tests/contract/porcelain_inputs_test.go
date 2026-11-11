@@ -651,8 +651,9 @@ func TestPorcelainModelOverride(t *testing.T) {
 			if result := runCLI(t, dir, nil, args...); result.err != nil {
 				t.Fatalf("tts failed: %v\nstderr: %s", result.err, result.stderr)
 			}
-			if stub.body["model"] != "gemini-x" {
-				t.Errorf("request model = %#v, want gemini-x", stub.body["model"])
+			body := stub.requestBody(t)
+			if body["model"] != "gemini-x" {
+				t.Errorf("request model = %#v, want gemini-x", body["model"])
 			}
 		})
 	}

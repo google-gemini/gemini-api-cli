@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -39,7 +40,8 @@ import (
 // POST /v1beta/interactions request body.
 type interactionStub struct {
 	*httptest.Server
-	body     map[string]any
+	mu       sync.Mutex
+	rawBody  []byte
 	requests atomic.Int32
 }
 
@@ -47,20 +49,45 @@ func newInteractionStub(t *testing.T, response string) *interactionStub {
 	t.Helper()
 	stub := &interactionStub{}
 	stub.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		stub.requests.Add(1)
 		if r.URL.Path != "/v1beta/interactions" {
 			t.Errorf("request path = %q, want /v1beta/interactions", r.URL.Path)
 		}
 		raw, _ := io.ReadAll(r.Body)
-		stub.body = nil
-		if err := json.Unmarshal(raw, &stub.body); err != nil {
+		var decoded map[string]any
+		err := json.Unmarshal(raw, &decoded)
+		if err != nil {
 			t.Errorf("request body is not JSON: %v\n%s", err, raw)
 		}
+		stub.mu.Lock()
+		if err == nil && decoded != nil {
+			stub.rawBody = append([]byte(nil), raw...)
+		} else {
+			stub.rawBody = nil
+		}
+		stub.requests.Add(1)
+		stub.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, response)
 	}))
 	t.Cleanup(stub.Close)
 	return stub
+}
+
+// requestBody returns a freshly decoded snapshot of the last captured request
+// body so callers never share a mutable map with the server handler goroutine.
+func (s *interactionStub) requestBody(t *testing.T) map[string]any {
+	t.Helper()
+	s.mu.Lock()
+	raw := append([]byte(nil), s.rawBody...)
+	s.mu.Unlock()
+	if len(raw) == 0 {
+		return nil
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("request body is not JSON: %v\n%s", err, raw)
+	}
+	return body
 }
 
 // assertNotStored pins the porcelain retention policy: every request opts out
@@ -75,9 +102,10 @@ func assertNotStored(t *testing.T, reqBody map[string]any) {
 // inputParts returns the content blocks inside the request's single user_input step.
 func (s *interactionStub) inputParts(t *testing.T) []map[string]any {
 	t.Helper()
-	parts := assertUserInputStepParts(t, s.body)
+	body := s.requestBody(t)
+	parts := assertUserInputStepParts(t, body)
 	if len(parts) == 0 {
-		t.Fatalf("request has no input content blocks: %v", s.body)
+		t.Fatalf("request has no input content blocks: %v", body)
 	}
 	return parts
 }
@@ -211,18 +239,19 @@ func TestAnalyzeRequestBody(t *testing.T) {
 		t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
 	}
 
-	if stub.body["model"] != "gemini-custom" {
-		t.Errorf("model = %v, want gemini-custom (models/ prefix stripped)", stub.body["model"])
+	body := stub.requestBody(t)
+	if body["model"] != "gemini-custom" {
+		t.Errorf("model = %v, want gemini-custom (models/ prefix stripped)", body["model"])
 	}
-	if stub.body["stream"] != false {
-		t.Errorf("stream = %v, want false", stub.body["stream"])
+	if body["stream"] != false {
+		t.Errorf("stream = %v, want false", body["stream"])
 	}
-	assertNotStored(t, stub.body)
-	if stub.body["system_instruction"] != "Be terse." {
-		t.Errorf("system_instruction = %v, want %q", stub.body["system_instruction"], "Be terse.")
+	assertNotStored(t, body)
+	if body["system_instruction"] != "Be terse." {
+		t.Errorf("system_instruction = %v, want %q", body["system_instruction"], "Be terse.")
 	}
-	if _, ok := stub.body["response_format"]; ok {
-		t.Errorf("analyze sent response_format: %v", stub.body["response_format"])
+	if _, ok := body["response_format"]; ok {
+		t.Errorf("analyze sent response_format: %v", body["response_format"])
 	}
 	parts := stub.inputParts(t)
 	if len(parts) != 2 {
@@ -362,18 +391,19 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 			}
-			if stub.body["model"] != "gemini-3.5-transcribe" {
-				t.Errorf("model = %v, want gemini-3.5-transcribe", stub.body["model"])
+			body := stub.requestBody(t)
+			if body["model"] != "gemini-3.5-transcribe" {
+				t.Errorf("model = %v, want gemini-3.5-transcribe", body["model"])
 			}
-			assertNotStored(t, stub.body)
-			if _, hasFormat := stub.body["response_format"]; hasFormat {
-				t.Errorf("dedicated transcribe model sent response_format: %v", stub.body["response_format"])
+			assertNotStored(t, body)
+			if _, hasFormat := body["response_format"]; hasFormat {
+				t.Errorf("dedicated transcribe model sent response_format: %v", body["response_format"])
 			}
 			parts := stub.inputParts(t)
 			if len(parts) != 1 || parts[0]["type"] != "audio" || parts[0]["mime_type"] != "audio/mp3" {
 				t.Errorf("input parts = %v, want a single audio/mp3 block", parts)
 			}
-			genCfg, _ := stub.body["generation_config"].(map[string]any)
+			genCfg, _ := body["generation_config"].(map[string]any)
 			txCfg, _ := genCfg["transcription_config"].(map[string]any)
 			mode, _ := txCfg["mode"].(map[string]any)
 			if mode["type"] != "verbatim" {
@@ -415,8 +445,9 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("transcribe video failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		if stub.body["model"] != "gemini-3.8-flash" {
-			t.Errorf("model = %v, want the gemini-3.8-flash fallback for video", stub.body["model"])
+		body := stub.requestBody(t)
+		if body["model"] != "gemini-3.8-flash" {
+			t.Errorf("model = %v, want the gemini-3.8-flash fallback for video", body["model"])
 		}
 		parts := stub.inputParts(t)
 		if len(parts) != 2 || parts[0]["type"] != "video" || parts[1]["type"] != "text" {
@@ -437,13 +468,18 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 	})
 
 	t.Run("mixed audio and video report the model per input", func(t *testing.T) {
-		var models []string
+		var (
+			mu     sync.Mutex
+			models []string
+		)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
 			raw, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(raw, &body)
 			model, _ := body["model"].(string)
+			mu.Lock()
 			models = append(models, model)
+			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			if model == "gemini-3.5-transcribe" {
 				fmt.Fprint(w, annotatedTranscript)
@@ -460,8 +496,11 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		if got := fmt.Sprint(models); got != "[gemini-3.5-transcribe gemini-3.8-flash]" {
-			t.Errorf("request models = %s, want [gemini-3.5-transcribe gemini-3.8-flash]", got)
+		mu.Lock()
+		gotModels := fmt.Sprint(models)
+		mu.Unlock()
+		if gotModels != "[gemini-3.5-transcribe gemini-3.8-flash]" {
+			t.Errorf("request models = %s, want [gemini-3.5-transcribe gemini-3.8-flash]", gotModels)
 		}
 		var envelope struct {
 			Model   string `json:"model"`
@@ -598,8 +637,9 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		if stub.body["model"] != "gemini-3.8-flash" || !strings.Contains(result.stderr, "--mime-type audio/webm") {
-			t.Errorf("model = %v, stderr = %q; want the gemini-3.8-flash fallback with the WebM hint", stub.body["model"], result.stderr)
+		body := stub.requestBody(t)
+		if body["model"] != "gemini-3.8-flash" || !strings.Contains(result.stderr, "--mime-type audio/webm") {
+			t.Errorf("model = %v, stderr = %q; want the gemini-3.8-flash fallback with the WebM hint", body["model"], result.stderr)
 		}
 
 		explicit := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.5-transcribe", "-i", webm)...)
@@ -613,8 +653,9 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 			t.Fatalf("transcribe with --mime-type audio/webm failed: %v\nstderr: %s", result.err, result.stderr)
 		}
 		parts := override.inputParts(t)
-		if override.body["model"] != "gemini-3.5-transcribe" || parts[0]["type"] != "audio" || parts[0]["mime_type"] != "audio/webm" {
-			t.Errorf("model = %v, parts = %v; want gemini-3.5-transcribe with an audio/webm block", override.body["model"], parts)
+		overrideBody := override.requestBody(t)
+		if overrideBody["model"] != "gemini-3.5-transcribe" || parts[0]["type"] != "audio" || parts[0]["mime_type"] != "audio/webm" {
+			t.Errorf("model = %v, parts = %v; want gemini-3.5-transcribe with an audio/webm block", overrideBody["model"], parts)
 		}
 	})
 
@@ -637,9 +678,10 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		format, _ := stub.body["response_format"].(map[string]any)
-		if stub.body["model"] != "gemini-3.8-flash" || format["mime_type"] != "application/json" {
-			t.Errorf("model = %v, response_format = %v; want gemini-3.8-flash with the JSON schema", stub.body["model"], format)
+		body := stub.requestBody(t)
+		format, _ := body["response_format"].(map[string]any)
+		if body["model"] != "gemini-3.8-flash" || format["mime_type"] != "application/json" {
+			t.Errorf("model = %v, response_format = %v; want gemini-3.8-flash with the JSON schema", body["model"], format)
 		}
 		if artifact, _ := os.ReadFile(out); !strings.Contains(string(artifact), "1\n00:00:00,000 --> 00:00:02,000\nSpeaker 1: Hello.") {
 			t.Errorf("artifact = %q, want an SRT cue from the structured segments", artifact)
@@ -744,14 +786,15 @@ func TestTranscribeRequestAndArtifact(t *testing.T) {
 				t.Errorf("stdout = %q, want %q", result.stdout, out)
 			}
 
-			if stub.body["stream"] != false {
-				t.Errorf("stream = %v, want false", stub.body["stream"])
+			body := stub.requestBody(t)
+			if body["stream"] != false {
+				t.Errorf("stream = %v, want false", body["stream"])
 			}
-			assertNotStored(t, stub.body)
-			if _, deprecated := stub.body["response_mime_type"]; deprecated {
+			assertNotStored(t, body)
+			if _, deprecated := body["response_mime_type"]; deprecated {
 				t.Error("request uses the deprecated response_mime_type")
 			}
-			format, hasFormat := stub.body["response_format"].(map[string]any)
+			format, hasFormat := body["response_format"].(map[string]any)
 			if tt.wantNoSchema {
 				if hasFormat {
 					t.Errorf("unstructured format sent response_format: %v", format)
@@ -1588,5 +1631,58 @@ func TestOptInLiveSmokeDefaultV1AndV1Beta(t *testing.T) {
 				t.Errorf("live smoke (%s) stdout = %q, want mention of Paris", tc.name, res.stdout)
 			}
 		})
+	}
+}
+
+// TestInteractionStubConcurrentBodySnapshot verifies that interactionStub
+// publishes request bodies atomically with its request counter and returns
+// independent snapshots safe for concurrent readers and writers under -race.
+func TestInteractionStubConcurrentBodySnapshot(t *testing.T) {
+	stub := newInteractionStub(t, completedInteraction("ok", ""))
+	const workers = 8
+	const iterations = 10
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				payload := fmt.Sprintf(`{"model":"gemini-3.8-flash","store":false,"input":[{"type":"user_input","content":[{"type":"text","text":"w-%d-%d"}]}],"generation_config":{"speech_config":[{"voice":"Kore"}]}}`, worker, i)
+				resp, err := http.Post(stub.URL+"/v1beta/interactions", "application/json", strings.NewReader(payload))
+				if err != nil {
+					t.Errorf("post failed: %v", err)
+					return
+				}
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+
+				if stub.requests.Load() < 1 {
+					t.Errorf("requests count = %d after completed POST, want >= 1", stub.requests.Load())
+				}
+				snap := stub.requestBody(t)
+				if snap == nil {
+					t.Errorf("requestBody returned nil after completed POST")
+					continue
+				}
+				// Mutating the returned snapshot and its nested values must not
+				// race with concurrent handler writes or other readers.
+				snap["model"] = "mutated"
+				if gen, ok := snap["generation_config"].(map[string]any); ok {
+					gen["mutated"] = true
+				}
+				parts := stub.inputParts(t)
+				parts[0]["text"] = "mutated"
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	if got, want := stub.requests.Load(), int32(workers*iterations); got != want {
+		t.Fatalf("requests = %d, want %d", got, want)
+	}
+	final := stub.requestBody(t)
+	if final["model"] != "gemini-3.8-flash" {
+		t.Fatalf("final snapshot model = %v, want unmutated gemini-3.8-flash", final["model"])
 	}
 }
