@@ -21,7 +21,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -334,5 +336,146 @@ func TestEnvironmentsRuntimeDualEnvCredentials(t *testing.T) {
 				t.Errorf("runCLI(%v) dry-run leaked raw secret in stdout: %s", cliArgs, res.stdout)
 			}
 		})
+	}
+}
+
+func TestEnvironmentsCreateAndConnect(t *testing.T) {
+	var (
+		mu             sync.Mutex
+		createBody     map[string]any
+		createCalls    int
+		leaseEnvKeyHdr []string
+		leaseCalls     atomic.Int32
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/environments":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode create body: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			createCalls++
+			createBody = body
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"id":"env_1","mode":"self_hosted","environment_key":"ek_e2e_123"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/environments:leaseInteractions":
+			hdr := r.Header.Get("x-goog-environment-key")
+			mu.Lock()
+			leaseEnvKeyHdr = append(leaseEnvKeyHdr, hdr)
+			mu.Unlock()
+			if leaseCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprint(w, `{"leases":[]}`)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":{"code":404,"message":"environment gone"}}`)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	env := map[string]string{
+		"GEMINI_NO_KEYRING": "true",
+		"GEMINI_API_KEY":    "api_key_test",
+	}
+
+	// 1. Create a self-hosted environment and extract environment_key via --jq.
+	createArgs := append(baseArgs(server.URL),
+		"environments", "create",
+		"--mode", "self_hosted",
+		"--system-instruction", "Be concise.",
+		"--custom-config", `{"team":"a"}`,
+		"--jq", ".environment_key",
+	)
+	createRes := runCLI(t, t.TempDir(), env, createArgs...)
+	if createRes.err != nil {
+		t.Fatalf("environments create failed: %v\nstdout: %s\nstderr: %s", createRes.err, createRes.stdout, createRes.stderr)
+	}
+	mu.Lock()
+	gotCreateCalls := createCalls
+	gotCreateBody := createBody
+	mu.Unlock()
+	if gotCreateCalls != 1 {
+		t.Fatalf("POST /v1beta/environments calls = %d, want 1", gotCreateCalls)
+	}
+	envKey := strings.TrimSpace(createRes.stdout)
+	if envKey != "ek_e2e_123" {
+		t.Fatalf("create --jq .environment_key = %q, want %q", envKey, "ek_e2e_123")
+	}
+	if got := gotCreateBody["mode"]; got != "self_hosted" {
+		t.Errorf("create request body mode = %#v, want %q", got, "self_hosted")
+	}
+	if got := gotCreateBody["system_instruction"]; got != "Be concise." {
+		t.Errorf("create request body system_instruction = %#v, want %q", got, "Be concise.")
+	}
+	wantCustomConfig := map[string]any{"team": "a"}
+	if got := gotCreateBody["custom_config"]; !reflect.DeepEqual(got, wantCustomConfig) {
+		t.Errorf("create request body custom_config = %#v, want %#v", got, wantCustomConfig)
+	}
+
+	sandboxDir := t.TempDir()
+
+	// 2a. Verify dry-run connect carries x-goog-environment-key and redacts secrets.
+	dryRunArgs := append(baseArgs(server.URL),
+		"--dry-run",
+		"environments", "connect",
+		"--environment-key", envKey,
+		"--root-dir", sandboxDir,
+		"--workdir", sandboxDir,
+	)
+	dryRunRes := runCLI(t, t.TempDir(), env, dryRunArgs...)
+	if dryRunRes.err != nil {
+		t.Fatalf("environments connect --dry-run failed: %v\nstderr: %s", dryRunRes.err, dryRunRes.stderr)
+	}
+	if got := leaseCalls.Load(); got != 0 {
+		t.Fatalf("dry-run leaseInteractions call count = %d, want 0", got)
+	}
+	reqPreview := parseDryRunRequest(t, dryRunRes.stdout)
+	hdrs, _ := reqPreview["headers"].(map[string]any)
+	var gotPreviewEnvKey string
+	for k, v := range hdrs {
+		if strings.EqualFold(k, "x-goog-environment-key") {
+			gotPreviewEnvKey = fmt.Sprint(v)
+		}
+	}
+	if gotPreviewEnvKey == "" || !strings.Contains(gotPreviewEnvKey, "REDACTED") {
+		t.Errorf("dry-run x-goog-environment-key = %q (headers=%v), want redacted value", gotPreviewEnvKey, hdrs)
+	}
+	if strings.Contains(dryRunRes.stdout, envKey) || strings.Contains(dryRunRes.stderr, envKey) ||
+		strings.Contains(dryRunRes.stdout, "api_key_test") || strings.Contains(dryRunRes.stderr, "api_key_test") {
+		t.Errorf("dry-run leaked raw secret\nstdout: %s\nstderr: %s", dryRunRes.stdout, dryRunRes.stderr)
+	}
+
+	// 2b. Connect against the same server and verify x-goog-environment-key on every leaseInteractions call.
+	connectArgs := append(baseArgs(server.URL),
+		"environments", "connect",
+		"--environment-key", envKey,
+		"--root-dir", sandboxDir,
+		"--workdir", sandboxDir,
+		"--poll-interval", "10ms",
+	)
+	connectRes := runCLI(t, t.TempDir(), env, connectArgs...)
+	if got := exitCode(t, connectRes); got != 1 {
+		t.Errorf("environments connect exit code = %d, want 1 after 404 stop\nstdout: %s\nstderr: %s", got, connectRes.stdout, connectRes.stderr)
+	}
+	if got := leaseCalls.Load(); got != 2 {
+		t.Errorf("leaseInteractions call count = %d, want 2", got)
+	}
+	mu.Lock()
+	gotLeaseHdrs := append([]string(nil), leaseEnvKeyHdr...)
+	mu.Unlock()
+	for i, hdr := range gotLeaseHdrs {
+		if hdr != envKey {
+			t.Errorf("leaseInteractions call %d x-goog-environment-key = %q, want %q", i, hdr, envKey)
+		}
 	}
 }
