@@ -29,12 +29,13 @@ import (
 const outcomeAnnotation = "speakeasy_outcome"
 
 type outcomeConfig struct {
-	StatePointer       string            `json:"statePointer"`
-	StreamStatePointer string            `json:"streamStatePointer"`
-	States             map[string]string `json:"states"`
-	ErrorPointer       string            `json:"errorPointer"`
-	StreamErrorPointer string            `json:"streamErrorPointer"`
-	ErrorMessageField  string            `json:"errorMessageField"`
+	StatePointer        string            `json:"statePointer"`
+	StreamStatePointer  string            `json:"streamStatePointer"`
+	StreamStatePointers []string          `json:"streamStatePointers"`
+	States              map[string]string `json:"states"`
+	ErrorPointer        string            `json:"errorPointer"`
+	StreamErrorPointer  string            `json:"streamErrorPointer"`
+	ErrorMessageField   string            `json:"errorMessageField"`
 }
 
 func activeOutcome(cmd *cobra.Command) *outcomeConfig {
@@ -182,7 +183,7 @@ func outcomePointer(root interface{}, pointer string) (interface{}, bool) {
 }
 
 func outcomeStreamFailure(cmd *cobra.Command, cfg *outcomeConfig, item interface{}, frame map[string]interface{}) *outcomeError {
-	if cfg == nil || cfg.StreamStatePointer == "" {
+	if cfg == nil {
 		return nil
 	}
 	var payload interface{} = frame
@@ -197,5 +198,22 @@ func outcomeStreamFailure(cmd *cobra.Command, cfg *outcomeConfig, item interface
 		}
 		payload = decoded
 	}
-	return outcomeFailure(cmd, cfg, payload, cfg.StreamStatePointer, cfg.StreamErrorPointer)
+	for _, pointer := range cfg.streamStatePointers() {
+		if value, ok := outcomePointer(payload, pointer); ok {
+			if state, ok := value.(string); ok && state != "" {
+				return outcomeFailure(cmd, cfg, payload, pointer, cfg.StreamErrorPointer)
+			}
+		}
+	}
+	return nil
+}
+
+func (cfg *outcomeConfig) streamStatePointers() []string {
+	if len(cfg.StreamStatePointers) > 0 {
+		return cfg.StreamStatePointers
+	}
+	if cfg.StreamStatePointer != "" {
+		return []string{cfg.StreamStatePointer}
+	}
+	return nil
 }
