@@ -1807,7 +1807,40 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		}
 	})
 
-	t.Run("generate -b with short files/<id> under --dry-run expands URI without FilesGet", func(t *testing.T) {
+	t.Run("generate -b with short files/<id> missing mime_type under --dry-run previews FilesGet and sets document placeholder without live call", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"generate", "--dry-run", "-b", `{"input":[{"uri":"files/abc123"},{"type":"text","text":"Hi"}]}`})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 0 {
+			t.Errorf("filesGetCalls = %d, want 0 under --dry-run", filesGetCalls)
+		}
+		stderr := root.ErrOrStderr().(*bytes.Buffer).String()
+		if !strings.Contains(stderr, "GET "+srv.URL+"/v1beta/files/abc123") {
+			t.Errorf("stderr missing dry-run GET preview; got:\n%s", stderr)
+		}
+		if !strings.Contains(stderr, `[DRY-RUN] uri "files/abc123": the file's URI and MIME type come from the files.get response; the previewed block is a placeholder.`) {
+			t.Errorf("stderr missing placeholder note; got:\n%s", stderr)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		docPart, _ := inputs[0].(map[string]any)
+		if docPart["type"] != "document" || docPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
+			t.Errorf("docPart = %+v, want placeholder type=document and full v1beta files URI", docPart)
+		}
+		if _, hasMime := docPart["mime_type"]; hasMime {
+			t.Errorf("docPart unexpectedly has mime_type in placeholder: %+v", docPart)
+		}
+	})
+
+	t.Run("generate -b with short files/<id> and supplied type missing mime_type under --dry-run previews FilesGet and preserves caller type", func(t *testing.T) {
 		filesGetCalls = 0
 		var gotBody string
 		var gotArgs []string
@@ -1819,14 +1852,51 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 		if filesGetCalls != 0 {
 			t.Errorf("filesGetCalls = %d, want 0 under --dry-run", filesGetCalls)
 		}
+		stderr := root.ErrOrStderr().(*bytes.Buffer).String()
+		if !strings.Contains(stderr, "GET "+srv.URL+"/v1beta/files/abc123") {
+			t.Errorf("stderr missing dry-run GET preview; got:\n%s", stderr)
+		}
+		if !strings.Contains(stderr, `[DRY-RUN] uri "files/abc123": the file's URI and MIME type come from the files.get response; the previewed block is a placeholder.`) {
+			t.Errorf("stderr missing placeholder note; got:\n%s", stderr)
+		}
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
 			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
 		}
 		inputs, _ := parsed["input"].([]any)
 		imgPart, _ := inputs[0].(map[string]any)
-		if imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
-			t.Errorf("uri = %v, want full v1beta files URI", imgPart["uri"])
+		if imgPart["type"] != "image" || imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
+			t.Errorf("imgPart = %+v, want caller type=image preserved and full v1beta files URI", imgPart)
+		}
+		if _, hasMime := imgPart["mime_type"]; hasMime {
+			t.Errorf("imgPart unexpectedly has mime_type in dry-run preview: %+v", imgPart)
+		}
+	})
+
+	t.Run("generate -b with short files/<id> and supplied mime_type under --dry-run expands URI without FilesGet preview", func(t *testing.T) {
+		filesGetCalls = 0
+		var gotBody string
+		var gotArgs []string
+		root := newTestTree(&gotBody, &gotArgs)
+		root.SetArgs([]string{"generate", "--dry-run", "-b", `{"input":[{"uri":"files/abc123","mime_type":"image/png"}]}`})
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if filesGetCalls != 0 {
+			t.Errorf("filesGetCalls = %d, want 0 under --dry-run", filesGetCalls)
+		}
+		stderr := root.ErrOrStderr().(*bytes.Buffer).String()
+		if strings.Contains(stderr, "/v1beta/files/abc123") {
+			t.Errorf("stderr unexpectedly previewed files.get when mime_type was supplied:\n%s", stderr)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &parsed); err != nil {
+			t.Fatalf("Unmarshal body %q: %v", gotBody, err)
+		}
+		inputs, _ := parsed["input"].([]any)
+		imgPart, _ := inputs[0].(map[string]any)
+		if imgPart["type"] != "image" || imgPart["mime_type"] != "image/png" || imgPart["uri"] != "https://generativelanguage.googleapis.com/v1beta/files/abc123" {
+			t.Errorf("imgPart = %+v, want type=image, mime_type=image/png, and full v1beta files URI", imgPart)
 		}
 	})
 

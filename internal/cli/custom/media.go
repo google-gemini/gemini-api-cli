@@ -1279,24 +1279,6 @@ func normalizeContentObjectURI(cmd *cobra.Command, s **sdk.GeminiAPI, obj map[st
 	existingType, _ := obj["type"].(string)
 	existingType = strings.TrimSpace(existingType)
 
-	if isDryRun(cmd) {
-		if rewrite {
-			obj["uri"] = expandedFilesURI(cmd, name)
-		}
-		if existingMime != "" {
-			canonMime := canonicalRemoteMIME(existingMime)
-			if err := checkRemoteMIME(canonMime, ref, analyzePolicy); err != nil {
-				return err
-			}
-			obj["mime_type"] = canonMime
-			if existingType == "" {
-				blk := mediaContentBlock(canonMime, expandedFilesURI(cmd, name), false)
-				obj["type"] = string(blk.Type)
-			}
-		}
-		return nil
-	}
-
 	if existingMime == "" {
 		if *s == nil {
 			var err error

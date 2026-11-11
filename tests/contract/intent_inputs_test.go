@@ -588,3 +588,229 @@ func TestIntentBlankModelFlagRejected(t *testing.T) {
 		}
 	})
 }
+
+// TestIntentBodyFileURIDryRunAndLiveResolution verifies that body/stdin file
+// URIs without mime_type preview the metadata GET followed by the interaction
+// POST with placeholder document blocks under --dry-run (making zero network
+// calls), match -i files/<id>, skip the GET when mime_type is supplied, and
+// resolve concrete type/mime_type from files.get on non-dry-run requests.
+func TestIntentBodyFileURIDryRunAndLiveResolution(t *testing.T) {
+	var sinkCalls atomic.Int32
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sinkCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer sink.Close()
+
+	const missingMimeBody = `{"input":[{"uri":"files/abc123def456"},{"type":"text","text":"Hi"}]}`
+	const missingMimeStepBody = `{"input":[{"type":"user_input","content":[{"uri":"files/abc123def456"},{"type":"text","text":"Hi"}]}]}`
+
+	extractContentParts := func(t *testing.T, body map[string]any) []map[string]any {
+		t.Helper()
+		raw, ok := body["input"].([]any)
+		if !ok || len(raw) == 0 {
+			t.Fatalf("request input = %#v, want non-empty array", body["input"])
+		}
+		if first, ok := raw[0].(map[string]any); ok && first["type"] == "user_input" {
+			return assertUserInputStepParts(t, body)
+		}
+		parts := make([]map[string]any, 0, len(raw))
+		for i, item := range raw {
+			m, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("request input[%d] = %#v, want object", i, item)
+			}
+			parts = append(parts, m)
+		}
+		return parts
+	}
+
+	assertTwoStepPreview := func(t *testing.T, stdout string) (map[string]any, map[string]any) {
+		t.Helper()
+		lines := strings.Split(strings.TrimSpace(stdout), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("dry-run JSON lines = %d, want 2 (files.get + interactions):\n%s", len(lines), stdout)
+		}
+		var getEnv, postEnv map[string]any
+		if err := json.Unmarshal([]byte(lines[0]), &getEnv); err != nil {
+			t.Fatalf("decode line 1: %v\n%s", err, lines[0])
+		}
+		if err := json.Unmarshal([]byte(lines[1]), &postEnv); err != nil {
+			t.Fatalf("decode line 2: %v\n%s", err, lines[1])
+		}
+		getReq, _ := getEnv["request"].(map[string]any)
+		if getReq["method"] != "GET" || getReq["url"] != sink.URL+"/v1beta/files/abc123def456" {
+			t.Errorf("step 1 request = %#v, want GET %s/v1beta/files/abc123def456", getReq, sink.URL)
+		}
+		postReq, _ := postEnv["request"].(map[string]any)
+		if postReq["method"] != "POST" || postReq["url"] != sink.URL+"/v1beta/interactions" {
+			t.Errorf("step 2 request = %#v, want POST %s/v1beta/interactions", postReq, sink.URL)
+		}
+		body, _ := postReq["body"].(map[string]any)
+		parts := extractContentParts(t, body)
+		wantParts := []map[string]any{
+			{"type": "document", "uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123def456"},
+			{"type": "text", "text": "Hi"},
+		}
+		if !reflect.DeepEqual(parts, wantParts) {
+			t.Errorf("previewed input parts = %#v, want %#v", parts, wantParts)
+		}
+		return getEnv, postEnv
+	}
+
+	t.Run("generate --body matches -i files/<id> in machine dry-run", func(t *testing.T) {
+		before := sinkCalls.Load()
+		bodyRes := runCLI(t, t.TempDir(), nil, append(baseArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "--body", missingMimeBody)...)
+		if bodyRes.err != nil {
+			t.Fatalf("generate --body dry-run failed: %v\nstderr: %s", bodyRes.err, bodyRes.stderr)
+		}
+		stepBodyRes := runCLI(t, t.TempDir(), nil, append(baseArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "--body", missingMimeStepBody)...)
+		if stepBodyRes.err != nil {
+			t.Fatalf("generate step --body dry-run failed: %v\nstderr: %s", stepBodyRes.err, stepBodyRes.stderr)
+		}
+		flagRes := runCLI(t, t.TempDir(), nil, append(baseArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "Hi", "-i", "files/abc123def456")...)
+		if flagRes.err != nil {
+			t.Fatalf("generate -i dry-run failed: %v\nstderr: %s", flagRes.err, flagRes.stderr)
+		}
+		bodyGet, _ := assertTwoStepPreview(t, bodyRes.stdout)
+		_, _ = assertTwoStepPreview(t, stepBodyRes.stdout)
+		flagGet, _ := assertTwoStepPreview(t, flagRes.stdout)
+		if !reflect.DeepEqual(bodyGet, flagGet) {
+			t.Errorf("--body GET preview != -i GET preview:\n--body: %#v\n-i: %#v", bodyGet, flagGet)
+		}
+		if stepBodyRes.stdout != flagRes.stdout {
+			t.Errorf("step --body preview != -i preview:\n--body:\n%s\n-i:\n%s", stepBodyRes.stdout, flagRes.stdout)
+		}
+		if got := sinkCalls.Load() - before; got != 0 {
+			t.Errorf("sink received %d calls during dry-run, want 0", got)
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		stdin string
+		args  []string
+	}{
+		{name: "image --body", args: []string{"image", "--body", missingMimeBody}},
+		{name: "video --body", args: []string{"video", "--body", missingMimeBody}},
+		{name: "agent run --body", args: []string{"agent", "run", "--body", missingMimeBody}},
+		{name: "generate piped stdin", stdin: missingMimeBody, args: []string{"generate"}},
+		{name: "agent run piped stdin", stdin: missingMimeBody, args: []string{"agent", "run"}},
+	} {
+		t.Run("machine dry-run "+tc.name, func(t *testing.T) {
+			before := sinkCalls.Load()
+			args := append(append(baseArgs(sink.URL), "--api-key", "test", "--dry-run"), tc.args...)
+			var res commandResult
+			if tc.stdin != "" {
+				res = runCLIWithStdin(t, t.TempDir(), nil, tc.stdin, args...)
+			} else {
+				res = runCLI(t, t.TempDir(), nil, args...)
+			}
+			if res.err != nil {
+				t.Fatalf("%s dry-run failed: %v\nstderr: %s", tc.name, res.err, res.stderr)
+			}
+			_, _ = assertTwoStepPreview(t, res.stdout)
+			if got := sinkCalls.Load() - before; got != 0 {
+				t.Errorf("sink received %d calls during dry-run, want 0", got)
+			}
+		})
+	}
+
+	t.Run("human dry-run previews GET, placeholder note, and POST with zero network calls", func(t *testing.T) {
+		before := sinkCalls.Load()
+		args := append(humanArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "--body", missingMimeBody)
+		res := runCLI(t, t.TempDir(), nil, args...)
+		if res.err != nil {
+			t.Fatalf("human dry-run failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		for _, want := range []string{
+			"GET " + sink.URL + "/v1beta/files/abc123def456",
+			`[DRY-RUN] uri "files/abc123def456": the file's URI and MIME type come from the files.get response; the previewed block is a placeholder.`,
+			"POST " + sink.URL + "/v1beta/interactions",
+			`"type": "document"`,
+			`"uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123def456"`,
+		} {
+			if !strings.Contains(res.stderr, want) {
+				t.Errorf("human dry-run stderr missing %q:\n%s", want, res.stderr)
+			}
+		}
+		if got := sinkCalls.Load() - before; got != 0 {
+			t.Errorf("sink received %d calls during human dry-run, want 0", got)
+		}
+	})
+
+	t.Run("supplied MIME controls skip GET preview and preserve validation", func(t *testing.T) {
+		before := sinkCalls.Load()
+		const suppliedBody = `{"input":[{"uri":"files/abc123def456","mime_type":"application/pdf"},{"type":"text","text":"Hi"}]}`
+		res := runCLI(t, t.TempDir(), nil, append(baseArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "--body", suppliedBody)...)
+		if res.err != nil {
+			t.Fatalf("supplied MIME dry-run failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("supplied MIME dry-run lines = %d, want 1 (POST only):\n%s", len(lines), res.stdout)
+		}
+		parts := extractContentParts(t, parseDryRunBody(t, res.stdout))
+		want := []map[string]any{
+			{"type": "document", "mime_type": "application/pdf", "uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123def456"},
+			{"type": "text", "text": "Hi"},
+		}
+		if !reflect.DeepEqual(parts, want) {
+			t.Errorf("supplied MIME parts = %#v, want %#v", parts, want)
+		}
+
+		const badMimeBody = `{"input":[{"uri":"files/abc123def456","mime_type":"application/rtf"},{"type":"text","text":"Hi"}]}`
+		badRes := runCLI(t, t.TempDir(), nil, append(baseArgs(sink.URL), "--api-key", "test", "--dry-run", "generate", "--body", badMimeBody)...)
+		if code := exitCode(t, badRes); code != 2 {
+			t.Fatalf("invalid MIME exit code = %d, want 2\nstderr: %s", code, badRes.stderr)
+		}
+		if env := decodeEnvelope(t, badRes.stderr); env.ErrorReason != "CLI_VALIDATION" {
+			t.Errorf("error_reason = %q, want CLI_VALIDATION", env.ErrorReason)
+		}
+		if got := sinkCalls.Load() - before; got != 0 {
+			t.Errorf("sink received %d calls, want 0", got)
+		}
+	})
+
+	t.Run("runtime mock resolves concrete type and mime_type instead of placeholder", func(t *testing.T) {
+		var getCalls, postCalls atomic.Int32
+		postBodies := make(chan []byte, 1)
+		mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v1beta/files/abc123def456":
+				getCalls.Add(1)
+				fmt.Fprint(w, `{"name":"files/abc123def456","uri":"https://generativelanguage.googleapis.com/v1beta/files/abc123def456","mimeType":"image/png","state":"ACTIVE"}`)
+			case r.Method == http.MethodPost && r.URL.Path == "/v1beta/interactions":
+				postCalls.Add(1)
+				b, _ := io.ReadAll(r.Body)
+				postBodies <- b
+				fmt.Fprint(w, `{"id":"int-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}`)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer mock.Close()
+
+		args := append(baseArgs(mock.URL), "--api-key", "test", "generate", "--stream=false", "--body", missingMimeBody)
+		res := runCLI(t, t.TempDir(), nil, args...)
+		if res.err != nil {
+			t.Fatalf("runtime mock generate failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		if getCalls.Load() != 1 || postCalls.Load() != 1 {
+			t.Fatalf("getCalls=%d postCalls=%d, want 1 and 1", getCalls.Load(), postCalls.Load())
+		}
+		var sentBody map[string]any
+		if err := json.Unmarshal(<-postBodies, &sentBody); err != nil {
+			t.Fatalf("decode sent interaction body: %v", err)
+		}
+		parts := extractContentParts(t, sentBody)
+		want := []map[string]any{
+			{"type": "image", "mime_type": "image/png", "uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123def456"},
+			{"type": "text", "text": "Hi"},
+		}
+		if !reflect.DeepEqual(parts, want) {
+			t.Errorf("live interaction input parts = %#v, want resolved image/png block %#v", parts, want)
+		}
+	})
+}
