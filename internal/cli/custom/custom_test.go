@@ -1362,8 +1362,11 @@ func TestEnvironmentFilesDownload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// 1. Default output path (./<basename>) in working directory.
+	// 1. Default output path (./<basename>) in working directory resolves to an absolute path.
 	workDir := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
@@ -1382,10 +1385,11 @@ func TestEnvironmentFilesDownload(t *testing.T) {
 	if gotQuery != "alt=media" {
 		t.Errorf("query = %q, want alt=media", gotQuery)
 	}
-	if got := stdout.String(); got != "./logo.png\n" {
-		t.Errorf("stdout = %q, want ./logo.png\\n", got)
+	wantDefaultOut := filepath.Join(workDir, "logo.png")
+	if got := stdout.String(); got != wantDefaultOut+"\n" {
+		t.Errorf("stdout = %q, want %q", got, wantDefaultOut+"\n")
 	}
-	diskBytes, err := os.ReadFile(filepath.Join(workDir, "logo.png"))
+	diskBytes, err := os.ReadFile(wantDefaultOut)
 	if err != nil {
 		t.Fatalf("ReadFile default: %v", err)
 	}
@@ -1393,10 +1397,13 @@ func TestEnvironmentFilesDownload(t *testing.T) {
 		t.Errorf("downloaded bytes mismatch: got %v, want %v", diskBytes, binaryContent)
 	}
 
-	// 2. --out <existing-directory> writes <dir>/<basename>.
+	// 2. --out <existing-directory> writes <dir>/<basename> and reports the absolute path.
 	outDir := filepath.Join(t.TempDir(), "downloads")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(outDir); err == nil {
+		outDir = resolved
 	}
 	root2, stdout2, _ := newTestEnvironmentFilesRoot(srv.URL)
 	root2.SetArgs([]string{"environments", "files", "download", "environments/env_abc123", "/src/logo.png", "--out", outDir})
@@ -1410,6 +1417,63 @@ func TestEnvironmentFilesDownload(t *testing.T) {
 	dirDiskBytes, err := os.ReadFile(wantDirOut)
 	if err != nil || !bytes.Equal(dirDiskBytes, binaryContent) {
 		t.Errorf("ReadFile(%q) = %v, %v", wantDirOut, dirDiskBytes, err)
+	}
+
+	// 3. --out ./, relative filename, and absolute filename report matching absolute paths in human and JSON modes.
+	for _, tc := range []struct {
+		name    string
+		outArg  string
+		wantAbs string
+	}{
+		{
+			name:    "dot-slash directory",
+			outArg:  "./",
+			wantAbs: filepath.Join(workDir, "logo.png"),
+		},
+		{
+			name:    "relative filename",
+			outArg:  filepath.Join("rel", "nested-logo.png"),
+			wantAbs: filepath.Join(workDir, "rel", "nested-logo.png"),
+		},
+		{
+			name:    "absolute filename",
+			outArg:  filepath.Join(outDir, "explicit-logo.png"),
+			wantAbs: filepath.Join(outDir, "explicit-logo.png"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			humanRoot, humanOut, _ := newTestEnvironmentFilesRoot(srv.URL)
+			args := []string{"environments", "files", "download", "env_abc123", "src/logo.png", "--out", tc.outArg}
+			output.PreparseRenderingFlags(humanRoot, args)
+			humanRoot.SetArgs(args)
+			if err := humanRoot.Execute(); err != nil {
+				t.Fatalf("human Execute failed: %v", err)
+			}
+			gotHuman := strings.TrimSpace(humanOut.String())
+			if gotHuman != tc.wantAbs {
+				t.Errorf("human stdout = %q, want %q", gotHuman, tc.wantAbs)
+			}
+
+			jsonRoot, jsonOut, _ := newTestEnvironmentFilesRoot(srv.URL)
+			jsonArgs := []string{"environments", "files", "download", "env_abc123", "src/logo.png", "--out", tc.outArg, "-o", "json"}
+			output.PreparseRenderingFlags(jsonRoot, jsonArgs)
+			defer output.PreparseRenderingFlags(jsonRoot, nil)
+			jsonRoot.SetArgs(jsonArgs)
+			if err := jsonRoot.Execute(); err != nil {
+				t.Fatalf("json Execute failed: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(jsonOut.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal json output: %v\nraw: %s", err, jsonOut.String())
+			}
+			if gotJSONPath, _ := payload["output_path"].(string); gotJSONPath != tc.wantAbs || gotJSONPath != gotHuman {
+				t.Errorf("json output_path = %q, human = %q, want %q", gotJSONPath, gotHuman, tc.wantAbs)
+			}
+			gotBytes, err := os.ReadFile(tc.wantAbs)
+			if err != nil || !bytes.Equal(gotBytes, binaryContent) {
+				t.Errorf("ReadFile(%q) = %v, %v", tc.wantAbs, gotBytes, err)
+			}
+		})
 	}
 }
 
@@ -1480,6 +1544,71 @@ func TestEnvironmentFilesValidationAndDirectoryErrors(t *testing.T) {
 			name:    "download server 400 directory error rejected with list --recursive hint",
 			args:    []string{"environments", "files", "download", "env_abc123", "dir400"},
 			wantSub: "list --environment env_abc123 --path dir400 --recursive",
+		},
+		{
+			name:    "upload positional and --environment collision",
+			args:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "-e", "env_demo"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload positional and --file collision",
+			args:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "-f", "sample.txt"},
+			wantSub: "pass file once: as the <local-file> argument or via --file, not both",
+		},
+		{
+			name:    "upload single positional and both flags with file collision",
+			args:    []string{"environments", "files", "upload", "sample.txt", "-e", "env_demo", "-f", "sample.txt"},
+			wantSub: "pass file once: as the <local-file> argument or via --file, not both",
+		},
+		{
+			name:    "upload single positional and both flags with environment collision",
+			args:    []string{"environments", "files", "upload", "env_demo", "-e", "env_demo", "-f", "sample.txt"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload single distinct positional and both flags reports environment collision",
+			args:    []string{"environments", "files", "upload", "env_other", "-e", "env_demo", "-f", "sample.txt"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload single positional matching both identical flags reports environment collision",
+			args:    []string{"environments", "files", "upload", "same", "-e", "same", "-f", "same"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload two positionals matching second flag with both flags reports environment collision",
+			args:    []string{"environments", "files", "upload", "sample.txt", "sample.txt", "-e", "env_demo", "-f", "sample.txt"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload genuine excess arguments",
+			args:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "extra.txt"},
+			wantSub: "accepts 2 arguments (<environment> <local-file>), received 3",
+		},
+		{
+			name:    "download positional and --environment collision",
+			args:    []string{"environments", "files", "download", "env_demo", "remote.txt", "-e", "env_demo"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "download positional and --path collision",
+			args:    []string{"environments", "files", "download", "env_demo", "remote.txt", "-p", "remote.txt"},
+			wantSub: "pass path once: as the <path> argument or via --path, not both",
+		},
+		{
+			name:    "download single positional and both flags with path collision",
+			args:    []string{"environments", "files", "download", "remote.txt", "-e", "env_demo", "-p", "remote.txt"},
+			wantSub: "pass path once: as the <path> argument or via --path, not both",
+		},
+		{
+			name:    "download single positional and both flags with environment collision",
+			args:    []string{"environments", "files", "download", "env_demo", "-e", "env_demo", "-p", "remote.txt"},
+			wantSub: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "download genuine excess arguments",
+			args:    []string{"environments", "files", "download", "env_demo", "remote.txt", "extra.txt"},
+			wantSub: "accepts 2 arguments (<environment> <path>), received 3",
 		},
 	}
 

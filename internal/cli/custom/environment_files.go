@@ -75,6 +75,9 @@ func newEnvironmentFilesUploadCmd() *cobra.Command {
 			}
 			env, localFile, extra := resolveEnvUploadArgs(args, envFlag, fileFlag)
 			if extra {
+				if err := envTwoArgCollision(args, envFlag, fileFlag, "file", "<local-file>"); err != nil {
+					return err
+				}
 				return usageError(fmt.Sprintf("accepts 2 arguments (<environment> <local-file>), received %d", len(args)))
 			}
 			if env == "" {
@@ -131,6 +134,9 @@ func newEnvironmentFilesDownloadCmd() *cobra.Command {
 			}
 			env, remotePath, extra := resolveEnvDownloadArgs(args, envFlag, pathFlag)
 			if extra {
+				if err := envTwoArgCollision(args, envFlag, pathFlag, "path", "<path>"); err != nil {
+					return err
+				}
 				return usageError(fmt.Sprintf("accepts 2 arguments (<environment> <path>), received %d", len(args)))
 			}
 			if env == "" {
@@ -206,6 +212,19 @@ func resolveEnvDownloadArgs(args []string, envFlag, pathFlag string) (env, remot
 	default:
 		return env, remotePath, true
 	}
+}
+
+func envTwoArgCollision(args []string, envFlag, secondFlag, secondFlagName, secondArgPlaceholder string) error {
+	if len(args) > 2 {
+		return nil
+	}
+	if strings.TrimSpace(envFlag) == "" {
+		return usageError(fmt.Sprintf("pass %s once: as the %s argument or via --%s, not both", secondFlagName, secondArgPlaceholder, secondFlagName))
+	}
+	if len(args) == 1 && strings.TrimSpace(args[0]) == strings.TrimSpace(secondFlag) && strings.TrimSpace(args[0]) != strings.TrimSpace(envFlag) {
+		return usageError(fmt.Sprintf("pass %s once: as the %s argument or via --%s, not both", secondFlagName, secondArgPlaceholder, secondFlagName))
+	}
+	return usageError("pass environment once: as the <environment> argument or via --environment, not both")
 }
 
 func runEnvironmentFilesUpload(cmd *cobra.Command, envRaw, localFile, pathFlag, mimeFlag string, overwriteFlag, extractFlag bool) error {
@@ -464,7 +483,10 @@ func runEnvironmentFilesDownload(cmd *cobra.Command, envRaw, rawPath, outFlag st
 		bodyReader = io.MultiReader(bytes.NewReader(sniff), res.Body)
 	}
 
-	localPath := resolveEnvironmentDownloadPath(outFlag, filepath.Base(cleanPath))
+	localPath, err := resolveEnvironmentDownloadPath(outFlag, filepath.Base(cleanPath))
+	if err != nil {
+		return err
+	}
 	written, err := writeArtifactStream(localPath, bodyReader, cleanPath)
 	if err != nil {
 		return output.Error(cmd, err)
@@ -505,15 +527,22 @@ func writeArtifactStream(path string, r io.Reader, cleanPath string) (int64, err
 	return written, nil
 }
 
-func resolveEnvironmentDownloadPath(outFlag, basename string) string {
+func resolveEnvironmentDownloadPath(outFlag, basename string) (string, error) {
 	out := strings.TrimSpace(outFlag)
-	if out == "" {
-		return "./" + basename
+	var dest string
+	switch {
+	case out == "":
+		dest = "./" + basename
+	case namesDirectory(out):
+		dest = filepath.Join(out, basename)
+	default:
+		dest = out
 	}
-	if namesDirectory(out) {
-		return filepath.Join(out, basename)
+	abs, err := filepath.Abs(dest)
+	if err != nil {
+		return "", usageError(fmt.Sprintf("cannot resolve --out %q: %v", out, err))
 	}
-	return out
+	return abs, nil
 }
 
 func directoryDownloadErrorMsg(envID, rawPath string) string {

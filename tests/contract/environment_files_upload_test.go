@@ -15,6 +15,8 @@
 package contract_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -341,5 +343,262 @@ func TestEnvironmentFilesHeadersTimeoutAndServerURLValidation(t *testing.T) {
 				t.Errorf("%v %v: exit code = %d, want 2\nstderr: %s", cmdTail[2], badFlags, code, badRes.stderr)
 			}
 		}
+	}
+}
+
+func TestEnvironmentFilesArgCollisionsAndForms(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	samplePath := filepath.Join(workDir, "sample.txt")
+	if err := os.WriteFile(samplePath, []byte("sample\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	collisionAndExcess := []struct {
+		name    string
+		tail    []string
+		wantMsg string
+	}{
+		{
+			name:    "upload positional and -e collision",
+			tail:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "-e", "env_demo", "--dry-run", "-o", "json"},
+			wantMsg: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload positional and -f collision",
+			tail:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "-f", "sample.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass file once: as the <local-file> argument or via --file, not both",
+		},
+		{
+			name:    "upload single positional with both flags (file collision)",
+			tail:    []string{"environments", "files", "upload", "sample.txt", "-e", "env_demo", "-f", "sample.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass file once: as the <local-file> argument or via --file, not both",
+		},
+		{
+			name:    "upload single positional with both flags (env collision)",
+			tail:    []string{"environments", "files", "upload", "env_demo", "-e", "env_demo", "-f", "sample.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "upload genuine excess arguments",
+			tail:    []string{"environments", "files", "upload", "env_demo", "sample.txt", "extra.txt", "--dry-run", "-o", "json"},
+			wantMsg: "accepts 2 arguments (<environment> <local-file>), received 3",
+		},
+		{
+			name:    "download positional and -p collision",
+			tail:    []string{"environments", "files", "download", "env_demo", "remote.txt", "-p", "remote.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass path once: as the <path> argument or via --path, not both",
+		},
+		{
+			name:    "download positional and -e collision",
+			tail:    []string{"environments", "files", "download", "env_demo", "remote.txt", "-e", "env_demo", "--dry-run", "-o", "json"},
+			wantMsg: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "download single positional with both flags (path collision)",
+			tail:    []string{"environments", "files", "download", "remote.txt", "-e", "env_demo", "-p", "remote.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass path once: as the <path> argument or via --path, not both",
+		},
+		{
+			name:    "download single positional with both flags (env collision)",
+			tail:    []string{"environments", "files", "download", "env_demo", "-e", "env_demo", "-p", "remote.txt", "--dry-run", "-o", "json"},
+			wantMsg: "pass environment once: as the <environment> argument or via --environment, not both",
+		},
+		{
+			name:    "download genuine excess arguments",
+			tail:    []string{"environments", "files", "download", "env_demo", "remote.txt", "extra.txt", "--dry-run", "-o", "json"},
+			wantMsg: "accepts 2 arguments (<environment> <path>), received 3",
+		},
+	}
+
+	for _, tc := range collisionAndExcess {
+		t.Run(tc.name, func(t *testing.T) {
+			res := runCLIInDir(t, t.TempDir(), workDir, nil, append(plainArgs(server.URL), tc.tail...)...)
+			if code := exitCode(t, res); code != 2 {
+				t.Fatalf("exit code = %d, want 2\nstderr: %s", code, res.stderr)
+			}
+			if res.stdout != "" {
+				t.Errorf("expected empty stdout, got %q", res.stdout)
+			}
+			var errObj struct {
+				Error       string `json:"error"`
+				ErrorReason string `json:"error_reason"`
+				ErrorType   string `json:"error_type"`
+				ExitCode    int    `json:"exit_code"`
+				Message     string `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(res.stderr), &errObj); err != nil {
+				t.Fatalf("stderr is not JSON: %v\nraw: %s", err, res.stderr)
+			}
+			if errObj.ErrorReason != "CLI_VALIDATION" {
+				t.Errorf("error_reason = %q, want CLI_VALIDATION", errObj.ErrorReason)
+			}
+			if errObj.ExitCode != 2 {
+				t.Errorf("exit_code = %d, want 2", errObj.ExitCode)
+			}
+			if !strings.Contains(errObj.Message, tc.wantMsg) || !strings.Contains(errObj.Error, tc.wantMsg) {
+				t.Errorf("message = %q (error = %q), want substring %q", errObj.Message, errObj.Error, tc.wantMsg)
+			}
+		})
+	}
+
+	validForms := []struct {
+		name string
+		tail []string
+		kind string
+	}{
+		{"upload positional-only", []string{"environments", "files", "upload", "env_demo", "sample.txt", "--dry-run", "-o", "json"}, "upload"},
+		{"upload flag-only", []string{"environments", "files", "upload", "-e", "env_demo", "-f", "sample.txt", "--dry-run", "-o", "json"}, "upload"},
+		{"upload mixed env-pos file-flag", []string{"environments", "files", "upload", "env_demo", "-f", "sample.txt", "--dry-run", "-o", "json"}, "upload"},
+		{"upload mixed env-flag file-pos", []string{"environments", "files", "upload", "-e", "env_demo", "sample.txt", "--dry-run", "-o", "json"}, "upload"},
+		{"download positional-only", []string{"environments", "files", "download", "env_demo", "remote.txt", "--dry-run", "-o", "json"}, "download"},
+		{"download flag-only", []string{"environments", "files", "download", "-e", "env_demo", "-p", "remote.txt", "--dry-run", "-o", "json"}, "download"},
+		{"download mixed env-pos path-flag", []string{"environments", "files", "download", "env_demo", "-p", "remote.txt", "--dry-run", "-o", "json"}, "download"},
+		{"download mixed env-flag path-pos", []string{"environments", "files", "download", "-e", "env_demo", "remote.txt", "--dry-run", "-o", "json"}, "download"},
+	}
+
+	for _, tc := range validForms {
+		t.Run(tc.name, func(t *testing.T) {
+			res := runCLIInDir(t, t.TempDir(), workDir, nil, append(plainArgs(server.URL), tc.tail...)...)
+			if res.err != nil {
+				t.Fatalf("dry-run failed: %v\nstderr: %s", res.err, res.stderr)
+			}
+			lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
+			if tc.kind == "upload" {
+				if len(lines) != 2 {
+					t.Fatalf("upload dry-run lines = %d, want 2:\n%s", len(lines), res.stdout)
+				}
+				var start map[string]any
+				if err := json.Unmarshal([]byte(lines[0]), &start); err != nil {
+					t.Fatalf("unmarshal upload start: %v", err)
+				}
+				req, _ := start["request"].(map[string]any)
+				if gotURL, _ := req["url"].(string); !strings.HasSuffix(gotURL, "/upload/v1beta/environments/env_demo/files/sample.txt") {
+					t.Errorf("upload start url = %q, want suffix /upload/v1beta/environments/env_demo/files/sample.txt", gotURL)
+				}
+			} else {
+				if len(lines) != 1 {
+					t.Fatalf("download dry-run lines = %d, want 1:\n%s", len(lines), res.stdout)
+				}
+				var preview map[string]any
+				if err := json.Unmarshal([]byte(lines[0]), &preview); err != nil {
+					t.Fatalf("unmarshal download preview: %v", err)
+				}
+				req, _ := preview["request"].(map[string]any)
+				if gotURL, _ := req["url"].(string); !strings.HasSuffix(gotURL, "/v1beta/environments/env_demo/files/remote.txt?alt=media") {
+					t.Errorf("download preview url = %q, want suffix /v1beta/environments/env_demo/files/remote.txt?alt=media", gotURL)
+				}
+				if _, err := os.Stat(filepath.Join(workDir, "remote.txt")); !os.IsNotExist(err) {
+					t.Errorf("download dry-run created remote.txt on disk: err=%v", err)
+				}
+			}
+		})
+	}
+
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("expected 0 network calls across all dry-run and validation checks, got %d", got)
+	}
+}
+
+func TestEnvironmentFilesDownloadOutputPathsAndValidation(t *testing.T) {
+	payload := []byte("downloaded environment file content\n")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1beta/environments/env_demo/files/dir/remote.txt" || r.URL.RawQuery != "alt=media" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	workDir := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	existingDir := filepath.Join(workDir, "existing-dir")
+	if err := os.MkdirAll(existingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	destCases := []struct {
+		name    string
+		outArgs []string
+		wantAbs string
+	}{
+		{
+			name:    "default destination",
+			outArgs: nil,
+			wantAbs: filepath.Join(workDir, "remote.txt"),
+		},
+		{
+			name:    "dot-slash destination",
+			outArgs: []string{"--out", "./"},
+			wantAbs: filepath.Join(workDir, "remote.txt"),
+		},
+		{
+			name:    "relative filename",
+			outArgs: []string{"--out", filepath.Join("sub", "rel-remote.txt")},
+			wantAbs: filepath.Join(workDir, "sub", "rel-remote.txt"),
+		},
+		{
+			name:    "absolute filename",
+			outArgs: []string{"--out", filepath.Join(workDir, "abs-remote.txt")},
+			wantAbs: filepath.Join(workDir, "abs-remote.txt"),
+		},
+		{
+			name:    "existing directory",
+			outArgs: []string{"--out", existingDir},
+			wantAbs: filepath.Join(existingDir, "remote.txt"),
+		},
+	}
+
+	for _, tc := range destCases {
+		t.Run(tc.name, func(t *testing.T) {
+			humanArgs := append(append(plainArgs(server.URL), "environments", "files", "download", "env_demo", "dir/remote.txt"), tc.outArgs...)
+			humanRes := runCLIInDir(t, t.TempDir(), workDir, nil, humanArgs...)
+			if humanRes.err != nil {
+				t.Fatalf("human download failed: %v\nstderr: %s", humanRes.err, humanRes.stderr)
+			}
+			gotHuman := strings.TrimSpace(humanRes.stdout)
+			if gotHuman != tc.wantAbs {
+				t.Errorf("human stdout = %q, want %q", gotHuman, tc.wantAbs)
+			}
+			diskBytes, err := os.ReadFile(tc.wantAbs)
+			if err != nil || !bytes.Equal(diskBytes, payload) {
+				t.Errorf("ReadFile(%q) = %q, %v; want %q", tc.wantAbs, diskBytes, err, payload)
+			}
+
+			jsonArgs := append(append([]string(nil), humanArgs...), "-o", "json")
+			jsonRes := runCLIInDir(t, t.TempDir(), workDir, nil, jsonArgs...)
+			if jsonRes.err != nil {
+				t.Fatalf("json download failed: %v\nstderr: %s", jsonRes.err, jsonRes.stderr)
+			}
+			var outEnvelope map[string]any
+			if err := json.Unmarshal([]byte(jsonRes.stdout), &outEnvelope); err != nil {
+				t.Fatalf("unmarshal json download output: %v\nraw: %s", err, jsonRes.stdout)
+			}
+			gotJSONPath, _ := outEnvelope["output_path"].(string)
+			if gotJSONPath != tc.wantAbs || gotJSONPath != gotHuman {
+				t.Errorf("json output_path = %q, human = %q, want %q", gotJSONPath, gotHuman, tc.wantAbs)
+			}
+		})
+	}
+
+	// Invalid destination error: parent path is an existing regular file.
+	blockerFile := filepath.Join(workDir, "blocker-file")
+	if err := os.WriteFile(blockerFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	badOutArgs := append(plainArgs(server.URL), "environments", "files", "download", "env_demo", "dir/remote.txt", "--out", filepath.Join(blockerFile, "out.txt"))
+	badRes := runCLIInDir(t, t.TempDir(), workDir, nil, badOutArgs...)
+	if badRes.err == nil {
+		t.Fatalf("expected invalid destination error when parent is a file, got nil")
 	}
 }
