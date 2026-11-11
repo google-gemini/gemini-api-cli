@@ -75,7 +75,7 @@ func streamResult(cmd *cobra.Command, res interface{}, streamFieldName string, h
 
 	projector := newStreamProjector(cmd)
 	outcomeCfg := activeOutcome(cmd)
-	if outcomeCfg != nil && outcomeCfg.StreamStatePointer == "" {
+	if outcomeCfg != nil && len(outcomeCfg.streamStatePointers()) == 0 {
 		outcomeCfg = nil
 	}
 	var streamFailure *outcomeError
