@@ -51,8 +51,8 @@ tools inside `/workspace`.
       -H "Content-Type: application/json" \
       -d '{"mode": "self_hosted"}'
 
-    export GEMINI_ENVIRONMENT_ID="environments/..."
-    export GEMINI_ENVIRONMENT_KEY="ek_..."
+    export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+    export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
     ```
 
 2.  Run the hardened worker container in Terminal 1 (`-e GEMINI_ENVIRONMENT_KEY`
@@ -108,11 +108,14 @@ For multi-environment fleets or stricter credential isolation, run
     export PATH="$HOME/.local/bin:$PATH"
     ```
 
-2.  In Terminal 1, export `GEMINI_API_KEY` and start `environments poll` with a
-    direct `docker run` `--provision-cmd`:
+2.  In Terminal 1, export `GEMINI_API_KEY`, clear any single-environment
+    variables from Option 1 (unless scoping the poller to a specific
+    environment), and start `environments poll` with a direct `docker run`
+    `--provision-cmd`:
 
     ```bash
     export GEMINI_API_KEY="your-api-key"
+    unset GEMINI_ENVIRONMENT_ID GEMINI_ENVIRONMENT_KEY
 
     PROVISION_CMD="$(cat <<'EOF'
     set -eu

@@ -27,8 +27,8 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 ## Quick Start
@@ -37,7 +37,7 @@ Run all steps from your host terminal in a single non-interactive command:
 
 ```bash
 modal shell --no-pty -c \
-  "curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh \
+  "apt-get update && apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh \
   | bash && PATH=\"\$HOME/.local/bin:\$PATH\" gemini-api environments connect --environment-key=$GEMINI_ENVIRONMENT_KEY"
 ```
 
@@ -48,8 +48,9 @@ the remote container before connecting:
 # 1. Open a shell inside an isolated Modal container
 modal shell
 
-# 2. Inside the Modal shell, install gemini-api and connect:
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+# 2. Inside the Modal shell, install curl and gemini-api, then connect:
+export GEMINI_ENVIRONMENT_KEY="..."
+apt-get update && apt-get install -y curl ca-certificates
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh \
   | bash
 PATH="$HOME/.local/bin:$PATH" gemini-api environments connect \

@@ -31,8 +31,8 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 2.  Once your provider worker is running `gemini-api environments connect`, send

@@ -22,7 +22,8 @@ control-plane poller + zero-secret sandbox workers** (`environments poll` +
 ## Prerequisites
 
 -   Podman 4.6+ (`podman info --format '{{.Host.Security.Rootless}}'` should
-    print `true`)
+    print `true`) with subordinate UID/GID ranges configured in `/etc/subuid`
+    and `/etc/subgid` (`uidmap` / `newuidmap`)
 -   `passt` / `pasta` installed (standard on Debian 12+, Ubuntu 24.04+, Fedora
     38+)
 -   The [`gemini-api` CLI](https://github.com/google-gemini/gemini-api-cli) on
@@ -66,8 +67,8 @@ tools inside `/workspace`.
       -H "Content-Type: application/json" \
       -d '{"mode": "self_hosted"}'
 
-    export GEMINI_ENVIRONMENT_ID="environments/..."
-    export GEMINI_ENVIRONMENT_KEY="ek_..."
+    export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+    export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
     ```
 
 2.  Run the hardened rootless worker container in Terminal 1 (`-e
@@ -90,6 +91,9 @@ tools inside `/workspace`.
       localhost/gemini-self-hosted-runtime:latest \
       environments connect --root-dir=/workspace --workdir=/workspace
     ```
+
+    *(On single-UID rootless hosts where `/etc/subuid` and `newuidmap` are not
+    available, replace `--userns=keep-id:uid=1000,gid=1000` with `--user 0:0`.)*
 
 3.  In Terminal 2, run an agent interaction targeting your environment:
 
@@ -125,11 +129,14 @@ turn:
     export PATH="$HOME/.local/bin:$PATH"
     ```
 
-2.  In Terminal 1, export `GEMINI_API_KEY` and start `environments poll` with a
-    direct `podman run` `--provision-cmd`:
+2.  In Terminal 1, export `GEMINI_API_KEY`, clear any single-environment
+    variables from Option 1 (unless scoping the poller to a specific
+    environment), and start `environments poll` with a direct `podman run`
+    `--provision-cmd`:
 
     ```bash
     export GEMINI_API_KEY="your-api-key"
+    unset GEMINI_ENVIRONMENT_ID GEMINI_ENVIRONMENT_KEY
 
     PROVISION_CMD="$(cat <<'EOF'
     set -eu

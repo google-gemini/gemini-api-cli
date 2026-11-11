@@ -37,7 +37,7 @@ sequenceDiagram
     participant Worker as Self-Hosted Worker (connect)
 
     Worker->>API: POST /v1beta/environments:leaseInteractions (GEMINI_ENVIRONMENT_KEY)
-    Client->>API: POST /v1beta/interactions (environment: environments/...)
+    Client->>API: POST /v1beta/interactions (environment: <environment_id>)
     API-->>Worker: Leased Interaction + Short-Lived Lease Token (lt_v1_...)
     loop Tool Execution Loop
         API-->>Worker: Pending Tool Call (execute_bash / read_file / edit_file)
@@ -56,9 +56,9 @@ gemini-api environments connect \
 
 -   First create a self-hosted environment (`POST /v1beta/environments` with
     `{"mode": "self_hosted"}`) using your `GEMINI_API_KEY` to obtain an `id`
-    (`environments/...`) and a scoped `environment_key` (`ek_...`). Save
-    `environment_key` immediately—the API returns it **only once at creation
-    time**.
+    (for example, `2d08f6d4-...`, with no `environments/` prefix) and a scoped
+    `environment_key`. Save `environment_key` immediately—the API returns it
+    **only once at creation time**.
 -   Pass only `GEMINI_ENVIRONMENT_KEY` (`--environment-key`) into the worker so
     your project-wide `GEMINI_API_KEY` does not need to reside inside the
     execution environment.
@@ -101,7 +101,7 @@ sequenceDiagram
     {
       "schema_version": "v1",
       "interaction_id": "int_...",
-      "environment_id": "environments/...",
+      "environment_id": "2d08f6d4-...",
       "lease_token": "lt_v1_...",
       "server_url": "https://generativelanguage.googleapis.com",
       "environment_config": {

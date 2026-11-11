@@ -55,7 +55,7 @@ RUN apt-get -o APT::Sandbox::User=root update \
     && groupadd --gid 1000 agent \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash agent \
     && mkdir -p /workspace /home/agent \
-    && chown -R 1000:1000 /workspace /home/agent
+    && (chown -R 1000:1000 /workspace /home/agent || true)
 
 COPY --from=cli-builder /out/gemini-api /usr/local/bin/gemini-api
 COPY --from=ate-builder /out/ate-gemini /usr/local/bin/ate-gemini

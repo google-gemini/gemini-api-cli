@@ -28,15 +28,15 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 ## Quick Start
 
 ```bash
 # 1. Create a persistent named microVM (use --timeout 45m on Hobby)
-sandbox create --name gemini-self-hosted --image vercel/sandbox/node:24 --timeout 24h
+sandbox create --name gemini-self-hosted --image vercel/sandbox/universal:latest --timeout 24h
 
 # 2. Install the gemini-api CLI inside the microVM
 sandbox exec gemini-self-hosted -- bash -lc \
@@ -86,6 +86,7 @@ sandbox exec --env GEMINI_ENVIRONMENT_KEY="$GEMINI_ENVIRONMENT_KEY" gemini-self-
 # Stop the current session (snapshots and preserves gemini-self-hosted for later reuse):
 sandbox stop gemini-self-hosted
 
-# Or permanently delete the named microVM and its saved snapshot:
-# sandbox remove gemini-self-hosted
+# Or permanently delete the named microVM and its saved snapshots
+# (without --delete-orphan-snapshots, snapshots are kept for 30 days by default):
+# sandbox remove gemini-self-hosted --delete-orphan-snapshots
 ```

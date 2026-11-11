@@ -27,8 +27,8 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 ## Quick Start
@@ -55,7 +55,7 @@ Or run interactively inside the microVM terminal (exporting
 e2b sandbox create base
 
 # Inside the microVM shell:
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_KEY="..."
 curl -fsSL https://raw.githubusercontent.com/google-gemini/gemini-api-cli/main/scripts/install.sh \
   | bash
 PATH="$HOME/.local/bin:$PATH" gemini-api environments connect \

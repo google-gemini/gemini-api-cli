@@ -26,8 +26,8 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 ## Quick Start
@@ -62,5 +62,5 @@ gemini-api agent run \
 ## Cleanup
 
 ```bash
-daytona delete "$SANDBOX_ID" -y
+daytona delete "$SANDBOX_ID"
 ```

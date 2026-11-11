@@ -59,8 +59,8 @@ Export both the `id` (`GEMINI_ENVIRONMENT_ID`) and `environment_key`
 is returned **only once at creation time**:
 
 ```bash
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
 ### 2. Connect the Local Worker (Terminal 1)
@@ -95,7 +95,7 @@ exported, then stream an agent interaction targeting your connected environment:
 
 ```bash
 export GEMINI_API_KEY="your-api-key"
-export GEMINI_ENVIRONMENT_ID="environments/..."
+export GEMINI_ENVIRONMENT_ID="..."
 
 gemini-api agent run \
   "Create a file named hello.txt containing 'Hello from self-hosted!' and read it back." \
@@ -127,7 +127,7 @@ directory, and optionally delete the environment resource:
 rm -rf /tmp/gemini-self-hosted-workspace
 
 curl -fsSL -X DELETE \
-  "https://generativelanguage.googleapis.com/v1beta/${GEMINI_ENVIRONMENT_ID}" \
+  "https://generativelanguage.googleapis.com/v1beta/environments/${GEMINI_ENVIRONMENT_ID}" \
   -H "x-goog-api-key: $GEMINI_API_KEY"
 ```
 

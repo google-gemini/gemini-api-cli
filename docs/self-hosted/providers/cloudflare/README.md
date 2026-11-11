@@ -30,8 +30,8 @@ curl -fsSL -X POST \
   -H "Content-Type: application/json" \
   -d '{"mode": "self_hosted"}'
 
-export GEMINI_ENVIRONMENT_ID="environments/..."
-export GEMINI_ENVIRONMENT_KEY="ek_..."
+export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" prefix)
+export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 export CLOUDFLARE_DISPATCH_SECRET="$(openssl rand -hex 32)"
 ```
 
@@ -42,6 +42,7 @@ cd docs/self-hosted/providers/cloudflare
 npm install
 
 # 1. Authenticate Wrangler and deploy the Cloudflare Container & Worker first
+# (If Wrangler reports that Durable Object Container settings were not fully applied on first deploy, re-run 'npx wrangler deploy')
 npx wrangler login
 npx wrangler deploy
 
@@ -67,6 +68,11 @@ gemini-api agent run \
 
 ## Cleanup
 
+Delete the Worker and its backing Cloudflare Container application (deleting
+only the Worker leaves the Container application active and billing):
+
 ```bash
 npx wrangler delete
+npx wrangler containers list
+npx wrangler containers delete <CONTAINER_ID>
 ```
