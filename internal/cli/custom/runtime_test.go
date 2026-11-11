@@ -951,6 +951,9 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 		if noInstHdrs.Get("X-Speakeasy-Test-Name") != "contract_stream_case" || noInstHdrs.Values("X-Speakeasy-Test-Instance-Id") != nil {
 			t.Errorf("BuildHeaders(empty SPEAKEASY_TEST_INSTANCE_ID) = %v, want test name without instance ID header", noInstHdrs)
 		}
+		if gotUA, wantUA := noInstHdrs.Get("User-Agent"), defaultUserAgent(); gotUA != wantUA {
+			t.Errorf("BuildHeaders default User-Agent = %q, want %q", gotUA, wantUA)
+		}
 
 		t.Setenv("SPEAKEASY_TEST_INSTANCE_ID", "inst_42")
 		testCmd := newTestRuntimeCmd(t, srvURL)
@@ -967,6 +970,7 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 		overrideCmd := newTestRuntimeCmd(t, srvURL)
 		_ = overrideCmd.Root().PersistentFlags().Set("header", "X-Speakeasy-Test-Name: explicit_name")
 		_ = overrideCmd.Root().PersistentFlags().Set("header", "X-Speakeasy-Test-Instance-Id: explicit_inst")
+		_ = overrideCmd.Root().PersistentFlags().Set("header", "User-Agent: custom-runtime-agent/1.0")
 		overrideRT, err := newRuntimeTransport(overrideCmd, true)
 		if err != nil {
 			t.Fatalf("newRuntimeTransport(explicit Speakeasy headers) failed: %v", err)
@@ -974,6 +978,9 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 		overrideHdrs := overrideRT.newEnvHTTPClient("", "").BuildHeaders("", "", "")
 		if overrideHdrs.Get("X-Speakeasy-Test-Name") != "explicit_name" || overrideHdrs.Get("X-Speakeasy-Test-Instance-Id") != "explicit_inst" {
 			t.Errorf("BuildHeaders(explicit Speakeasy headers) = %v, want explicit overrides preserved", overrideHdrs)
+		}
+		if gotUA := overrideHdrs.Get("User-Agent"); gotUA != "custom-runtime-agent/1.0" {
+			t.Errorf("BuildHeaders(explicit User-Agent) = %q, want custom-runtime-agent/1.0", gotUA)
 		}
 	})
 }

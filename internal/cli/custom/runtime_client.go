@@ -185,7 +185,7 @@ func (rt *runtimeTransport) newEnvHTTPClient(envID, envKey string) *envruntime.H
 		EnvironmentKey: envKey,
 		UserProject:    rt.userProject,
 		APIRevision:    rt.apiRevision,
-		UserAgent:      rawUserAgent,
+		UserAgent:      defaultUserAgent(),
 		Headers:        rt.headers,
 		Timeout:        rt.timeout,
 		HTTPDoer:       rt.httpClient,

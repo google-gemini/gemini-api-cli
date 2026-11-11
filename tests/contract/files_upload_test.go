@@ -24,12 +24,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google-gemini/gemini-api-cli/internal/cli"
 )
 
 const uploadChunk = 8 << 20
@@ -989,6 +992,190 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 		lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
 		if len(lines) != 2 {
 			t.Fatalf("dry-run preview lines = %d, want 2 (start + chunk):\n%s", len(lines), res.stdout)
+		}
+	})
+}
+
+func TestRawHTTPAndSDKUserAgentIdentityAndOverrides(t *testing.T) {
+	wantUA := fmt.Sprintf("google-genai-cli/%s gl-go/%s", cli.Version, runtime.Version())
+	workDir := t.TempDir()
+	samplePath := writeTempFile(t, "sample.txt", "hello world\n")
+
+	t.Run("default User-Agent matches across files upload, environments files upload/download, and SDK commands", func(t *testing.T) {
+		filesMock := newUploadMock(t)
+		res := runCLI(t, t.TempDir(), nil, append(plainArgs(filesMock.URL), "files", "upload", samplePath)...)
+		if res.err != nil {
+			t.Fatalf("files upload failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		filesReqs := filesMock.recorded()
+		if len(filesReqs) != 2 {
+			t.Fatalf("files upload requests = %d, want 2", len(filesReqs))
+		}
+		for i, r := range filesReqs {
+			if got := r.headers.Get("User-Agent"); got != wantUA {
+				t.Errorf("files upload req[%d] (%s) User-Agent = %q, want %q", i, r.command, got, wantUA)
+			}
+		}
+
+		envUploadMock := newEnvironmentUploadMock(t, storesEverything("sample.txt"))
+		envRes := runCLI(t, t.TempDir(), nil, environmentUploadArgs()(envUploadMock.URL, samplePath)...)
+		if envRes.err != nil {
+			t.Fatalf("environments files upload failed: %v\nstderr: %s", envRes.err, envRes.stderr)
+		}
+		envReqs := envUploadMock.recorded()
+		if len(envReqs) != 2 {
+			t.Fatalf("environments files upload requests = %d, want 2", len(envReqs))
+		}
+		for i, r := range envReqs {
+			if got := r.headers.Get("User-Agent"); got != wantUA {
+				t.Errorf("environments files upload req[%d] (%s) User-Agent = %q, want %q", i, r.command, got, wantUA)
+			}
+		}
+
+		var gotDownloadUA, gotModelsUA string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1beta/environments/env_abc/files/remote.txt":
+				gotDownloadUA = r.Header.Get("User-Agent")
+				w.Header().Set("Content-Type", "application/octet-stream")
+				_, _ = w.Write([]byte("content\n"))
+			case "/v1beta/models":
+				gotModelsUA = r.Header.Get("User-Agent")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"models":[]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+
+		dlOut := filepath.Join(workDir, "downloaded.txt")
+		dlRes := runCLI(t, t.TempDir(), nil, append(plainArgs(srv.URL), "environments", "files", "download", "env_abc", "remote.txt", "--out", dlOut)...)
+		if dlRes.err != nil {
+			t.Fatalf("environments files download failed: %v\nstderr: %s", dlRes.err, dlRes.stderr)
+		}
+		if gotDownloadUA != wantUA {
+			t.Errorf("environments files download User-Agent = %q, want %q", gotDownloadUA, wantUA)
+		}
+
+		modelsRes := runCLI(t, t.TempDir(), nil, append(plainArgs(srv.URL), "models", "list")...)
+		if modelsRes.err != nil {
+			t.Fatalf("models list failed: %v\nstderr: %s", modelsRes.err, modelsRes.stderr)
+		}
+		if gotModelsUA != wantUA {
+			t.Errorf("models list User-Agent = %q, want %q", gotModelsUA, wantUA)
+		}
+	})
+
+	t.Run("explicit --header User-Agent override and header precedence", func(t *testing.T) {
+		const customUA = "custom-cli-caller/9.9"
+		filesMock := newUploadMock(t)
+		res := runCLI(t, t.TempDir(), nil, append(
+			plainArgs(filesMock.URL),
+			"-H", "User-Agent: "+customUA,
+			"-H", "Authorization: Bearer custom-tok",
+			"-H", "X-Custom: a",
+			"-H", "x-custom: b",
+			"files", "upload", samplePath,
+		)...)
+		if res.err != nil {
+			t.Fatalf("files upload with custom headers failed: %v\nstderr: %s", res.err, res.stderr)
+		}
+		for i, r := range filesMock.recorded() {
+			if got := r.headers.Get("User-Agent"); got != customUA {
+				t.Errorf("files upload req[%d] User-Agent = %q, want %q", i, got, customUA)
+			}
+			// Explicit Authorization header still displaces API key.
+			if gotAuth := r.headers.Get("Authorization"); gotAuth != "Bearer custom-tok" {
+				t.Errorf("files upload req[%d] Authorization = %q, want Bearer custom-tok", i, gotAuth)
+			}
+			if gotKey := r.headers.Get("X-Goog-Api-Key"); gotKey != "" {
+				t.Errorf("files upload req[%d] X-Goog-Api-Key = %q, want displaced (empty)", i, gotKey)
+			}
+			if gotCustom := r.headers.Values("X-Custom"); !slices.Equal(gotCustom, []string{"a", "b"}) {
+				t.Errorf("files upload req[%d] X-Custom = %v, want [a b]", i, gotCustom)
+			}
+		}
+
+		var gotDownloadUA string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotDownloadUA = r.Header.Get("User-Agent")
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write([]byte("ok\n"))
+		}))
+		defer srv.Close()
+
+		dlOut := filepath.Join(workDir, "downloaded-override.txt")
+		dlRes := runCLI(t, t.TempDir(), nil, append(
+			plainArgs(srv.URL),
+			"-H", "user-agent: "+customUA,
+			"environments", "files", "download", "env_abc", "remote.txt", "--out", dlOut,
+		)...)
+		if dlRes.err != nil {
+			t.Fatalf("download with custom User-Agent failed: %v\nstderr: %s", dlRes.err, dlRes.stderr)
+		}
+		if gotDownloadUA != customUA {
+			t.Errorf("download custom User-Agent = %q, want %q", gotDownloadUA, customUA)
+		}
+	})
+
+	t.Run("dry-run JSON previews render current User-Agent with zero network calls and no file writes", func(t *testing.T) {
+		var sinkCalls atomic.Int32
+		sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sinkCalls.Add(1)
+		}))
+		defer sink.Close()
+
+		dryDir := t.TempDir()
+		previewCases := []struct {
+			name      string
+			tail      []string
+			wantLines int
+		}{
+			{"files upload", []string{"files", "upload", samplePath, "--dry-run", "-o", "json"}, 2},
+			{"environments files upload", []string{"environments", "files", "upload", "env_abc", samplePath, "--dry-run", "-o", "json"}, 2},
+			{"environments files download", []string{"environments", "files", "download", "env_abc", "remote.txt", "--dry-run", "-o", "json"}, 1},
+		}
+
+		for _, tc := range previewCases {
+			t.Run(tc.name, func(t *testing.T) {
+				res := runCLIInDir(t, t.TempDir(), dryDir, nil, append(plainArgs(sink.URL), tc.tail...)...)
+				if res.err != nil {
+					t.Fatalf("dry-run failed: %v\nstderr: %s", res.err, res.stderr)
+				}
+				lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
+				if len(lines) != tc.wantLines {
+					t.Fatalf("preview lines = %d, want %d:\n%s", len(lines), tc.wantLines, res.stdout)
+				}
+				for i, line := range lines {
+					var preview struct {
+						DryRun  bool `json:"dry_run"`
+						Request struct {
+							Headers map[string][]string `json:"headers"`
+						} `json:"request"`
+					}
+					if err := json.Unmarshal([]byte(line), &preview); err != nil {
+						t.Fatalf("line %d unmarshal: %v\nraw: %s", i, err, line)
+					}
+					if !preview.DryRun {
+						t.Errorf("line %d dry_run = false, want true", i)
+					}
+					if gotUA := preview.Request.Headers["User-Agent"]; !slices.Equal(gotUA, []string{wantUA}) {
+						t.Errorf("line %d User-Agent = %v, want [%s]", i, gotUA, wantUA)
+					}
+					if gotKey := preview.Request.Headers["X-Goog-Api-Key"]; !slices.Equal(gotKey, []string{"[REDACTED]"}) {
+						t.Errorf("line %d X-Goog-Api-Key = %v, want [[REDACTED]]", i, gotKey)
+					}
+				}
+			})
+		}
+
+		if got := sinkCalls.Load(); got != 0 {
+			t.Errorf("sink received %d requests during dry-run previews, want 0", got)
+		}
+		entries, err := os.ReadDir(dryDir)
+		if err != nil || len(entries) != 0 {
+			t.Errorf("dry-run wrote files into working directory: %v (err=%v)", entries, err)
 		}
 	})
 }

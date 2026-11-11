@@ -31,6 +31,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/sdkerrors"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/testclient"
 	"github.com/spf13/cobra"
 )
@@ -66,7 +67,9 @@ func validAPIVersion(v string) bool {
 	return apiVersionShape.MatchString(v) && v != "." && v != ".."
 }
 
-const rawUserAgent = "speakeasy-sdk/go 0.0.1 internal v1beta github.com/speakeasy-sdks/gemini-cli-next/internal/sdk (porcelain)"
+func defaultUserAgent() string {
+	return hooks.UserAgent(sdk.New().SDKVersion)
+}
 
 func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {
 	t := &rawTransport{headers: http.Header{}}
@@ -203,7 +206,7 @@ func (t *rawTransport) newRequest(ctx context.Context, method, absURL string, bo
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", rawUserAgent)
+	req.Header.Set("User-Agent", defaultUserAgent())
 	if t.accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+t.accessToken)
 	} else if t.apiKey != "" {

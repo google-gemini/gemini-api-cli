@@ -17,16 +17,23 @@ package hooks
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 )
 
-// userAgentHook rewrites the default Speakeasy User-Agent into the
-// google-genai client convention: {product}/{version} gl-{lang}/{runtime},
+// UserAgent formats the CLI User-Agent string following the google-genai
+// client convention: {product}/{version} gl-{lang}/{runtime},
 // e.g. "google-genai-cli/0.5.4 gl-go/go1.24.0".
+func UserAgent(version string) string {
+	return fmt.Sprintf("google-genai-cli/%s gl-go/%s", strings.TrimSpace(version), runtime.Version())
+}
+
+// userAgentHook rewrites the default Speakeasy User-Agent into the
+// google-genai client convention.
 type userAgentHook struct{}
 
 func (userAgentHook) SDKInit(cfg config.SDKConfiguration) config.SDKConfiguration {
-	cfg.UserAgent = fmt.Sprintf("google-genai-cli/%s gl-go/%s", cfg.SDKVersion, runtime.Version())
+	cfg.UserAgent = UserAgent(cfg.SDKVersion)
 	return cfg
 }

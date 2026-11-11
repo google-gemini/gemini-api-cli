@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -579,4 +580,19 @@ func TestRequestContractHookCreateInteractionSizeLimit(t *testing.T) {
 			t.Fatalf("unexpected error after delta was consumed: %v", err)
 		}
 	})
+}
+
+func TestUserAgentBuilderAndHook(t *testing.T) {
+	const ver = "0.4.5"
+	want := fmt.Sprintf("google-genai-cli/%s gl-go/%s", ver, runtime.Version())
+	if got := UserAgent(ver); got != want {
+		t.Errorf("UserAgent(%q) = %q, want %q", ver, got, want)
+	}
+	cfg := New().SDKInit(config.SDKConfiguration{
+		UserAgent:  "speakeasy-sdk/go 0.4.5 internal v1beta",
+		SDKVersion: ver,
+	})
+	if cfg.UserAgent != want {
+		t.Errorf("SDKInit UserAgent = %q, want %q", cfg.UserAgent, want)
+	}
 }
