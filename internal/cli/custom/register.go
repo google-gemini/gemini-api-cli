@@ -47,6 +47,8 @@ import (
 //     commands — list/get/delete/register — stay generated).
 //   - files get / delete normalize "files/<id>" to the bare "<id>" path
 //     parameter and reject malformed ids before sending a request.
+//   - install-skill is added to the Manage group: it writes the embedded
+//     gemini-api-cli agent skill into coding agents' skills directories.
 //   - models get normalizes "models/<id>" to "<id>" and rejects malformed ids;
 //     the generated models group's bare invocation stays the curated catalog
 //     (merged in by the generated catalog layer), with list/get as its live API
@@ -133,6 +135,12 @@ func register(root *cobra.Command) error {
 	}
 	if err := normalizeEnvironmentFilesList(findChild(envFiles, "list")); err != nil {
 		return fmt.Errorf("environments files list: %w", err)
+	}
+	if findChild(root, "install-skill") == nil {
+		installSkillCmd := newInstallSkillCmd()
+		installSkillCmd.GroupID = "manage"
+		usage.MarkDynamic(installSkillCmd)
+		root.AddCommand(installSkillCmd)
 	}
 	if err := attachInteractionInputs(root); err != nil {
 		return err
