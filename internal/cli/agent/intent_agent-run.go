@@ -32,14 +32,14 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 		Use:     "run [input]",
 		Short:   "Run an interaction with a Gemini model or a managed agent",
 		Long:    "Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).\n\nArguments:\n  <input>  Prompt or task to send\n\nRequest variants: Agent (--agent), Model (--model; default).\nVariant-specific flags cannot be combined.",
-		Example: "  gemini-api agent run \"Analyze market trends for Q3\" --agent deep-research-preview-04-2026\n  gemini-api agent run \"Write a detailed research report on solar batteries\" --background\n  gemini-api agent run \"Explain the difference between concurrency and parallelism\" --model gemini-3.8-flash",
+		Example: "  gemini-api agent run \"Analyze market trends for Q3\" --agent deep-research-preview-04-2026\n  gemini-api agent run \"Write a detailed research report on solar batteries\" --background\n  gemini-api agent run \"Explain the difference between concurrency and parallelism\" --model gemini-4-hydrogen",
 		Args:    cobra.ArbitraryArgs,
 		RunE:    runIntentAgentRunCmd,
 		Annotations: map[string]string{
 			"speakeasy_operation":            "CreateInteraction",
 			flagutil.AnnotationWholeBodyFlag: "body",
 			"speakeasy_strict_body_keys":     "true",
-			"speakeasy_help_defaults":        "model gemini-3.8-flash · stream true",
+			"speakeasy_help_defaults":        "model gemini-4-hydrogen · stream true",
 			"speakeasy_help_escalate":        "exact request JSON via --body @request.json (schema with --schema)",
 			"speakeasy_outcome":              "{\"statePointer\":\"/status\",\"streamStatePointer\":\"/data/interaction/status\",\"states\":{\"budget_exceeded\":\"success\",\"cancelled\":\"failure\",\"completed\":\"success\",\"failed\":\"failure\",\"in_progress\":\"pending\",\"incomplete\":\"success\",\"queued\":\"pending\",\"requires_action\":\"handoff\",\"requires_continuation\":\"pending\"},\"errorPointer\":\"/errors\",\"errorMessageField\":\"message\"}",
 			"speakeasy_stream_select":        "/data/delta/text",
@@ -73,7 +73,7 @@ func InitIntentAgentRun(parent *cobra.Command) error {
 
 		BodySources: []string{"body"},
 	})
-	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-3.8-flash)")
+	cmd.Flags().StringP("model", "m", "", "Model to run (see \"gemini-api models\") (e.g. gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-flash-latest, gemini-flash-lite-latest, ..., default: gemini-4-hydrogen)")
 	flagutil.MarkRequestInput(cmd, "model")
 	_ = flagutil.AnnotatePromptFlag(cmd, "model", flagutil.PromptFlagSpec{
 		Required: false,

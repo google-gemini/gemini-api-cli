@@ -83,7 +83,7 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 		{[]string{"generate"}, []string{
 			"Just works:",
 			"Explain concurrency in one sentence",
-			"Defaults: model gemini-3.8-flash · streams the reply (--stream=false for one result)",
+			"Defaults: model gemini-4-hydrogen · streams the reply (--stream=false for one result)",
 			"Learn: https://aistudio.google.com/docs/text-generation · escalate: full request control via gemini-api agent run",
 		}},
 		{[]string{"image"}, []string{
@@ -223,7 +223,7 @@ func TestPorcelainHelpCopy(t *testing.T) {
 	// worded as this CLI's behavior rather than a service rule.
 	for name, wants := range map[string][]string{
 		"analyze":      {"this CLI keeps each request under 20 MB", "gemini-api files upload"},
-		"transcribe":   {"this CLI keeps each request under 20 MB", "alias: captions", "one input only", "(video: gemini-3.8-flash)"},
+		"transcribe":   {"this CLI keeps each request under 20 MB", "alias: captions", "one input only", "(video: gemini-4-hydrogen)"},
 		"tts":          {"--out foo.mp3 is written as foo.wav", "An existing file is replaced", "gemini-tts-<unix-ms>-<random>"},
 		"files upload": {"2 GB per file", "(default 5m)", "<path>"},
 	} {

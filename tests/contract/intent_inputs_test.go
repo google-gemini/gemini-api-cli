@@ -477,11 +477,11 @@ func TestIntentBlankModelFlagRejected(t *testing.T) {
 		args        []string
 		wantDefault string
 	}{
-		{name: "generate", args: []string{"generate", "hi"}, wantDefault: "gemini-3.8-flash"},
+		{name: "generate", args: []string{"generate", "hi"}, wantDefault: "gemini-4-hydrogen"},
 		{name: "image", args: []string{"image", "a cat"}, wantDefault: "gemini-nano-banana-2.1"},
 		{name: "video", args: []string{"video", "waves"}, wantDefault: "gemini-omni-1.2-flash"},
 		{name: "music", args: []string{"music", "jazz"}, wantDefault: "lyria-3.5"},
-		{name: "agent run", args: []string{"agent", "run", "hi"}, wantDefault: "gemini-3.8-flash"},
+		{name: "agent run", args: []string{"agent", "run", "hi"}, wantDefault: "gemini-4-hydrogen"},
 	}
 
 	for _, cmd := range commands {
@@ -574,7 +574,7 @@ func TestIntentBlankModelFlagRejected(t *testing.T) {
 			wantModel string
 		}{
 			{args: []string{"tts", "hello", "-m", ""}, wantModel: "gemini-3.8-flash-tts"},
-			{args: []string{"analyze", "what is this", "-i", audioPath, "-m", "   "}, wantModel: "gemini-3.8-flash"},
+			{args: []string{"analyze", "what is this", "-i", audioPath, "-m", "   "}, wantModel: "gemini-4-hydrogen"},
 			{args: []string{"transcribe", "-i", audioPath, "-m", ""}, wantModel: "gemini-3.5-transcribe"},
 		} {
 			res := runCLI(t, dir, nil, intentDryRunArgs(tc.args...)...)
