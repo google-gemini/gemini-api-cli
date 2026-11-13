@@ -539,7 +539,7 @@ func protocolAsyncError(cfg *asyncConfig, id, resumePrefix, message string, payl
 
 func renderAsyncError(cmd *cobra.Command, runtimeErr *asyncRuntimeError) error {
 	jqExpr, _ := flagutil.GetStringFlag(cmd, "jq")
-	if !shouldRenderStructuredError(resolveOutputFormat(cmd), jqExpr) {
+	if !shouldRenderStructuredError(resolveErrorOutputFormat(cmd), jqExpr) {
 		writeScrubbed(cmd.ErrOrStderr(), fmt.Sprintf("Error: %s (handle %s; resume: %s)%s", runtimeErr.message, runtimeErr.id, runtimeErr.resume, string(rune(10))))
 		classification := Classify(cmd, withErrorOrigin(runtimeErr, ErrorOriginCLI))
 		return markRendered(runtimeErr, classification)
