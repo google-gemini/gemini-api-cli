@@ -67,7 +67,7 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 		return err
 	}
 	if owner := findOwningCommand(rootCmd, "analyze"); owner == nil {
-		rootCmd.AddCommand(newCustomCmd("analyze", "Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-3.8-flash)", "", "understand"))
+		rootCmd.AddCommand(newCustomCmd("analyze", "Ask questions about images, audio, video, documents, text files, or YouTube URLs (gemini-4-hydrogen)", "", "understand"))
 	} else {
 		owner.GroupID = "understand"
 	}
