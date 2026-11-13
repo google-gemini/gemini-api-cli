@@ -87,7 +87,21 @@ gemini-api generate "Hello from my agent"
 
 ### 2. Give your agent instructions
 
-Add the following block to your agent's instructions (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or tool configuration):
+Install the `gemini-api-cli` [agent skill](https://github.com/google-gemini/gemini-skills/tree/main/skills/gemini-api-cli), which ships inside the binary. In a terminal the command asks which agents to install for (Antigravity, Gemini CLI, Claude Code, Codex, Cursor and more) and whether to install into this project or your home directory:
+
+```bash
+# Pick agents and location interactively
+gemini-api install-skill
+
+# Or name them: this project, or --global for every project
+gemini-api install-skill --agent antigravity
+gemini-api install-skill --agent antigravity,claude-code --global
+
+# From a script or an agent: flags never prompt; preview with --dry-run first
+gemini-api install-skill --agent claude-code --dry-run
+```
+
+If your agent does not load skills, add the following block to your agent's instructions (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or tool configuration):
 
 ```text
 You have access to gemini-api through the shell.
@@ -128,6 +142,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |
 | | `gemini-api configure` | `--api-key`, `--interactive`, `--output-format` | Configure authentication, global parameters, and persistent preferences |
 | | `gemini-api auth` / `whoami` | `auth login`, `auth whoami`, `auth logout` | Manage stored credentials (`auth`) or inspect active authentication and configuration (`whoami`) |
+| | `gemini-api install-skill` | `--agent` *(repeatable, or `all`)*, `--global`, `--dry-run` | Install the embedded `gemini-api-cli` agent skill for Antigravity and other coding agents |
 | **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`), `connect`, `poll`, `serve` | Manage sandbox environments, upload/list/download environment files, or run [self-hosted environments](docs/self-hosted/README.md) |
 | | `gemini-api credentials` | `create`, `list`, `get`, `update`, `delete` | Manage stored server-side credentials for managed agents |
 | | `gemini-api webhooks` | `create`, `list`, `get`, `update`, `ping`, `rotate-signing-secret`, `delete` | Manage webhook endpoints and signing secrets for event delivery |
