@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
+  "cloudflare": {
+    "bindings": {
+      "GEMINI_ENVIRONMENT_KEY": {
+        "description": "Enter the scoped `environment_key` returned when you create a Gemini self-hosted environment."
+      },
+      "CLOUDFLARE_DISPATCH_SECRET": {
+        "description": "Generate a random bearer token with `openssl rand -hex 32`. Save the same value to authorize requests to `/connect`."
+      }
+    }
+  },
   "scripts": {
     "deploy": "wrangler deploy",
     "types": "wrangler types --env-interface CloudflareEnv",
