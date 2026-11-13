@@ -67,12 +67,13 @@ gemini-api environments connect \
 
 ### Split Poller and Sandbox Workers (`gemini-api environments poll` + `gemini-api environments serve`)
 
-For self-managed container or Agent Substrate clusters
-([`containers/`](./containers/) and [`agent-substrate/`](./agent-substrate/)),
-the split poller/worker mode separates the **trusted control plane** (which
-holds `GEMINI_API_KEY` or `GEMINI_ENVIRONMENT_KEY`) from **untrusted ephemeral
-execution containers or Pods** (which hold **zero API keys**, receiving only a
-short-lived, interaction-scoped `--lease-token`):
+For self-managed containers, Agent Substrate clusters, or Cloud Run worker pools
+([`containers/`](./containers/), [`agent-substrate/`](./agent-substrate/), and
+[`providers/cloud-run/`](./providers/cloud-run/)), split mode separates the
+**trusted control plane** from **untrusted sandbox workers**. The control plane
+holds `GEMINI_API_KEY` or `GEMINI_ENVIRONMENT_KEY`, while ephemeral containers,
+Pods, or sandboxes hold **zero API keys** and receive only a short-lived
+`--lease-token`:
 
 ```mermaid
 sequenceDiagram
@@ -137,13 +138,13 @@ Platform / Target                | Directory                                    
 **Local Host (Unsafe)**          | [`local/`](./local/)                                   | Single-worker (`connect`)                        | Run the runtime directly on your machine for quick testing. **Includes critical warnings about `execute_bash` host exposure.**
 **Docker & Podman**              | [`containers/`](./containers/)                         | Single-worker & Split (`connect`, `poll`/`serve`) | Hardened multi-stage `Dockerfile` / `Containerfile`, [`containers/docker/`](./containers/docker/) CLI recipes, and rootless [`containers/podman/`](./containers/podman/) CLI recipes.
 **Agent Substrate (Kubernetes)** | [`agent-substrate/`](./agent-substrate/)               | Split (`ate-gemini`)                             | Full Go glue code (`ate-gemini` controller + in-pod actor daemon) integrating with Agent Substrate `v1` (`ate.dev/v1` `WorkerPool`, `go.ate.dev/substrate` `ActorTemplate`, and `atenet-router`) on Kubernetes.
-**Cloud & MicroVM Providers**    | [`providers/`](./providers/)                           | Single-worker (`connect`)                        | Overview and shared 3-step setup pattern across all supported cloud and microVM providers.
+**Cloud & MicroVM Providers**    | [`providers/`](./providers/)                           | Single-worker & Split (`connect`, `poll`/`serve`) | Overview of cloud and microVM provider guides (shared 3-step `connect` setup, plus split Worker Pool + Sandboxes on Cloud Run).
 **Vercel Sandbox**               | [`providers/vercel/`](./providers/vercel/)             | Single-worker (`connect`)                        | 3-step setup using the Vercel `sandbox` CLI (`sandbox create`, `sandbox exec`).
 **Daytona**                      | [`providers/daytona/`](./providers/daytona/)           | Single-worker (`connect`)                        | 3-step setup using the `daytona` CLI (`daytona create`, `daytona exec`).
 **E2B**                          | [`providers/e2b/`](./providers/e2b/)                   | Single-worker (`connect`)                        | 3-step setup using the `e2b` CLI (`e2b sandbox create`).
 **Modal**                        | [`providers/modal/`](./providers/modal/)               | Single-worker (`connect`)                        | 3-step setup using the `modal` CLI (`modal shell`).
 **Fly.io (Sprites & Machines)**  | [`providers/fly-machines/`](./providers/fly-machines/) | Single-worker (`connect`)                        | 3-step setup using the Fly.io `sprite` CLI (`sprite create`, `sprite exec`) or `fly` CLI (`fly machine run`).
-**Google Cloud Run**             | [`providers/cloud-run/`](./providers/cloud-run/)       | Single-worker (`connect`)                        | 3-step setup using the `gcloud` CLI (`gcloud run jobs deploy`, `gcloud run jobs execute`, `gemini-api agent run`).
+**Google Cloud Run**             | [`providers/cloud-run/`](./providers/cloud-run/)       | Split (`poll`/`serve`)                           | Cloud Run Worker Pool + Sandboxes (`--sandbox-launcher`) setup using `gcloud` (`gcloud beta run worker-pools deploy`, `gemini-api agent run`).
 **Cloudflare Sandbox**           | [`providers/cloudflare/`](./providers/cloudflare/)     | Single-worker (`connect`)                        | Cloudflare Container + Worker deployed with `npx wrangler deploy`.
 <!-- mdformat on -->
 
@@ -179,10 +180,11 @@ Category                  | Tool Name (Aliases)                                 
     authenticate the worker with `GEMINI_ENVIRONMENT_KEY` (`--environment-key`)
     rather than a project-wide `GEMINI_API_KEY`.
 2.  **Zero API Keys in Sandbox Workers (`environments poll` + `serve`)**: On
-    self-managed Docker, Podman, or Agent Substrate clusters, run
-    `gemini-api environments poll` in your control plane and pass only
+    Docker, Podman, Agent Substrate, or Google Cloud Run
+    ([`providers/cloud-run/`](./providers/cloud-run/)), run
+    `gemini-api environments poll` in your control plane. Pass only
     `--interaction-id` and `--lease-token` (`lt_v1_...`) into worker containers
-    running `gemini-api environments serve`.
+    or sandboxes running `gemini-api environments serve`.
 3.  **Least-Privilege Runtime User**: Run the worker as an unprivileged non-root
     UID (`1000:1000`) with Linux capabilities dropped (`--cap-drop=ALL`) and
     `no-new-privileges`.
