@@ -297,7 +297,7 @@ func wordInfoInteraction(text string, words ...string) string {
 // TestTranscribeDedicatedModelRequestAndArtifact pins the default
 // gemini-3.5-transcribe path: audio-only input block (no text prompt),
 // generation_config.transcription_config, word_info annotation formatting across
-// md/text/json/srt, and automatic fallback to gemini-3.8-flash for video inputs.
+// md/text/json/srt, and automatic fallback to gemini-4-hydrogen for video inputs.
 func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -436,7 +436,7 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 		})
 	}
 
-	t.Run("video input falls back to gemini-3.8-flash when model is not explicitly set", func(t *testing.T) {
+	t.Run("video input falls back to gemini-4-hydrogen when model is not explicitly set", func(t *testing.T) {
 		stub := newInteractionStub(t, completedInteraction("# Video transcript", ""))
 		video := writeTempFile(t, "clip.mp4", "video")
 		out := filepath.Join(t.TempDir(), "out.md")
@@ -446,8 +446,8 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 			t.Fatalf("transcribe video failed: %v\nstderr: %s", result.err, result.stderr)
 		}
 		body := stub.requestBody(t)
-		if body["model"] != "gemini-3.8-flash" {
-			t.Errorf("model = %v, want the gemini-3.8-flash fallback for video", body["model"])
+		if body["model"] != "gemini-4-hydrogen" {
+			t.Errorf("model = %v, want the gemini-4-hydrogen fallback for video", body["model"])
 		}
 		parts := stub.inputParts(t)
 		if len(parts) != 2 || parts[0]["type"] != "video" || parts[1]["type"] != "text" {
@@ -462,8 +462,8 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 		if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
 			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
 		}
-		if envelope.Model != "gemini-3.8-flash" || len(envelope.Results) != 1 || envelope.Results[0].Model != "gemini-3.8-flash" {
-			t.Errorf("envelope = %+v, want gemini-3.8-flash at the top level and per result", envelope)
+		if envelope.Model != "gemini-4-hydrogen" || len(envelope.Results) != 1 || envelope.Results[0].Model != "gemini-4-hydrogen" {
+			t.Errorf("envelope = %+v, want gemini-4-hydrogen at the top level and per result", envelope)
 		}
 	})
 
@@ -499,8 +499,8 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 		mu.Lock()
 		gotModels := fmt.Sprint(models)
 		mu.Unlock()
-		if gotModels != "[gemini-3.5-transcribe gemini-3.8-flash]" {
-			t.Errorf("request models = %s, want [gemini-3.5-transcribe gemini-3.8-flash]", gotModels)
+		if gotModels != "[gemini-3.5-transcribe gemini-4-hydrogen]" {
+			t.Errorf("request models = %s, want [gemini-3.5-transcribe gemini-4-hydrogen]", gotModels)
 		}
 		var envelope struct {
 			Model   string `json:"model"`
@@ -512,8 +512,8 @@ func TestTranscribeDedicatedModelRequestAndArtifact(t *testing.T) {
 			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
 		}
 		if envelope.Model != "gemini-3.5-transcribe" || len(envelope.Results) != 2 ||
-			envelope.Results[0].Model != "gemini-3.5-transcribe" || envelope.Results[1].Model != "gemini-3.8-flash" {
-			t.Errorf("envelope = %+v, want per-result models [gemini-3.5-transcribe gemini-3.8-flash]", envelope)
+			envelope.Results[0].Model != "gemini-3.5-transcribe" || envelope.Results[1].Model != "gemini-4-hydrogen" {
+			t.Errorf("envelope = %+v, want per-result models [gemini-3.5-transcribe gemini-4-hydrogen]", envelope)
 		}
 	})
 
@@ -638,8 +638,8 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 		}
 		body := stub.requestBody(t)
-		if body["model"] != "gemini-3.8-flash" || !strings.Contains(result.stderr, "--mime-type audio/webm") {
-			t.Errorf("model = %v, stderr = %q; want the gemini-3.8-flash fallback with the WebM hint", body["model"], result.stderr)
+		if body["model"] != "gemini-4-hydrogen" || !strings.Contains(result.stderr, "--mime-type audio/webm") {
+			t.Errorf("model = %v, stderr = %q; want the gemini-4-hydrogen fallback with the WebM hint", body["model"], result.stderr)
 		}
 
 		explicit := runCLI(t, t.TempDir(), nil, append(plainArgs(stub.URL), "transcribe", "-m", "gemini-3.5-transcribe", "-i", webm)...)
@@ -659,12 +659,12 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("dry-run notes that a files/<id> video would use gemini-3.8-flash", func(t *testing.T) {
+	t.Run("dry-run notes that a files/<id> video would use gemini-4-hydrogen", func(t *testing.T) {
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs("https://example.invalid"), "--dry-run", "transcribe", "-i", "files/abc123")...)
 		if result.err != nil {
 			t.Fatalf("dry-run failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		if !strings.Contains(result.stderr, "if this file is a video, the live run uses gemini-3.8-flash") {
+		if !strings.Contains(result.stderr, "if this file is a video, the live run uses gemini-4-hydrogen") {
 			t.Errorf("stderr = %q, want the dry-run routing note", result.stderr)
 		}
 	})
@@ -680,8 +680,8 @@ func TestTranscribeDedicatedModelEdgeCases(t *testing.T) {
 		}
 		body := stub.requestBody(t)
 		format, _ := body["response_format"].(map[string]any)
-		if body["model"] != "gemini-3.8-flash" || format["mime_type"] != "application/json" {
-			t.Errorf("model = %v, response_format = %v; want gemini-3.8-flash with the JSON schema", body["model"], format)
+		if body["model"] != "gemini-4-hydrogen" || format["mime_type"] != "application/json" {
+			t.Errorf("model = %v, response_format = %v; want gemini-4-hydrogen with the JSON schema", body["model"], format)
 		}
 		if artifact, _ := os.ReadFile(out); !strings.Contains(string(artifact), "1\n00:00:00,000 --> 00:00:02,000\nSpeaker 1: Hello.") {
 			t.Errorf("artifact = %q, want an SRT cue from the structured segments", artifact)

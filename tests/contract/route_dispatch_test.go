@@ -135,8 +135,8 @@ func TestAgentRunRouteDispatch(t *testing.T) {
 			t.Fatalf("agent run failed: %v\nstderr: %s", result.err, result.stderr)
 		}
 		call := <-calls
-		if got := call.body["model"]; got != "gemini-3.8-flash" {
-			t.Errorf("model = %v, want schema default gemini-3.8-flash", got)
+		if got := call.body["model"]; got != "gemini-4-hydrogen" {
+			t.Errorf("model = %v, want schema default gemini-4-hydrogen", got)
 		}
 		if got := call.body["stream"]; got != true {
 			t.Errorf("stream = %v, want the streaming preset true", got)

@@ -248,7 +248,7 @@ type CreateModelInteraction struct {
 	// Label values are optional. Label keys must start with a letter.
 	Labels map[string]string `json:"labels,omitzero"`
 	// The model that will complete your prompt.\n\nSee [models](https://aistudio.google.com/docs/models) for additional details.
-	Model *Model `default:"gemini-3.8-flash" json:"model"`
+	Model *Model `default:"gemini-4-hydrogen" json:"model"`
 	// The ID of the previous interaction, if any.
 	PreviousInteractionID *string `json:"previous_interaction_id,omitzero"`
 	// Enforces that the generated response is a JSON object that complies with
