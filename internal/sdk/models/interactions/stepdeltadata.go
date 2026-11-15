@@ -50,6 +50,8 @@ const (
 	StepDeltaDataTypeText                StepDeltaDataType = "text"
 	StepDeltaDataTypeThoughtSignature    StepDeltaDataType = "thought_signature"
 	StepDeltaDataTypeThoughtSummary      StepDeltaDataType = "thought_summary"
+	StepDeltaDataTypeToolSearchCall      StepDeltaDataType = "tool_search_call"
+	StepDeltaDataTypeToolSearchResult    StepDeltaDataType = "tool_search_result"
 	StepDeltaDataTypeURLContextCall      StepDeltaDataType = "url_context_call"
 	StepDeltaDataTypeURLContextResult    StepDeltaDataType = "url_context_result"
 	StepDeltaDataTypeVideo               StepDeltaDataType = "video"
@@ -80,6 +82,8 @@ type StepDeltaData struct {
 	TextDelta                *TextDelta                `queryParam:"inline" union:"member"`
 	ThoughtSignatureDelta    *ThoughtSignatureDelta    `queryParam:"inline" union:"member"`
 	ThoughtSummaryDelta      *ThoughtSummaryDelta      `queryParam:"inline" union:"member"`
+	ToolSearchCallDelta      *ToolSearchCallDelta      `queryParam:"inline" union:"member"`
+	ToolSearchResultDelta    *ToolSearchResultDelta    `queryParam:"inline" union:"member"`
 	URLContextCallDelta      *URLContextCallDelta      `queryParam:"inline" union:"member"`
 	URLContextResultDelta    *URLContextResultDelta    `queryParam:"inline" union:"member"`
 	VideoDelta               *VideoDelta               `queryParam:"inline" union:"member"`
@@ -292,6 +296,24 @@ func CreateStepDeltaDataThoughtSummary(thoughtSummary ThoughtSummaryDelta) StepD
 	return StepDeltaData{
 		ThoughtSummaryDelta: &thoughtSummary,
 		Type:                typ,
+	}
+}
+
+func CreateStepDeltaDataToolSearchCall(toolSearchCall ToolSearchCallDelta) StepDeltaData {
+	typ := StepDeltaDataTypeToolSearchCall
+
+	return StepDeltaData{
+		ToolSearchCallDelta: &toolSearchCall,
+		Type:                typ,
+	}
+}
+
+func CreateStepDeltaDataToolSearchResult(toolSearchResult ToolSearchResultDelta) StepDeltaData {
+	typ := StepDeltaDataTypeToolSearchResult
+
+	return StepDeltaData{
+		ToolSearchResultDelta: &toolSearchResult,
+		Type:                  typ,
 	}
 }
 
@@ -574,6 +596,24 @@ func (u *StepDeltaData) UnmarshalJSON(data []byte) (err error) {
 		u.ThoughtSummaryDelta = thoughtSummaryDelta
 		u.Type = StepDeltaDataTypeThoughtSummary
 		return nil
+	case "tool_search_call":
+		toolSearchCallDelta := new(ToolSearchCallDelta)
+		if err := utils.UnmarshalJSON(data, &toolSearchCallDelta, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == tool_search_call) type ToolSearchCallDelta within StepDeltaData: %w", string(data), err)
+		}
+
+		u.ToolSearchCallDelta = toolSearchCallDelta
+		u.Type = StepDeltaDataTypeToolSearchCall
+		return nil
+	case "tool_search_result":
+		toolSearchResultDelta := new(ToolSearchResultDelta)
+		if err := utils.UnmarshalJSON(data, &toolSearchResultDelta, "", true, nil); err != nil {
+			return fmt.Errorf("could not unmarshal `%s` into expected (Type == tool_search_result) type ToolSearchResultDelta within StepDeltaData: %w", string(data), err)
+		}
+
+		u.ToolSearchResultDelta = toolSearchResultDelta
+		u.Type = StepDeltaDataTypeToolSearchResult
+		return nil
 	case "url_context_call":
 		urlContextCallDelta := new(URLContextCallDelta)
 		if err := utils.UnmarshalJSON(data, &urlContextCallDelta, "", true, nil); err != nil {
@@ -700,6 +740,14 @@ func (u StepDeltaData) MarshalJSON() ([]byte, error) {
 
 	if u.ThoughtSummaryDelta != nil {
 		return utils.MarshalJSON(u.ThoughtSummaryDelta, "", true)
+	}
+
+	if u.ToolSearchCallDelta != nil {
+		return utils.MarshalJSON(u.ToolSearchCallDelta, "", true)
+	}
+
+	if u.ToolSearchResultDelta != nil {
+		return utils.MarshalJSON(u.ToolSearchResultDelta, "", true)
 	}
 
 	if u.URLContextCallDelta != nil {
