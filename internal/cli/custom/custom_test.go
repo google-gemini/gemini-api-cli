@@ -775,6 +775,18 @@ func TestSpeakerTurns(t *testing.T) {
 		// A label with nothing to say is dropped, whether or not space follows.
 		{"Alice: Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
 		{"Alice:Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{bob}},
+		// Per-turn style annotations in square brackets (parentheticals like "(CEO)" are not styles).
+		{"Alice [whispered urgently]: hi. Bob [excited]: yo.", []string{"Alice", "Bob"}, []speakerTurn{
+			{speaker: "Alice", style: "whispered urgently", text: "hi."},
+			{speaker: "Bob", style: "excited", text: "yo."},
+		}},
+		{"Alice: hi. Bob (CEO): yo.", []string{"Alice", "Bob"}, []speakerTurn{
+			{speaker: "Alice", text: "hi. Bob (CEO): yo."},
+		}},
+		{"- Alice [calm]: hi.\n- Bob: yo.", []string{"Alice", "Bob"}, []speakerTurn{
+			{speaker: "Alice", style: "calm", text: "hi."},
+			bob,
+		}},
 	}
 	for _, tt := range valid {
 		if got, err := speakerTurns(tt.text, tt.speakers); err != nil || !reflect.DeepEqual(got, tt.want) {
@@ -831,7 +843,7 @@ func TestTTSInput(t *testing.T) {
 		{"gemini-2.5-flash-tts", multi, plain},
 		{"gemini-2.5-pro-tts", multi, plain},
 	} {
-		if got, absent, err := ttsInput(tt.model, script, tt.speech); err != nil || absent != nil || !reflect.DeepEqual(got, tt.want) {
+		if got, absent, err := ttsInput(tt.model, script, "", tt.speech); err != nil || absent != nil || !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("ttsInput(%s, multi=%t) = %+v, %q, %v; want %+v", tt.model, tt.speech.SpeakerConfig != nil, got, absent, err, tt.want)
 		}
 	}
@@ -849,8 +861,60 @@ func TestTTSInput(t *testing.T) {
 		{"gemini-3.1-flash-tts-preview", "Alice: hi.", multi, []string{"Bob"}},
 		{"gemini-3.1-flash-tts-preview", "Alice: \u0936\u094d\u0930\u0940\u0930\u093e\u092e \u0930\u093e\u092e\u0940.", speech("--multi-speaker", "Alice=Kore,\u0930\u093e\u092e=Puck"), []string{"\u0930\u093e\u092e"}},
 	} {
-		if _, absent, err := ttsInput(tt.model, tt.text, tt.speech); err != nil || !slices.Equal(absent, tt.want) {
+		if _, absent, err := ttsInput(tt.model, tt.text, "", tt.speech); err != nil || !slices.Equal(absent, tt.want) {
 			t.Errorf("ttsInput(%s, %q) absent = %q, %v; want %q", tt.model, tt.text, absent, err, tt.want)
+		}
+	}
+
+	// Single-speaker with --style trims whitespace and attaches SpeechAnnotation{Style}.
+	gotSingleStyle, _, err := ttsInput(defaultTTSModel, "Hello there.", "  whispered urgently  ", single)
+	wantSingleStyle := []interactions.Content{interactions.CreateContentText(interactions.TextContent{
+		Text: "Hello there.",
+		Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+			interactions.SpeechAnnotation{Style: stringPtr("whispered urgently")})},
+	})}
+	if err != nil || !reflect.DeepEqual(gotSingleStyle, wantSingleStyle) {
+		t.Errorf("ttsInput(single) = %+v, %v; want %+v", gotSingleStyle, err, wantSingleStyle)
+	}
+
+	// Multi-speaker with per-turn style and fallback --style.
+	gotMultiStyle, _, err := ttsInput(defaultTTSModel, "Alice [excited]: hi! Bob: yo.", "calm", multi)
+	wantMultiStyle := []interactions.Content{
+		interactions.CreateContentText(interactions.TextContent{
+			Text: "hi!",
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Speaker: stringPtr("Alice"), Style: stringPtr("excited")})},
+		}),
+		interactions.CreateContentText(interactions.TextContent{
+			Text: "yo.",
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Speaker: stringPtr("Bob"), Style: stringPtr("calm")})},
+		}),
+	}
+	if err != nil || !reflect.DeepEqual(gotMultiStyle, wantMultiStyle) {
+		t.Errorf("ttsInput(multi) = %+v, %v; want %+v", gotMultiStyle, err, wantMultiStyle)
+	}
+
+	// Legacy models reject --style.
+	if _, _, err := ttsInput("gemini-2.5-flash-preview-tts", "Hello", "whispered", single); err == nil || !strings.Contains(err.Error(), "--style is not supported") {
+		t.Errorf("ttsInput(legacy) err = %v, want unsupported --style error", err)
+	}
+}
+
+func TestNormalizeVoicePositional(t *testing.T) {
+	for raw, want := range map[string]string{
+		"voice_abc123":          "voice_abc123",
+		"voices/voice_abc123":   "voice_abc123",
+		"  voices/voice_1.2-a ": "voice_1.2-a",
+		"Puck":                  "Puck",
+	} {
+		if got, err := normalizeVoicePositional(raw); err != nil || got != want {
+			t.Errorf("normalizeVoicePositional(%q) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "  ", "voices/", ".", "..", "voices/..", "a/b", "voices/a/b"} {
+		if got, err := normalizeVoicePositional(bad); err == nil {
+			t.Errorf("normalizeVoicePositional(%q) = %q, want error", bad, got)
 		}
 	}
 }
@@ -1011,6 +1075,24 @@ func TestNormalizeIdentifier(t *testing.T) {
 			normalize: normalizeModelPositional,
 			args:      nil,
 			wantErr:   "missing required flag: --model (or pass it as the [model] argument)",
+		},
+		{
+			name:      "voices get positional prefixed",
+			flagName:  "id",
+			shorthand: "i",
+			desc:      "Voice to inspect, as voices/<id> or a bare id",
+			normalize: normalizeVoicePositional,
+			args:      []string{"voices/voice_abc123"},
+			wantVal:   "voice_abc123",
+		},
+		{
+			name:      "voices get invalid flag",
+			flagName:  "id",
+			shorthand: "i",
+			desc:      "Voice to inspect, as voices/<id> or a bare id",
+			normalize: normalizeVoicePositional,
+			args:      []string{"--id", "../secret"},
+			wantErr:   `invalid voice id "../secret"`,
 		},
 	}
 
@@ -2761,4 +2843,200 @@ func TestMergeMediaBlocksIntoInput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTTSVoicePrompt(t *testing.T) {
+	pcmSamples := []byte{0x01, 0x02, 0x03, 0x04}
+	pcmB64 := base64.StdEncoding.EncodeToString(pcmSamples)
+
+	var (
+		lastVoiceBody       map[string]any
+		lastInteractionBody map[string]any
+		deletedVoiceID      string
+		failInteraction     bool
+		failDelete          bool
+		returnKeyOnly       bool
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/voices":
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &lastVoiceBody)
+			idField := `"id":"voice_custom1"`
+			if returnKeyOnly {
+				idField = `"key":"voicekey_custom1"`
+			}
+			_, _ = w.Write([]byte(`{` + idField + `,"type":"prompted"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/v1beta/voices/voice_custom1":
+			if failDelete {
+				http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+				return
+			}
+			deletedVoiceID = "voice_custom1"
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/interactions":
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &lastInteractionBody)
+			if failInteraction {
+				http.Error(w, `{"error":{"message":"synthesis failed"}}`, http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":"int_tts1","status":"completed","steps":[{"type":"model_output","content":[{"type":"audio","data":"` + pcmB64 + `","mime_type":"audio/l16","sample_rate":24000,"channels":1}]}]}`))
+		default:
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	newRoot := func(args ...string) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
+		root, stdout, stderr := newTestEnvironmentFilesRoot(srv.URL)
+		root.PersistentFlags().Bool("no-retries", true, "")
+		ttsCmd := &cobra.Command{Use: "tts"}
+		attachTTS(ttsCmd)
+		root.AddCommand(ttsCmd)
+		output.PreparseRenderingFlags(root, args)
+		root.SetArgs(args)
+		return root, stdout, stderr
+	}
+
+	existingFile := filepath.Join(t.TempDir(), "not_a_dir")
+	if err := os.WriteFile(existingFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Flag validation errors on `tts --voice-prompt`.
+	for name, tc := range map[string]struct {
+		args    []string
+		wantErr string
+	}{
+		"blank voice-prompt": {
+			args:    []string{"tts", "Hello", "--voice-prompt", "   "},
+			wantErr: "--voice-prompt cannot be empty",
+		},
+		"voice and voice-prompt conflict": {
+			args:    []string{"tts", "Hello", "--voice-prompt", "warm", "--voice", "Puck"},
+			wantErr: "mutually exclusive",
+		},
+		"multi-speaker and voice-prompt conflict": {
+			args:    []string{"tts", "Alice: hi. Bob: yo.", "--voice-prompt", "warm", "--multi-speaker", "Alice=Kore,Bob=Puck"},
+			wantErr: "mutually exclusive",
+		},
+		"invalid --out parent fails before network calls": {
+			args:    []string{"tts", "Hello", "--voice-prompt", "warm", "--out", filepath.Join(existingFile, "out.wav")},
+			wantErr: "is not a directory",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lastVoiceBody = nil
+			root, _, _ := newRoot(tc.args...)
+			rawErr := root.Execute()
+			if rawErr == nil || !strings.Contains(rawErr.Error(), tc.wantErr) {
+				t.Fatalf("Execute(%v) err = %v, want substring %q", tc.args, rawErr, tc.wantErr)
+			}
+			if got := clierrors.ExitCode(output.CLIError(root, rawErr)); got != clierrors.ExitUsage {
+				t.Errorf("ExitCode = %d, want %d (ExitUsage)", got, clierrors.ExitUsage)
+			}
+			if lastVoiceBody != nil {
+				t.Errorf("expected no CreateVoice network call on validation error, got %+v", lastVoiceBody)
+			}
+		})
+	}
+
+	t.Run("tts --voice-prompt trims prompt and style and synthesizes WAV", func(t *testing.T) {
+		outWav := filepath.Join(t.TempDir(), "out.wav")
+		lastVoiceBody = nil
+		lastInteractionBody = nil
+		root, stdout, _ := newRoot("tts", "Hello world.", "--voice-prompt", "  A warm British voice  ", "--language", "en-GB", "--style", "  cheerfully  ", "--out", outWav)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute tts --voice-prompt: %v", err)
+		}
+		if lastVoiceBody["store"] != true {
+			t.Errorf("store = %v, want true", lastVoiceBody["store"])
+		}
+		voiceObj, _ := lastVoiceBody["voice"].(map[string]any)
+		if _, hasModel := voiceObj["model"]; hasModel {
+			t.Errorf("voice.model = %v, want omitted so server selects default voice design model", voiceObj["model"])
+		}
+		promptedObj, _ := voiceObj["prompted"].(map[string]any)
+		if got := promptedObj["input"]; got != "A warm British voice" {
+			t.Errorf("voice.prompted.input = %q, want trimmed %q", got, "A warm British voice")
+		}
+		if got := voiceObj["language_code"]; got != "en-GB" {
+			t.Errorf("voice.language_code = %q, want en-GB", got)
+		}
+		genCfg, _ := lastInteractionBody["generation_config"].(map[string]any)
+		speechArr, _ := genCfg["speech_config"].([]any)
+		if len(speechArr) != 1 || speechArr[0].(map[string]any)["voice"] != "voice_custom1" {
+			t.Errorf("speech_config = %+v, want voice_custom1", genCfg["speech_config"])
+		}
+		steps, _ := lastInteractionBody["input"].([]any)
+		if len(steps) != 1 {
+			t.Fatalf("input steps = %+v, want 1 user_input step", steps)
+		}
+		contents, _ := steps[0].(map[string]any)["content"].([]any)
+		if len(contents) != 1 {
+			t.Fatalf("step content = %+v, want 1 text block", contents)
+		}
+		ann, _ := contents[0].(map[string]any)["annotations"].([]any)
+		if len(ann) != 1 || ann[0].(map[string]any)["style"] != "cheerfully" {
+			t.Errorf("input annotations = %+v, want trimmed style cheerfully", ann)
+		}
+		written, err := os.ReadFile(outWav)
+		if err != nil || !bytes.HasPrefix(written, []byte("RIFF")) {
+			t.Fatalf("outWav read err=%v, prefix=%q; want RIFF WAV", err, written)
+		}
+		if strings.TrimSpace(stdout.String()) != outWav {
+			t.Errorf("stdout = %q, want %q", stdout.String(), outWav)
+		}
+	})
+
+	t.Run("tts --voice-prompt deletes created voice on synthesis failure", func(t *testing.T) {
+		failInteraction = true
+		deletedVoiceID = ""
+		defer func() {
+			failInteraction = false
+		}()
+		rootFail, _, _ := newRoot("tts", "Hello world.", "--voice-prompt", "Warm voice", "--out", filepath.Join(t.TempDir(), "fail.wav"))
+		if err := rootFail.Execute(); err == nil {
+			t.Fatal("expected tts --voice-prompt to fail when interaction returns 500")
+		}
+		if deletedVoiceID != "voice_custom1" {
+			t.Errorf("deletedVoiceID after failed tts synthesis = %q, want voice_custom1", deletedVoiceID)
+		}
+	})
+
+	t.Run("tts --voice-prompt warns when cleanup delete fails", func(t *testing.T) {
+		failInteraction = true
+		failDelete = true
+		deletedVoiceID = ""
+		defer func() {
+			failInteraction = false
+			failDelete = false
+		}()
+		rootFail, _, stderr := newRoot("tts", "Hello world.", "--voice-prompt", "Warm voice", "--out", filepath.Join(t.TempDir(), "fail2.wav"))
+		if err := rootFail.Execute(); err == nil {
+			t.Fatal("expected tts --voice-prompt to fail when interaction returns 500")
+		}
+		if !strings.Contains(stderr.String(), "gemini-api voices delete voice_custom1") {
+			t.Errorf("stderr = %q, want cleanup warning with 'gemini-api voices delete voice_custom1'", stderr.String())
+		}
+	})
+
+	t.Run("tts --voice-prompt rejects response without voice id", func(t *testing.T) {
+		returnKeyOnly = true
+		deletedVoiceID = ""
+		defer func() {
+			returnKeyOnly = false
+		}()
+		rootKey, _, _ := newRoot("tts", "Hello world.", "--voice-prompt", "Warm voice", "--out", filepath.Join(t.TempDir(), "key.wav"))
+		err := rootKey.Execute()
+		if err == nil || !strings.Contains(err.Error(), "did not include a voice id") {
+			t.Fatalf("Execute err = %v, want 'did not include a voice id'", err)
+		}
+		if deletedVoiceID != "" {
+			t.Errorf("deletedVoiceID = %q, want empty when no id was returned", deletedVoiceID)
+		}
+	})
 }

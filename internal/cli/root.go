@@ -30,6 +30,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/cli/files"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/models"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/triggers"
+	"github.com/google-gemini/gemini-api-cli/internal/cli/voices"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/webhooks"
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
@@ -122,6 +123,9 @@ func NewRootCommand() (*cobra.Command, error) {
 	}
 	if err := triggers.InitTriggersRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init triggers: %w", err)
+	}
+	if err := voices.InitVoicesRoot(rootCmd); err != nil {
+		return nil, fmt.Errorf("init voices: %w", err)
 	}
 	if err := webhooks.InitWebhooksRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init webhooks: %w", err)

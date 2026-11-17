@@ -105,6 +105,9 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 	if err := setCommandGroup(rootCmd, "triggers", "advanced"); err != nil {
 		return err
 	}
+	if err := setCommandGroup(rootCmd, "voices", "manage"); err != nil {
+		return err
+	}
 	if err := setCommandGroup(rootCmd, "webhooks", "advanced"); err != nil {
 		return err
 	}
@@ -199,6 +202,7 @@ var intentDeclarationOrder = []intentOrderEntry{
 	{ParentPath: []string{}, Name: "triggers"},
 	{ParentPath: []string{}, Name: "tts"},
 	{ParentPath: []string{}, Name: "video"},
+	{ParentPath: []string{}, Name: "voices"},
 	{ParentPath: []string{}, Name: "webhooks"},
 	{ParentPath: []string{}, Name: "whoami"},
 }

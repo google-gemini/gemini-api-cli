@@ -290,6 +290,44 @@ func TestFilesIdentifierForms(t *testing.T) {
 	}
 }
 
+// TestVoicesIdentifierForms: the generated voices get/delete accept the id as a
+// positional or via --id, bare or "voices/"-prefixed, and always send the bare
+// id as the path parameter.
+func TestVoicesIdentifierForms(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       []string
+		wantMethod string
+	}{
+		{name: "get positional prefixed", args: []string{"voices", "get", "voices/voice_abc123"}, wantMethod: http.MethodGet},
+		{name: "get positional bare", args: []string{"voices", "get", "voice_abc123"}, wantMethod: http.MethodGet},
+		{name: "get flag prefixed", args: []string{"voices", "get", "--id", "voices/voice_abc123"}, wantMethod: http.MethodGet},
+		{name: "get flag bare", args: []string{"voices", "get", "--id", "voice_abc123"}, wantMethod: http.MethodGet},
+		{name: "delete positional prefixed", args: []string{"voices", "delete", "voices/voice_abc123"}, wantMethod: http.MethodDelete},
+		{name: "delete flag prefixed", args: []string{"voices", "delete", "--id", "voices/voice_abc123"}, wantMethod: http.MethodDelete},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"id":"voice_abc123","type":"prompted"}`)
+			}))
+			defer server.Close()
+
+			args := append(baseArgs(server.URL), tt.args...)
+			result := runCLI(t, t.TempDir(), nil, args...)
+			if result.err != nil {
+				t.Fatalf("%s failed: %v\nstderr: %s", tt.name, result.err, result.stderr)
+			}
+			if gotMethod != tt.wantMethod || gotPath != "/v1beta/voices/voice_abc123" {
+				t.Errorf("request = %s %q, want %s /v1beta/voices/voice_abc123", gotMethod, gotPath, tt.wantMethod)
+			}
+		})
+	}
+}
+
 // TestPorcelainUsageKDL: --usage on a claimed command yields its live surface.
 func TestPorcelainUsageKDL(t *testing.T) {
 	for _, tc := range []struct {

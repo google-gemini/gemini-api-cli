@@ -16,12 +16,16 @@ package custom
 
 import (
 	"cmp"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -31,6 +35,8 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/output"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/operations"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/voices"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk"
 	"github.com/spf13/cobra"
 )
 
@@ -41,17 +47,26 @@ import (
 func attachTTS(cmd *cobra.Command) {
 	cmd.Use = "tts [text]"
 	cmd.Short = "Text to speech (" + defaultTTSModel + ")"
-	cmd.Long = "Convert text to speech.\n\nGenerated audio is written to a local file as WAV (24 kHz mono). The extension\nfollows the audio: --out foo.mp3 is written as foo.wav, and --out naming a\ndirectory places a default-named file inside it. An existing file is replaced.\nBy default, stdout prints the absolute artifact path. The request is not stored\nserver-side.\n\nArguments:\n  <text>  Text to speak (or use -f / --stdin)"
+	cmd.Long = "Convert text to speech. Text is spoken verbatim: put delivery direction in --style\n" +
+		"and custom voice descriptions in --voice-prompt or gemini-api voices create.\n" +
+		"Writes 24 kHz mono WAV (--out foo.mp3 is written as foo.wav, --out naming a directory places a default-named file inside it;\n" +
+		"an existing file is replaced). By default, stdout prints the artifact path.\n\n" +
+		"Arguments:\n" +
+		"  <text>  Verbatim text to speak (or use -f / --stdin)"
 	cmd.Example = "  gemini-api tts \"Welcome to the show\"                    # → ./gemini-tts-<unix-ms>-<random>.wav\n" +
 		"  gemini-api tts -f script.txt --voice Puck --out out.wav\n" +
 		"  echo \"hello\" | gemini-api tts --stdin\n" +
-		"  gemini-api tts \"Alice: hi. Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
+		"  gemini-api tts \"Look out!\" --style \"whispered urgently\" --voice Puck --out out.wav\n" +
+		"  gemini-api tts \"Hello there\" --voice-prompt \"Warm, gravelly radio host\"\n" +
+		"  gemini-api tts \"Alice [excited]: hi! Bob: hello.\" --multi-speaker \"Alice=Kore,Bob=Puck\""
 	helpMeta(cmd, "model "+defaultTTSModel+" · voice "+defaultTTSVoice+" · 24kHz mono WAV",
 		"https://aistudio.google.com/docs/speech-generation",
 		"full request control via gemini-api agent run")
 	cmd.Args = cobra.ArbitraryArgs
-	cmd.Flags().StringP("voice", "v", defaultTTSVoice, "Voice for single-speaker audio (e.g. Kore, Puck, Zephyr, Charon, Fenrir, Aoede)")
-	cmd.Flags().String("multi-speaker", "", "Speaker→voice map for two-speaker scripts, e.g. \"Alice=Kore,Bob=Puck\"; start each turn with its speaker label (\"Alice: …\")")
+	cmd.Flags().StringP("voice", "v", defaultTTSVoice, "Voice name or custom voice_<id> for single-speaker audio (e.g. Kore, Puck, Zephyr, voice_abc123)")
+	cmd.Flags().String("voice-prompt", "", "Design and store a new custom voice_<id> from a description (persists for 1y of inactivity and counts toward project quota; reuse with --voice voice_<id>)")
+	cmd.Flags().String("style", "", "Delivery style or acting direction (e.g. \"whispered urgently\"); text is spoken verbatim")
+	cmd.Flags().String("multi-speaker", "", "Speaker→voice map for two-speaker scripts, e.g. \"Alice=Kore,Bob=Puck\"; start each turn with \"Speaker:\" or \"Speaker [style]:\"")
 	cmd.Flags().StringP("file", "f", "", "Read the input text from a file")
 	cmd.Flags().Bool("stdin", false, "Read the input text from stdin")
 	cmd.Flags().String("out", "", "Output file or directory; the extension follows the audio (default: ./gemini-tts-<unix-ms>-<random>.wav)")
@@ -80,14 +95,63 @@ func runTTS(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	style, _ := flagutil.GetStringFlag(cmd, "style")
+	voicePrompt, _ := flagutil.GetStringFlag(cmd, "voice-prompt")
+	voicePrompt = strings.TrimSpace(voicePrompt)
+	if flagutil.FlagChanged(cmd, "voice-prompt") && voicePrompt == "" {
+		return usageError("--voice-prompt cannot be empty")
+	}
+	if voicePrompt != "" {
+		if flagutil.FlagChanged(cmd, "voice") {
+			return usageError("--voice and --voice-prompt are mutually exclusive",
+				"Use \"gemini-api voices create\" with base_voice to remix an existing voice")
+		}
+		if spec, _ := flagutil.GetStringFlag(cmd, "multi-speaker"); strings.TrimSpace(spec) != "" {
+			return usageError("--voice-prompt and --multi-speaker are mutually exclusive",
+				"Create custom voices with \"gemini-api voices create\" and pass their voice_<id> in --multi-speaker")
+		}
+	}
+
 	speech, voiceLabel, err := buildSpeechConfig(cmd)
 	if err != nil {
 		return err
 	}
-	input, absent, err := ttsInput(model, text, speech)
+	input, absent, err := ttsInput(model, text, style, speech)
 	if err != nil {
 		return err
 	}
+	if err := validateTTSOutPath(cmd); err != nil {
+		return err
+	}
+	s, err := client.NewClient(cmd)
+	if err != nil {
+		return err
+	}
+	opts, err := callOpts(cmd)
+	if err != nil {
+		return err
+	}
+
+	var designedVoiceID string
+	succeeded := false
+	defer func() {
+		if designedVoiceID != "" && !succeeded && !isDryRun(cmd) {
+			deleteVoiceBestEffort(cmd, s, opts, designedVoiceID)
+		}
+	}()
+	if voicePrompt != "" {
+		lang, _ := flagutil.GetStringFlag(cmd, "language")
+		designedVoiceID, err = designVoiceForTTS(cmd, s, opts, voicePrompt, strings.TrimSpace(lang))
+		if err != nil {
+			return err
+		}
+		if len(speech.ArrayOfSpeechConfig) == 0 {
+			return runtimeError("internal error: missing single-speaker speech config for designed voice")
+		}
+		speech.ArrayOfSpeechConfig[0].Voice = stringPtr(designedVoiceID)
+		voiceLabel = designedVoiceID
+	}
+
 	// The format stays bare: the TTS models reject every explicit mime_type
 	// and delivery ("not supported for models/…"), and answer with 24 kHz L16.
 	responseFormat := interactions.CreateCreateModelInteractionResponseFormatResponseFormat(
@@ -110,14 +174,6 @@ func runTTS(cmd *cobra.Command, args []string) error {
 		Body: operations.CreateCreateInteractionRequestBodyCreateModelInteraction(body),
 	}
 
-	s, err := client.NewClient(cmd)
-	if err != nil {
-		return err
-	}
-	opts, err := callOpts(cmd)
-	if err != nil {
-		return err
-	}
 	if isDryRun(cmd) {
 		_, err := s.Agent.Run(cmd.Context(), req, opts...)
 		return err
@@ -171,6 +227,9 @@ func runTTS(cmd *cobra.Command, args []string) error {
 		"mime_type":  mimeType,
 		"size_bytes": len(data),
 	}
+	if designedVoiceID != "" {
+		envelope["voice_id"] = designedVoiceID
+	}
 	if format.isPCM {
 		envelope["sample_rate"] = sampleRate
 		envelope["channels"] = channels
@@ -181,7 +240,39 @@ func runTTS(cmd *cobra.Command, args []string) error {
 	if u := usageEnvelope(res.Interaction.Usage); u != nil {
 		envelope["usage"] = u
 	}
+	succeeded = true
 	return emitResult(cmd, path, envelope)
+}
+
+// validateTTSOutPath resolves and checks --out before any network calls so an
+// invalid destination (such as a NUL byte or an ancestor that is a regular
+// file) fails immediately without creating a custom voice or running synthesis.
+func validateTTSOutPath(cmd *cobra.Command) error {
+	path, err := artifactPath(cmd, "out", "gemini-tts", ".wav")
+	if err != nil {
+		return err
+	}
+	out, _ := flagutil.GetStringFlag(cmd, "out")
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil
+	}
+	if strings.ContainsRune(out, 0) {
+		return usageError(fmt.Sprintf("invalid --out %q: path contains NUL byte", out))
+	}
+	for dir := filepath.Dir(path); dir != "" && dir != "." && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		info, err := os.Stat(dir)
+		if err == nil {
+			if !info.IsDir() {
+				return usageError(fmt.Sprintf("cannot write to --out %q: %q is not a directory", out, dir))
+			}
+			break
+		}
+		if !os.IsNotExist(err) {
+			return usageError(fmt.Sprintf("cannot inspect --out %q: %v", out, err))
+		}
+	}
+	return nil
 }
 
 // containsWord reports whether text names word on its own rather than inside a
@@ -191,28 +282,39 @@ func containsWord(text, word string) bool {
 	return regexp.MustCompile(`(^|` + edge + `)` + regexp.QuoteMeta(word) + `($|` + edge + `)`).MatchString(text)
 }
 
-// isLegacyMultiSpeakerModel reports whether model takes a multi-speaker script
-// as one plain text block and rejects speech_metadata annotations ("not
-// supported for this model"). Every other model rejects that block and needs
-// one annotated block per turn.
-func isLegacyMultiSpeakerModel(model string) bool {
-	return strings.HasPrefix(model, "gemini-2.5-") || strings.HasPrefix(model, "gemini-3.1-")
+// supportsSpeechMetadata reports whether model accepts per-turn speech_metadata
+// annotations (speaker and style). Legacy 2.5 and 3.1 TTS models reject
+// speech_metadata ("not supported for this model") and take a multi-speaker
+// script as one plain text block.
+func supportsSpeechMetadata(model string) bool {
+	return !strings.HasPrefix(model, "gemini-2.5-") && !strings.HasPrefix(model, "gemini-3.1-")
 }
 
 // ttsInput builds the interaction input: the whole text as one block, or, for a
 // multi-speaker script on a current model, one block per speaker turn annotated
-// with its speaker. It also returns the declared speakers the script never
-// voices.
-func ttsInput(model, text string, speech *interactions.SpeechConfigUnion) ([]interactions.Content, []string, error) {
+// with its speaker and optional style. It also returns the declared speakers
+// the script never voices.
+func ttsInput(model, text, style string, speech *interactions.SpeechConfigUnion) ([]interactions.Content, []string, error) {
+	style = strings.TrimSpace(style)
+	if style != "" && !supportsSpeechMetadata(model) {
+		return nil, nil, usageError(fmt.Sprintf("--style is not supported by %s (speech_metadata requires %s)", model, defaultTTSModel))
+	}
 	if speech.SpeakerConfig == nil {
-		return []interactions.Content{textContentBlock(text)}, nil, nil
+		if style == "" {
+			return []interactions.Content{textContentBlock(text)}, nil, nil
+		}
+		return []interactions.Content{interactions.CreateContentText(interactions.TextContent{
+			Text: text,
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
+				interactions.SpeechAnnotation{Style: stringPtr(style)})},
+		})}, nil, nil
 	}
 	speakers := make([]string, 0, len(speech.SpeakerConfig.Speakers))
 	for _, sp := range speech.SpeakerConfig.Speakers {
 		speakers = append(speakers, *sp.Speaker)
 	}
 	var absent []string
-	if isLegacyMultiSpeakerModel(model) {
+	if !supportsSpeechMetadata(model) {
 		for _, speaker := range speakers {
 			if !containsWord(text, speaker) {
 				absent = append(absent, speaker)
@@ -228,10 +330,13 @@ func ttsInput(model, text string, speech *interactions.SpeechConfigUnion) ([]int
 	input := make([]interactions.Content, 0, len(turns))
 	for _, turn := range turns {
 		voiced[turn.speaker] = true
+		ann := interactions.SpeechAnnotation{Speaker: stringPtr(turn.speaker)}
+		if turnStyle := cmp.Or(turn.style, style); turnStyle != "" {
+			ann.Style = stringPtr(turnStyle)
+		}
 		input = append(input, interactions.CreateContentText(interactions.TextContent{
-			Text: turn.text,
-			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(
-				interactions.SpeechAnnotation{Speaker: stringPtr(turn.speaker)})},
+			Text:        turn.text,
+			Annotations: []interactions.Annotation{interactions.CreateAnnotationSpeechMetadata(ann)},
 		}))
 	}
 	for _, speaker := range speakers {
@@ -288,6 +393,7 @@ func lineMarkerStart(text string, floor, start int) int {
 
 type speakerTurn struct {
 	speaker string
+	style   string
 	text    string
 }
 
@@ -295,13 +401,13 @@ type speakerTurn struct {
 // with the --multi-speaker name it was declared as ("Dr\u00a0Who:" is "Dr Who").
 const labelSpace = `[\s\v\x{85}\p{Z}]`
 
-// speakerTurns splits a script at each "<speaker>:" label that names one of
-// speakers and strips the label from the turn text (Gemini 3.8 TTS treats text
-// as a verbatim transcript and takes the speaker via speech_metadata). A label
-// may sit at the start of a line (optionally after a list or quote marker:
-// "-", "•", ">", "“", "1.")
-// or mid-line after punctuation ("Alice: hi. Bob: hello.", "Alice:Bob:"), but
-// not inside a longer word ("MaryAnn:") or after a word on the same line
+// speakerTurns splits a script at each "<speaker>:" (or "<speaker> [style]:")
+// label that names one of speakers and strips the label
+// from the turn text (Gemini 3.8 TTS treats text as a verbatim transcript and
+// takes the speaker and style via speech_metadata). A label may sit at the
+// start of a line (optionally after a list or quote marker: "-", "•", ">", "“",
+// "1.") or mid-line after punctuation ("Alice: hi. Bob: hello.", "Alice:Bob:"),
+// but not inside a longer word ("MaryAnn:") or after a word on the same line
 // ("I told Bob: wait."). Labels for undeclared speakers are not split on, and
 // turns with nothing to say are dropped. Every block must name a speaker, so
 // text before the first label is an error.
@@ -317,13 +423,14 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		}
 		names[i] = strings.Join(words, labelSpace+`+`)
 	}
-	label := regexp.MustCompile(`(` + strings.Join(names, "|") + `)` + labelSpace + `*:`)
+	styleMod := `(?:` + labelSpace + `*\[([^\]\r\n]+)\])?`
+	label := regexp.MustCompile(`(` + strings.Join(names, "|") + `)` + styleMod + labelSpace + `*:`)
 	hint := `Start each turn with its speaker label, e.g. "Alice: hi. Bob: hello."`
 
 	// RE2 has no lookbehind: matches inside a longer word ("MaryAnn:") or after
 	// a word on the same line ("I told Bob:") are skipped by hand, resuming one
 	// rune later so they cannot hide a real label.
-	type labelSpan struct{ start, nameStart, nameEnd, end int }
+	type labelSpan struct{ start, nameStart, nameEnd, styleStart, styleEnd, end int }
 	var labels []labelSpan
 	for pos := 0; pos < len(text); {
 		m := label.FindStringSubmatchIndex(text[pos:])
@@ -341,7 +448,11 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		if len(labels) > 0 {
 			floor = labels[len(labels)-1].end
 		}
-		labels = append(labels, labelSpan{lineMarkerStart(text, floor, start), pos + m[0], pos + m[3], pos + m[1]})
+		styleStart, styleEnd := 0, 0
+		if m[4] >= 0 {
+			styleStart, styleEnd = pos+m[4], pos+m[5]
+		}
+		labels = append(labels, labelSpan{lineMarkerStart(text, floor, start), pos + m[2], pos + m[3], styleStart, styleEnd, pos + m[1]})
 		pos += m[1]
 	}
 	if len(labels) == 0 {
@@ -364,8 +475,13 @@ func speakerTurns(text string, speakers []string) ([]speakerTurn, error) {
 		if turnText == "" {
 			continue
 		}
+		var turnStyle string
+		if l.styleEnd > l.styleStart {
+			turnStyle = strings.TrimSpace(text[l.styleStart:l.styleEnd])
+		}
 		turns = append(turns, speakerTurn{
 			speaker: strings.Join(strings.Fields(text[l.nameStart:l.nameEnd]), " "),
+			style:   turnStyle,
 			text:    turnText,
 		})
 	}
@@ -489,4 +605,61 @@ func extractAudio(it *interactions.Interaction) ([]byte, string, int, int, error
 		mimeType = "audio/l16"
 	}
 	return audio, mimeType, channels, sampleRate, nil
+}
+
+// designVoiceForTTS creates a stored prompted voice via s.Voices.Create and
+// returns its voice_<id> so `gemini-api tts --voice-prompt` can synthesize
+// immediately with the newly designed voice.
+func designVoiceForTTS(cmd *cobra.Command, s *sdk.GeminiAPI, opts []operations.Option, prompt, language string) (string, error) {
+	voiceInput := voices.VoiceInput{
+		Type: voices.VoiceTypePrompted,
+		Prompted: &voices.PromptedVoice{
+			Input: prompt,
+		},
+	}
+	if language != "" {
+		voiceInput.LanguageCode = stringPtr(language)
+	}
+	req := operations.CreateVoiceRequest{
+		Body: voices.CreateVoiceRequest{
+			Store: boolPtr(true),
+			Voice: voiceInput,
+		},
+	}
+	if !isDryRun(cmd) {
+		progress(cmd, "Designing custom voice...")
+	}
+	res, err := s.Voices.Create(cmd.Context(), req, opts...)
+	if err != nil {
+		return "", output.Error(cmd, err)
+	}
+	if isDryRun(cmd) {
+		return "voice_dry_run", nil
+	}
+	voiceID := ""
+	if res.Voice != nil && res.Voice.ID != nil {
+		voiceID = strings.TrimSpace(*res.Voice.ID)
+	}
+	if voiceID == "" {
+		return "", runtimeError("the API response did not include a voice id")
+	}
+	progress(cmd, "Stored custom voice %s (expires after 1y of inactivity, counts toward project quota; reuse with --voice %s or delete with 'gemini-api voices delete %s').", voiceID, voiceID, voiceID)
+	return voiceID, nil
+}
+
+// deleteVoiceBestEffort deletes a stored custom voice when the speech step in
+// `tts --voice-prompt` fails so the unused voice is not left on the server.
+func deleteVoiceBestEffort(cmd *cobra.Command, s *sdk.GeminiAPI, opts []operations.Option, voiceID string) {
+	norm, err := normalizeVoicePositional(voiceID)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(cmd.Context()), 10*time.Second)
+	defer cancel()
+	_, err = s.Voices.Delete(ctx, operations.DeleteVoiceRequest{ID: norm}, opts...)
+	if err != nil {
+		progress(cmd, "warning: failed to clean up custom voice %s after synthesis failure (%v); run 'gemini-api voices delete %s' to remove it", norm, err, norm)
+		return
+	}
+	progress(cmd, "Cleaned up unused custom voice %s after synthesis failure.", norm)
 }

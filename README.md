@@ -118,7 +118,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 |---|---|---|---|
 | **Create** | `gemini-api generate` | `-m`, `-i/--input`, `--stdin`, `--system`, `--stream=false`, `--body` | Text and multimodal generation (`gemini-4-hydrogen`) |
 | | `gemini-api image` | `-m`, `-i/--input`, `--stdin`, `--out`, `--body` | Generate or edit images (`gemini-nano-banana-2.1`) |
-| | `gemini-api tts` | `-f/--file`, `--stdin`, `--voice`, `--multi-speaker`, `--out` | Text-to-speech audio generation (`gemini-3.8-flash-tts`) |
+| | `gemini-api tts` | `-f/--file`, `--stdin`, `--voice`, `--voice-prompt`, `--style`, `--multi-speaker`, `--out` | Text-to-speech audio generation (`gemini-3.8-flash-tts`) |
 | | `gemini-api music` | `-m`, `-f/--file`, `--stdin`, `--out`, `--body` | Music generation (`lyria-3.5`) |
 | | `gemini-api video` | `-m`, `-i/--input`, `--stdin`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.2-flash`) |
 | **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `--stdin`, `--system`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-4-hydrogen`) |
@@ -126,6 +126,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | **Manage** | `gemini-api agent` | `run`, `status`, `cancel`, `delete-interaction`, `create`, `list`, `get`, `delete` | Run interactions with models or managed agents (`run`, `status`, `cancel`) and manage agent definitions |
 | | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
 | | `gemini-api models` | *(bare catalog)*, `list` (`--all`), `get` | View the offline model catalog, or query live API models (`list`, `get`) |
+| | `gemini-api voices` | `create`, `list` (`--all`), `get`, `delete` | Design, replicate, list, inspect, and delete custom voices |
 | | `gemini-api configure` | `--api-key`, `--interactive`, `--output-format` | Configure authentication, global parameters, and persistent preferences |
 | | `gemini-api auth` / `whoami` | `auth login`, `auth whoami`, `auth logout` | Manage stored credentials (`auth`) or inspect active authentication and configuration (`whoami`) |
 | **Advanced** | `gemini-api environments` | `create`, `list`, `get`, `delete`, `files` (`list`, `upload`, `download`), `connect`, `poll`, `serve` | Manage sandbox environments, upload/list/download environment files, or run [self-hosted environments](docs/self-hosted/README.md) |

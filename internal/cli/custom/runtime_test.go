@@ -144,6 +144,15 @@ func TestRegisterMountsRuntimeCommandsAsDynamic(t *testing.T) {
 		modelsGroup.AddCommand(modelsGet)
 		root.AddCommand(modelsGroup)
 
+		voicesGroup := &cobra.Command{Use: "voices"}
+		voicesGroup.AddCommand(&cobra.Command{Use: "create", RunE: noopRunE})
+		for _, leaf := range []string{"get", "delete"} {
+			c := &cobra.Command{Use: leaf, RunE: noopRunE}
+			c.Flags().String("id", "", "")
+			voicesGroup.AddCommand(c)
+		}
+		root.AddCommand(voicesGroup)
+
 		envsGroup := &cobra.Command{Use: "environments"}
 		envFilesGroup := &cobra.Command{Use: "files"}
 		envFilesList := &cobra.Command{Use: "list", RunE: noopRunE}

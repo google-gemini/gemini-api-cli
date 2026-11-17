@@ -51,6 +51,8 @@ import (
 //     the generated models group's bare invocation stays the curated catalog
 //     (merged in by the generated catalog layer), with list/get as its live API
 //     leaves.
+//   - voices get / delete normalize "voices/<id>" to "<id>" and reject
+//     malformed ids before sending a request.
 func Register(root *cobra.Command) {
 	if err := register(root); err != nil {
 		// A drifted command surface (a declared custom command that no longer
@@ -101,6 +103,25 @@ func register(root *cobra.Command) error {
 	}
 	if err := normalizeIdentifier(findChild(models, "get"), "model", normalizeModelPositional); err != nil {
 		return fmt.Errorf("models get: %w", err)
+	}
+
+	voices := findChild(root, "voices")
+	if voices == nil {
+		return fmt.Errorf("expected the generated voices group to mount porcelain under")
+	}
+	// Prompted voices require --store=true, while replicated voices leave --store
+	// optional (default false). Keep store optional in the schema and ensure the
+	// prompted example shown in `voices create --help` includes --store=true.
+	voicesCreate := findChild(voices, "create")
+	if voicesCreate == nil {
+		return fmt.Errorf("voices create: command is not registered")
+	}
+	voicesCreate.Example = "  gemini-api voices create --store=true --voice '{\"prompted\":{\"input\":\"A warm, calm narrator with a British accent\"},\"type\":\"prompted\"}'"
+	if err := normalizeIdentifier(findChild(voices, "get"), "id", normalizeVoicePositional); err != nil {
+		return fmt.Errorf("voices get: %w", err)
+	}
+	if err := normalizeIdentifier(findChild(voices, "delete"), "id", normalizeVoicePositional); err != nil {
+		return fmt.Errorf("voices delete: %w", err)
 	}
 
 	environments := findChild(root, "environments")
@@ -266,6 +287,21 @@ func normalizeModelPositional(id string) (string, error) {
 	id = strings.TrimPrefix(strings.TrimSpace(id), "models/")
 	if !modelIDShape.MatchString(id) {
 		return "", fmt.Errorf("invalid model id %q; expected a model name like \"gemini-3.8-flash\"", id)
+	}
+	return id, nil
+}
+
+// normalizeVoicePositional strips an optional "voices/" prefix so both
+// "voices get voice_abc123" and "voices get voices/voice_abc123" resolve to the
+// bare id the path parameter expects, and rejects empty or malformed ids before
+// they reach the API.
+func normalizeVoicePositional(id string) (string, error) {
+	if strings.TrimSpace(id) == "" {
+		return "", fmt.Errorf("flag --id is blank; path parameters require a non-empty value")
+	}
+	id = strings.TrimPrefix(strings.TrimSpace(id), "voices/")
+	if !modelIDShape.MatchString(id) {
+		return "", fmt.Errorf("invalid voice id %q; expected voices/<id> or a bare id like \"voice_abc123\"", id)
 	}
 	return id, nil
 }

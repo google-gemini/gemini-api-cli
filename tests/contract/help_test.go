@@ -46,6 +46,7 @@ func TestHelpBudgetAndFooter(t *testing.T) {
 		{"tts"}, {"analyze"}, {"transcribe"},
 		{"agent"}, {"agent", "run"}, {"agent", "status"},
 		{"models"}, {"models", "list"}, {"files"}, {"files", "upload"},
+		{"voices"}, {"voices", "create"}, {"voices", "list"}, {"voices", "get"}, {"voices", "delete"},
 	}
 	for _, args := range commands {
 		name := strings.Join(args, " ")
@@ -210,7 +211,7 @@ func TestPorcelainHelpCopy(t *testing.T) {
 	}
 	// The identifier is required once, as an argument or a flag: the flag alone
 	// must not claim to be required next to a "[file]" usage line.
-	for _, args := range [][]string{{"files", "get"}, {"files", "delete"}, {"models", "get"}} {
+	for _, args := range [][]string{{"files", "get"}, {"files", "delete"}, {"models", "get"}, {"voices", "get"}, {"voices", "delete"}} {
 		name := strings.Join(args, " ")
 		t.Run(name+" flag is not marked required", func(t *testing.T) {
 			result := runCLI(t, t.TempDir(), nil, append(args, "--help")...)
@@ -224,7 +225,7 @@ func TestPorcelainHelpCopy(t *testing.T) {
 	for name, wants := range map[string][]string{
 		"analyze":      {"this CLI keeps each request under 20 MB", "gemini-api files upload"},
 		"transcribe":   {"this CLI keeps each request under 20 MB", "alias: captions", "one input only", "(video: gemini-4-hydrogen)"},
-		"tts":          {"--out foo.mp3 is written as foo.wav", "An existing file is replaced", "gemini-tts-<unix-ms>-<random>"},
+		"tts":          {"--out foo.mp3 is written as foo.wav", "--out naming a directory places a default-named file inside it", "an existing file is replaced", "gemini-tts-<unix-ms>-<random>"},
 		"files upload": {"2 GB per file", "(default 5m)", "<path>"},
 	} {
 		t.Run(name+" disclosures", func(t *testing.T) {
