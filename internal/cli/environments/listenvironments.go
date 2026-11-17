@@ -28,6 +28,7 @@ import (
 )
 
 var listEnvironmentsCmdMeta = []flagutil.FlagMeta{
+	{FlagName: "mode", Shorthand: "m", FieldPath: "Mode", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"on_demand", "self_hosted"}, Description: "Optional. Filter environments by compute lifecycle mode. (options: on_demand, self_hosted)"},
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Optional. Maximum number of environments to return.\nIf unspecified, defaults to 50. Maximum is 1000."},
 	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Pagination token."},
 }
