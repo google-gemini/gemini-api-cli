@@ -99,7 +99,7 @@ export GEMINI_ENVIRONMENT_ID="..."
 
 gemini-api agent run \
   "Create a file named hello.txt containing 'Hello from self-hosted!' and read it back." \
-  --agent antigravity-preview-05-2026 \
+  --agent antigravity-preview-09-2026 \
   --body "{\"environment\": \"$GEMINI_ENVIRONMENT_ID\"}"
 ```
 
@@ -108,7 +108,7 @@ To run asynchronously in the background and inspect the status later:
 ```bash
 INTERACTION_ID=$(gemini-api agent run \
   "Create hello.txt and list the workspace directory." \
-  --agent antigravity-preview-05-2026 \
+  --agent antigravity-preview-09-2026 \
   --background \
   --stream=false \
   --output-format json \

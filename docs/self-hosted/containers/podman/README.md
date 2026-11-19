@@ -100,7 +100,7 @@ tools inside `/workspace`.
     ```bash
     gemini-api agent run \
       "Create hello.txt in /workspace and run uname -a in bash." \
-      --agent antigravity-preview-05-2026 \
+      --agent antigravity-preview-09-2026 \
       --body "{\"environment\": \"${GEMINI_ENVIRONMENT_ID}\"}"
     ```
 
@@ -194,7 +194,7 @@ turn:
 
     gemini-api agent run \
       "Create hello.txt in /workspace and run id in bash." \
-      --agent antigravity-preview-05-2026 \
+      --agent antigravity-preview-09-2026 \
       --body "{\"environment\": \"${GEMINI_ENVIRONMENT_ID}\"}"
     ```
 

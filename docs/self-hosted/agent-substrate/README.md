@@ -144,7 +144,7 @@ curl --silent --fail \
     --header "Content-Type: application/json" \
     --header "x-goog-api-key: ${GEMINI_API_KEY}" \
     --data '{
-      "agent": "antigravity-preview-05-2026",
+      "agent": "antigravity-preview-09-2026",
       "input": "Run uname -a and ls -la /workspace in bash.",
       "stream": false,
       "environment": {

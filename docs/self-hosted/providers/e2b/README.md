@@ -67,7 +67,7 @@ PATH="$HOME/.local/bin:$PATH" gemini-api environments connect \
 ```bash
 gemini-api agent run \
   "Create hello.txt and run uname -a in bash." \
-  --agent antigravity-preview-05-2026 \
+  --agent antigravity-preview-09-2026 \
   --body "{\"environment\": \"$GEMINI_ENVIRONMENT_ID\"}"
 ```
 
