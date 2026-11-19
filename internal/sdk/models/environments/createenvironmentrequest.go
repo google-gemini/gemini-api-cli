@@ -25,6 +25,102 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
+type EnvType string
+
+const (
+	EnvTypeEnvVar EnvType = "EnvVar"
+	EnvTypeStr    EnvType = "str"
+)
+
+type Env struct {
+	EnvVar *interactions.EnvVar `queryParam:"inline" union:"member"`
+	Str    *string              `queryParam:"inline" union:"member"`
+
+	Type EnvType
+}
+
+func CreateEnvEnvVar(envVar interactions.EnvVar) Env {
+	typ := EnvTypeEnvVar
+
+	return Env{
+		EnvVar: &envVar,
+		Type:   typ,
+	}
+}
+
+func CreateEnvStr(str string) Env {
+	typ := EnvTypeStr
+
+	return Env{
+		Str:  &str,
+		Type: typ,
+	}
+}
+
+func (u *Env) UnmarshalJSON(data []byte) (err error) {
+	previous := *u
+	*u = Env{}
+	defer func() {
+		if err != nil {
+			*u = previous
+		}
+	}()
+
+	var candidates []utils.UnionCandidate
+
+	// Collect all valid candidates
+	var envVar interactions.EnvVar = interactions.EnvVar{}
+	if err := utils.UnmarshalJSON(data, &envVar, "", true, nil); err == nil {
+		candidates = append(candidates, utils.UnionCandidate{
+			Type:  EnvTypeEnvVar,
+			Value: &envVar,
+		})
+	}
+
+	var str string = ""
+	if err := utils.UnmarshalJSON(data, &str, "", true, nil); err == nil {
+		candidates = append(candidates, utils.UnionCandidate{
+			Type:  EnvTypeStr,
+			Value: &str,
+		})
+	}
+
+	if len(candidates) == 0 {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for Env", string(data))
+	}
+
+	// Pick the best candidate using multi-stage filtering
+	best := utils.PickBestUnionCandidate(candidates, data)
+	if best == nil {
+		return fmt.Errorf("could not unmarshal `%s` into any supported union types for Env", string(data))
+	}
+
+	// Set the union type and value based on the best candidate
+	u.Type = best.Type.(EnvType)
+	switch best.Type {
+	case EnvTypeEnvVar:
+		u.EnvVar = best.Value.(*interactions.EnvVar)
+		return nil
+	case EnvTypeStr:
+		u.Str = best.Value.(*string)
+		return nil
+	}
+
+	return fmt.Errorf("could not unmarshal `%s` into any supported union types for Env", string(data))
+}
+
+func (u Env) MarshalJSON() ([]byte, error) {
+	if u.EnvVar != nil {
+		return utils.MarshalJSON(u.EnvVar, "", true)
+	}
+
+	if u.Str != nil {
+		return utils.MarshalJSON(u.Str, "", true)
+	}
+
+	return nil, errors.New("could not marshal union type Env: all fields are null")
+}
+
 type CreateEnvironmentRequestNetworkEnum string
 
 const (
@@ -151,6 +247,8 @@ type CreateEnvironmentRequest struct {
 	// to the self-hosted environment poller. Only supported when `mode` is
 	// `SELF_HOSTED`.
 	CustomConfig map[string]any `json:"custom_config,omitzero"`
+	// Environment variables to set in the sandbox environment.
+	Env map[string]Env `json:"env,omitzero"`
 	// Optional. The source environment to copy/fork from.
 	// Format: `environments/{environment_id}` or `{environment_id}`.
 	// When specified, `sources` and `env` must be empty.
@@ -183,6 +281,13 @@ func (c *CreateEnvironmentRequest) GetCustomConfig() map[string]any {
 		return nil
 	}
 	return c.CustomConfig
+}
+
+func (c *CreateEnvironmentRequest) GetEnv() map[string]Env {
+	if c == nil {
+		return nil
+	}
+	return c.Env
 }
 
 func (c *CreateEnvironmentRequest) GetFromEnvironment() *string {

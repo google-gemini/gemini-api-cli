@@ -35,6 +35,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
 	"github.com/google-gemini/gemini-api-cli/internal/output"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/environments"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/config"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
@@ -3039,4 +3040,57 @@ func TestTTSVoicePrompt(t *testing.T) {
 			t.Errorf("deletedVoiceID = %q, want empty when no id was returned", deletedVoiceID)
 		}
 	})
+}
+
+func TestCreateEnvironmentRequestEnv(t *testing.T) {
+	cred := "credentials/cred_123"
+	req := &environments.CreateEnvironmentRequest{
+		Env: map[string]environments.Env{
+			"PLAIN_VAR":  environments.CreateEnvStr("hello"),
+			"SECRET_VAR": environments.CreateEnvEnvVar(interactions.EnvVar{Credential: &cred}),
+		},
+	}
+
+	if got := req.GetEnv(); len(got) != 2 {
+		t.Errorf("GetEnv() len = %d, want 2", len(got))
+	}
+	var nilReq *environments.CreateEnvironmentRequest
+	if got := nilReq.GetEnv(); got != nil {
+		t.Errorf("nil CreateEnvironmentRequest.GetEnv() = %#v, want nil", got)
+	}
+
+	raw, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("json.Marshal(CreateEnvironmentRequest) failed: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(raw map) failed: %v", err)
+	}
+	wantEnv := map[string]any{
+		"PLAIN_VAR":  "hello",
+		"SECRET_VAR": map[string]any{"credential": cred},
+	}
+	if !reflect.DeepEqual(decoded["env"], wantEnv) {
+		t.Errorf("marshaled env = %#v, want %#v", decoded["env"], wantEnv)
+	}
+
+	var roundTrip environments.CreateEnvironmentRequest
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatalf("json.Unmarshal(CreateEnvironmentRequest) failed: %v", err)
+	}
+	if got := roundTrip.GetEnv()["PLAIN_VAR"]; got.Type != environments.EnvTypeStr || got.Str == nil || *got.Str != "hello" {
+		t.Errorf("round-tripped PLAIN_VAR = %#v, want string \"hello\"", got)
+	}
+	if got := roundTrip.GetEnv()["SECRET_VAR"]; got.Type != environments.EnvTypeEnvVar || got.EnvVar == nil || got.EnvVar.Credential == nil || *got.EnvVar.Credential != cred {
+		t.Errorf("round-tripped SECRET_VAR = %#v, want credential %q", got, cred)
+	}
+
+	if _, err := json.Marshal(environments.Env{}); err == nil {
+		t.Error("json.Marshal(empty Env) succeeded, want error")
+	}
+	var invalid environments.Env
+	if err := json.Unmarshal([]byte(`123`), &invalid); err == nil {
+		t.Error("json.Unmarshal(123 into Env) succeeded, want error")
+	}
 }
