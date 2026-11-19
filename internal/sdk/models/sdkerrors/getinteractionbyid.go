@@ -18,6 +18,7 @@ package sdkerrors
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/components"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
@@ -33,6 +34,15 @@ type GetInteractionByIDServerError struct {
 var _ error = &GetInteractionByIDServerError{}
 
 func (e *GetInteractionByIDServerError) Error() string {
+	if e != nil {
+		if e.ErrorInfo.Message != nil && *e.ErrorInfo.Message != "" {
+			if e.ErrorInfo.Code != nil && *e.ErrorInfo.Code != "" {
+				return fmt.Sprintf("%v: %s", *e.ErrorInfo.Code, *e.ErrorInfo.Message)
+			}
+			return *e.ErrorInfo.Message
+		}
+	}
+
 	data, _ := json.Marshal(e)
 	return string(data)
 }
@@ -47,6 +57,15 @@ type GetInteractionByIDClientError struct {
 var _ error = &GetInteractionByIDClientError{}
 
 func (e *GetInteractionByIDClientError) Error() string {
+	if e != nil {
+		if e.ErrorInfo.Message != nil && *e.ErrorInfo.Message != "" {
+			if e.ErrorInfo.Code != nil && *e.ErrorInfo.Code != "" {
+				return fmt.Sprintf("%v: %s", *e.ErrorInfo.Code, *e.ErrorInfo.Message)
+			}
+			return *e.ErrorInfo.Message
+		}
+	}
+
 	data, _ := json.Marshal(e)
 	return string(data)
 }

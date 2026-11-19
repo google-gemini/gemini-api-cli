@@ -52,6 +52,7 @@ func StreamResult(cmd *cobra.Command, res interface{}, streamFieldName string, s
 // so every hop's events reach one projector and one output sequence.
 type streamHops interface {
 	observe(frame map[string]interface{})
+	abort()
 	wrap(err error) error
 	next() (interface{}, bool, error)
 	discrete(res interface{}) error
@@ -75,7 +76,7 @@ func streamResult(cmd *cobra.Command, res interface{}, streamFieldName string, h
 
 	projector := newStreamProjector(cmd)
 	outcomeCfg := activeOutcome(cmd)
-	if outcomeCfg != nil && outcomeCfg.StreamStatePointer == "" {
+	if outcomeCfg != nil && len(outcomeCfg.streamStatePointers()) == 0 {
 		outcomeCfg = nil
 	}
 	var streamFailure *outcomeError
@@ -191,6 +192,9 @@ func streamResult(cmd *cobra.Command, res interface{}, streamFieldName string, h
 
 			if len(valueResults) == 1 {
 				if body, isErr := streamErrorEvent(item, raw); isErr {
+					if hops != nil {
+						hops.abort()
+					}
 					return false, renderAfterFinish(wrap(&StreamEventError{Body: string(body)}))
 				}
 			}
@@ -395,7 +399,7 @@ func typedLeaves(wire, typed interface{}) interface{} {
 
 // Bigint and long-decimal lexemes are kept: float64 would change their value.
 func canonicalNumber(n json.Number) interface{} {
-	exact, ok := new(big.Rat).SetString(n.String())
+	exact, ok := parseBoundedRat(n.String())
 	if !ok {
 		return n
 	}

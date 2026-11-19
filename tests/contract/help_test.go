@@ -100,6 +100,12 @@ func TestHelpDefaultsAndEscalation(t *testing.T) {
 			"Defaults: MIME type detected from the extension",
 			"Learn: https://aistudio.google.com/docs/files · escalate: metadata-only registration via gemini-api files register",
 		}},
+		{[]string{"agent", "run"}, []string{
+			"streams text as it arrives (--stream=false or --background for one interaction unless --stream is passed; --body takes exact request JSON).",
+			"Arguments: <input>  Prompt or task to send",
+			"Request variants: Agent (--agent), Model (--model; default). Variant-specific flags cannot be combined.",
+			"Escalate: exact request JSON via --body @request.json (schema with --schema)",
+		}},
 	}
 	for _, tc := range cases {
 		name := strings.Join(tc.args, " ")

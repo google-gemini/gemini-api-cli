@@ -270,3 +270,41 @@ func TestTextSourceFlagSatisfiesInteractiveArgument(t *testing.T) {
 		t.Errorf("dry-run did not use --file text:\n%s", stderr)
 	}
 }
+
+// TestContinuationTokenSatisfiesInteractiveArgument: resuming a stored
+// continuation with --continuation-token satisfies the positional prompt/input,
+// so --interactive never prompts for a new turn that would contradict resumeHint.
+func TestContinuationTokenSatisfiesInteractiveArgument(t *testing.T) {
+	clearAgentModeEnvironment(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"generate", []string{"generate", "--continuation-token", "ct-1", "--previous-interaction-id", "int-1"}},
+		{"agent run", []string{"agent", "run", "--continuation-token", "ct-1", "--previous-interaction-id", "int-1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prompter := &scriptedPrompter{
+				t:       t,
+				answers: map[string][]string{"arg:prompt": {"should not be used"}, "arg:input": {"should not be used"}},
+			}
+			cmdArgs := append([]string{"--interactive", "--dry-run", "--api-key", "k", "--server-url", "https://example.invalid"}, tc.args...)
+			_, stderr, err := executeInteractive(t, prompter, cmdArgs...)
+			if err != nil {
+				t.Fatalf("%s --continuation-token failed: %v\nstderr: %s", tc.name, err, stderr)
+			}
+			if len(prompter.calls) != 0 {
+				t.Fatalf("prompter called even though --continuation-token satisfied input: %#v", prompter.calls)
+			}
+			if !strings.Contains(stderr, `"continuation_token": "ct-1"`) {
+				t.Errorf("dry-run missing continuation_token:\n%s", stderr)
+			}
+			if !strings.Contains(stderr, `"previous_interaction_id": "int-1"`) {
+				t.Errorf("dry-run missing previous_interaction_id:\n%s", stderr)
+			}
+			if strings.Contains(stderr, `"input"`) {
+				t.Errorf("dry-run unexpectedly included input on stored resume:\n%s", stderr)
+			}
+		})
+	}
+}

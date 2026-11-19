@@ -21,16 +21,63 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/config"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 	"github.com/spf13/cobra"
 )
+
+func TestPathParameterErrorsAreUsageErrors(t *testing.T) {
+	for _, format := range []string{"pretty", "json"} {
+		for _, wrapped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/wrapped=%t", format, wrapped), func(t *testing.T) {
+				ResetAgentMode()
+				ResetPreparsedRendering()
+				var stderr bytes.Buffer
+				cmd := &cobra.Command{}
+				cmd.SetErr(&stderr)
+				cmd.Flags().String("output-format", "", "")
+				if err := cmd.Flags().Set("output-format", format); err != nil {
+					t.Fatal(err)
+				}
+				var err error = &utils.InvalidPathParameterError{Name: "resource"}
+				if wrapped {
+					err = fmt.Errorf("construct request: %w", err)
+				}
+				classification := Classify(cmd, err)
+				if classification.Type != ErrorTypeValidation || classification.Reason != ReasonCLIValidation || classification.Origin != ErrorOriginCLI || classification.StatusCode != 0 {
+					t.Fatalf("unexpected classification: %+v", classification)
+				}
+				rendered := Error(cmd, err)
+				if clierrors.ExitCode(rendered) != clierrors.ExitUsage {
+					t.Fatalf("expected exit 2, got %v", rendered)
+				}
+				var invalidPath *utils.InvalidPathParameterError
+				if !errors.As(rendered, &invalidPath) || invalidPath.Name != "resource" {
+					t.Fatalf("typed path error lost during rendering: %v", rendered)
+				}
+				if got := json.Valid(stderr.Bytes()); got != (format == "json") {
+					t.Fatalf("wrong error format: %s", stderr.String())
+				}
+				stderr.Reset()
+				untyped := Classify(cmd, errors.New(err.Error()))
+				if untyped.Reason == ReasonCLIValidation {
+					t.Fatal("an untyped error must not be classified by matching its text")
+				}
+			})
+		}
+	}
+}
 
 type tableTestRow struct {
 	ID   int64  `json:"id"`
@@ -1022,6 +1069,736 @@ func TestUnknownSubcommandKeepsHelpAndCompletionWorking(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "status-get-error") {
 		t.Fatalf("expected completion candidates, got %q", out.String())
+	}
+}
+
+func TestOutcomeStreamStatePointerOrder(t *testing.T) {
+	cmd := &cobra.Command{Use: "compose"}
+	cfg := &outcomeConfig{
+		StreamStatePointers: []string{"/data/status", "/data/widget/status"},
+		States:              map[string]string{"done": "success", "failed": "failure"},
+	}
+	for _, tc := range []struct {
+		name        string
+		status      interface{}
+		wantFailure bool
+	}{
+		{"first wins", "done", false},
+		{"empty falls through", "", true},
+		{"non-string falls through", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			frame := map[string]interface{}{"data": map[string]interface{}{
+				"status": tc.status,
+				"widget": map[string]interface{}{"status": "failed"},
+			}}
+			if got := outcomeStreamFailure(cmd, cfg, nil, frame); (got != nil) != tc.wantFailure {
+				t.Fatalf("failure = %v, want failure %v", got, tc.wantFailure)
+			}
+		})
+	}
+}
+func TestContinuationBindingPointerOrder(t *testing.T) {
+	run := &continuationRun{
+		cfg: &continuationConfig{Bind: []continuationBinding{
+			{StreamPointers: []string{"/first", "/last"}, To: "token"},
+		}},
+		outcome: &outcomeConfig{}, values: map[string]string{},
+	}
+	run.capture(map[string]interface{}{"first": "older", "last": "newer"}, true)
+	if got := run.values["token"]; got != "newer" {
+		t.Fatalf("token = %q, want last present binding value", got)
+	}
+}
+
+func TestContinuationRequestCondition(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		body        map[string]interface{}
+		equals      interface{}
+		wantEnabled bool
+	}{
+		{"false matches", map[string]interface{}{"retain": false}, false, false},
+		{"true differs", map[string]interface{}{"retain": true}, false, true},
+		{"missing differs", map[string]interface{}{}, false, true},
+		{"null differs from false", map[string]interface{}{"retain": nil}, false, true},
+		{"null matches null", map[string]interface{}{"retain": nil}, nil, false},
+		{"missing differs from null", map[string]interface{}{}, nil, true},
+		{"string differs from boolean", map[string]interface{}{"retain": "false"}, false, true},
+		{"numbers compare by value", map[string]interface{}{"retain": json.Number("1.0")}, float64(1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &continuationRun{original: tc.body}
+			binding := continuationBinding{UnlessRequest: &continuationRequestCondition{Pointer: "/retain", Equals: tc.equals}}
+			if got := run.bindingEnabled(binding); got != tc.wantEnabled {
+				t.Fatalf("enabled = %v, want %v", got, tc.wantEnabled)
+			}
+		})
+	}
+}
+
+func TestContinuationCheckpointSnapshots(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload map[string]interface{}
+		want    map[string]interface{}
+	}{
+		{"empty new hop", map[string]interface{}{}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+		{"new id without token", map[string]interface{}{"id": "w2"}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+		{"new checkpoint", map[string]interface{}{"resumeToken": "token-2", "id": "w2"}, map[string]interface{}{"$.resumeToken": "token-2", "$.previousId": "w2"}},
+		{"new token without optional id", map[string]interface{}{"resumeToken": "token-2"}, map[string]interface{}{"$.resumeToken": "token-2"}},
+		{"failure token ignored", map[string]interface{}{"status": "failed", "resumeToken": "bad-token", "id": "w2"}, map[string]interface{}{"$.resumeToken": "token-1", "$.previousId": "w1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := map[string]interface{}{}
+			run := &continuationRun{
+				cfg: &continuationConfig{Bind: []continuationBinding{
+					{Pointer: "/resumeToken", To: "$.resumeToken", ToPath: []string{"resumeToken"}},
+					{Pointer: "/id", To: "$.previousId", ToPath: []string{"previousId"}, Optional: true},
+				}},
+				outcome: &outcomeConfig{StatePointer: "/status", States: map[string]string{"more": "continue", "failed": "failure"}},
+				request: &request, auto: true, limit: 3, hops: 1, values: map[string]string{},
+			}
+			run.capture(map[string]interface{}{"status": "more", "resumeToken": "token-1", "id": "w1"}, false)
+			if more, err := run.advance(); err != nil || !more {
+				t.Fatalf("advance = %v, %v", more, err)
+			}
+			run.beginHop()
+			run.capture(tc.payload, false)
+			if got := run.resumeFields(); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("resume = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func continuationTestPayloads(t *testing.T, raws ...string) []interface{} {
+	t.Helper()
+	payloads := make([]interface{}, 0, len(raws))
+	for _, raw := range raws {
+		payload, err := decodeWithNumbers([]byte(raw))
+		if err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		payloads = append(payloads, payload)
+	}
+	return payloads
+}
+
+func continuationTestJSON(t *testing.T, value interface{}) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func continuationTaskConfig() *continuationConfig {
+	return &continuationConfig{
+		Merge:                 []string{"/steps"},
+		MergeDropLeadingWhere: []continuationMergeDrop{{Pointer: "/steps", Field: "type", Equals: "prompt_echo"}},
+		KeepFirst: []continuationKeepFirst{
+			{Pointer: "/previous_id"},
+			{Pointer: "/started_at"},
+			{Pointer: "/usage/first_units", Fallback: "/usage/units"},
+		},
+		Collect: []continuationCollect{{To: "/run_ids", From: []string{"/run_ids", "/id"}, Unique: true}},
+		Sum:     []string{"/usage/units"},
+		SumBy: []continuationSumBy{
+			{Pointer: "/usage/units_by_kind", Key: "kind", Value: "count"},
+			{Pointer: "/usage/tool_calls", Key: "type", Value: "count"},
+		},
+	}
+}
+
+func TestMergeContinuationPayloads(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		payloads []string
+		want     string
+	}{
+		{
+			name: "three hops",
+			payloads: []string{
+				`{"id":"i1","started_at":"c1","steps":[{"type":"prompt_echo","text":"hi"},{"type":"output","text":"a"}],"usage":{"units":10,"units_by_kind":[{"kind":"alpha","count":10}],"tool_calls":[{"type":"search","count":1}]}}`,
+				`{"id":"i2","previous_id":"i1","run_ids":["i1"],"started_at":"c2","steps":[{"type":"prompt_echo","text":"hi"},{"type":"prompt_echo","text":"again"},{"type":"output","text":"b"},{"type":"prompt_echo","text":"kept"}],"usage":{"units":4,"units_by_kind":[{"kind":"beta","count":2},{"kind":"alpha","count":3}]}}`,
+				`{"id":"i3","previous_id":"i2","started_at":"c3","steps":[{"type":"output","text":"c"}],"usage":{"units":1,"units_by_kind":[{"kind":"alpha","count":9223372036854775807}],"tool_calls":[{"type":"search","count":2,"note":"last"}]}}`,
+			},
+			want: `{"id":"i3","run_ids":["i1","i2","i3"],"started_at":"c1","steps":[{"text":"hi","type":"prompt_echo"},{"text":"a","type":"output"},{"text":"b","type":"output"},{"text":"kept","type":"prompt_echo"},{"text":"c","type":"output"}],"usage":{"first_units":10,"tool_calls":[{"count":3,"type":"search"}],"units":15,"units_by_kind":[{"count":9223372036854775820,"kind":"alpha"},{"count":2,"kind":"beta"}]}}`,
+		},
+		{
+			name: "first hop values win and absent ones are removed",
+			payloads: []string{
+				`{"id":"i1","previous_id":"i0","usage":{"units":3,"first_units":2}}`,
+				`{"id":"i2","previous_id":"i1","started_at":"c2","usage":{"units":4}}`,
+			},
+			want: `{"id":"i2","previous_id":"i0","run_ids":["i1","i2"],"usage":{"first_units":2,"units":7}}`,
+		},
+		{
+			name:     "single hop gains collected ids and the initial fallback",
+			payloads: []string{`{"id":"i1","usage":{"units":5}}`},
+			want:     `{"id":"i1","run_ids":["i1"],"usage":{"first_units":5,"units":5}}`,
+		},
+		{
+			name: "an explicit first-hop null counts as absent",
+			payloads: []string{
+				`{"id":"i1","previous_id":null,"usage":{"first_units":null}}`,
+				`{"id":"i2","previous_id":"i1","usage":{"first_units":4}}`,
+			},
+			want: `{"id":"i2","run_ids":["i1","i2"],"usage":{}}`,
+		},
+		{
+			name:     "a response without usage gains no usage",
+			payloads: []string{`{"id":"i1"}`, `{"id":"i2"}`},
+			want:     `{"id":"i2","run_ids":["i1","i2"]}`,
+		},
+		{
+			name:     "only the first hop keeps leading items",
+			payloads: []string{`{"id":"i1","steps":[{"type":"prompt_echo"}]}`, `{"id":"i2","steps":[{"type":"prompt_echo"}]}`},
+			want:     `{"id":"i2","run_ids":["i1","i2"],"steps":[{"type":"prompt_echo"}]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payloads := continuationTestPayloads(t, tc.payloads...)
+			last := continuationTestJSON(t, payloads[len(payloads)-1])
+			got := continuationTestJSON(t, mergeContinuationPayloads(continuationTaskConfig(), payloads))
+			if got != tc.want {
+				t.Fatalf("merged =\n%s\nwant\n%s", got, tc.want)
+			}
+			if after := continuationTestJSON(t, payloads[len(payloads)-1]); after != last {
+				t.Fatalf("the last payload changed: %s", after)
+			}
+		})
+	}
+}
+
+func TestMergeContinuationCollectKeepsDuplicates(t *testing.T) {
+	cfg := &continuationConfig{Collect: []continuationCollect{{To: "/ids", From: []string{"/ids", "/id"}}}}
+	payloads := continuationTestPayloads(t, `{"id":"a","ids":["a",""]}`, `{"id":"a"}`)
+	if got := continuationTestJSON(t, mergeContinuationPayloads(cfg, payloads)); got != `{"id":"a","ids":["a","a","a"]}` {
+		t.Fatalf("merged = %s", got)
+	}
+}
+
+func TestMergeContinuationSumByNumericKeys(t *testing.T) {
+	cfg := &continuationConfig{SumBy: []continuationSumBy{
+		{Pointer: "/counts", Key: "id", Value: "n"},
+	}}
+	payloads := continuationTestPayloads(t, `{"counts":[{"id":1,"n":1},{"id":-0,"n":1}]}`, `{"counts":[{"id":1.0,"n":2},{"id":"1","n":4},{"id":0,"n":1},{"n":8}]}`)
+	want := `{"counts":[{"id":1,"n":3},{"id":-0,"n":2},{"id":"1","n":4},{"n":8}]}`
+	if got := continuationTestJSON(t, mergeContinuationPayloads(cfg, payloads)); got != want {
+		t.Fatalf("merged = %s, want %s", got, want)
+	}
+}
+
+func TestContinuationCombines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *continuationConfig
+		auto bool
+		hops int
+		want bool
+	}{
+		{"collect on one hop", &continuationConfig{Collect: []continuationCollect{{To: "/ids"}}}, true, 1, true},
+		{"keepFirst fallback on one hop", &continuationConfig{KeepFirst: []continuationKeepFirst{{Pointer: "/a", Fallback: "/b"}}}, true, 1, true},
+		{"merge and sum on one hop", &continuationConfig{Merge: []string{"/steps"}, Sum: []string{"/n"}}, true, 1, false},
+		{"merge on two hops", &continuationConfig{Merge: []string{"/steps"}}, true, 2, true},
+		{"keepFirst on two hops", &continuationConfig{KeepFirst: []continuationKeepFirst{{Pointer: "/a"}}}, true, 2, true},
+		{"auto-continue disabled", &continuationConfig{Collect: []continuationCollect{{To: "/ids"}}}, false, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &continuationRun{cfg: tc.cfg, auto: tc.auto}
+			if got := run.combines(tc.hops); got != tc.want {
+				t.Fatalf("combines = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestContinuationExistsCondition(t *testing.T) {
+	present, absent := true, false
+	for _, tc := range []struct {
+		name   string
+		body   map[string]interface{}
+		exists bool
+		want   bool
+	}{
+		{"object present", map[string]interface{}{"runner": map[string]interface{}{}}, true, true},
+		{"missing", map[string]interface{}{}, true, false},
+		{"null counts as absent", map[string]interface{}{"runner": nil}, true, false},
+		{"absent matches exists false", map[string]interface{}{}, false, true},
+		{"present fails exists false", map[string]interface{}{"runner": "a"}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := &absent
+			if tc.exists {
+				exists = &present
+			}
+			condition := &continuationRequestCondition{Pointer: "/runner", Exists: exists}
+			if got := condition.matches(tc.body); got != tc.want {
+				t.Fatalf("matches = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestContinuationRecipeUnlessRequestSkips(t *testing.T) {
+	cmd := &cobra.Command{Use: "run"}
+	present := true
+	recipe, _ := json.Marshal(continuationConfig{
+		Bind:          []continuationBinding{{Pointer: "/token", To: "$.token", ToPath: []string{"token"}}},
+		UnlessRequest: []continuationRequestCondition{{Pointer: "/detached", Equals: true}, {Pointer: "/runner", Exists: &present}},
+	})
+	cmd.Annotations = map[string]string{continuationAnnotation: string(recipe)}
+	for _, tc := range []struct {
+		name string
+		body map[string]interface{}
+		want bool
+	}{
+		{"attached engine request", map[string]interface{}{"engine": "e"}, false},
+		{"detached request", map[string]interface{}{"engine": "e", "detached": true}, true},
+		{"runner request", map[string]interface{}{"runner": "r"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := tc.body
+			run, err := newContinuationRun(cmd, &body, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.skipped != tc.want {
+				t.Fatalf("skipped = %v, want %v", run.skipped, tc.want)
+			}
+		})
+	}
+}
+
+func TestContinuationRepeatedTokenStops(t *testing.T) {
+	newRun := func(sent string) *continuationRun {
+		request := map[string]interface{}{"token": sent}
+		return &continuationRun{
+			cfg: &continuationConfig{Bind: []continuationBinding{
+				{Pointer: "/token", To: "$.token", ToPath: []string{"token"}},
+				{Pointer: "/id", To: "$.previous", ToPath: []string{"previous"}, Optional: true},
+			}},
+			outcome:    &outcomeConfig{StatePointer: "/status", States: map[string]string{"more": "continue"}},
+			request:    &request,
+			auto:       true,
+			limit:      1,
+			hops:       1,
+			values:     map[string]string{},
+			sentValues: map[string]string{"$.token": sent},
+		}
+	}
+
+	run := newRun("t1")
+	run.capture(map[string]interface{}{"status": "more", "token": "t1", "id": "new-id"}, false)
+	if more, err := run.advance(); more || err != nil || !run.stalled || run.limited {
+		t.Fatalf("advance = %v, %v; stalled %v, limited %v", more, err, run.stalled, run.limited)
+	}
+
+	run = newRun("")
+	run.limit = 3
+	run.capture(map[string]interface{}{"status": "more", "token": "t1"}, false)
+	if more, err := run.advance(); !more || err != nil {
+		t.Fatalf("a first token must continue: %v, %v", more, err)
+	}
+	if run.sentValues["$.token"] != "t1" {
+		t.Fatalf("sent values = %#v", run.sentValues)
+	}
+	run.beginHop()
+	run.capture(map[string]interface{}{"status": "more", "token": "t1"}, true)
+	run.capture(map[string]interface{}{"status": "more", "token": "t1"}, false)
+	if more, _ := run.advance(); more || !run.stalled {
+		t.Fatalf("the repeated token must stop the loop")
+	}
+}
+
+func TestContinuationAuthoritativeStreamFrame(t *testing.T) {
+	run := &continuationRun{
+		cfg: &continuationConfig{Bind: []continuationBinding{
+			{
+				StreamPointers:          []string{"/data/token", "/data/task/token"},
+				To:                      "$.token",
+				StreamAuthoritativeWhen: &continuationRequestCondition{Pointer: "/data/event_type", Equals: "completed"},
+			},
+		}},
+		outcome: &outcomeConfig{}, values: map[string]string{},
+	}
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"event_type": "progress", "token": "mid"}}, true)
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"event_type": "progress"}}, true)
+	if run.values["$.token"] != "mid" {
+		t.Fatalf("a progress event without a token keeps the checkpoint, got %#v", run.values)
+	}
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"event_type": "completed", "task": map[string]interface{}{"token": ""}}}, true)
+	if _, ok := run.values["$.token"]; ok {
+		t.Fatalf("a completion without a token must clear the checkpoint, got %#v", run.values)
+	}
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"event_type": "completed", "task": map[string]interface{}{"token": "final"}}}, true)
+	if run.values["$.token"] != "final" {
+		t.Fatalf("token = %#v", run.values)
+	}
+}
+
+func TestStreamContinuationAbortDiscardsHopValues(t *testing.T) {
+	newRun := func() *continuationRun {
+		request := map[string]interface{}{"prompt": "hi"}
+		return &continuationRun{
+			cfg: &continuationConfig{Bind: []continuationBinding{
+				{StreamPointers: []string{"/data/token"}, To: "$.token", ToPath: []string{"token"}},
+				{StreamPointers: []string{"/data/id"}, To: "$.previous", ToPath: []string{"previous"}, Optional: true},
+			}},
+			outcome:    &outcomeConfig{StreamStatePointers: []string{"/data/status"}, States: map[string]string{"in_progress": "pending", "more": "continue"}},
+			request:    &request,
+			auto:       true,
+			limit:      3,
+			values:     map[string]string{},
+			sentValues: map[string]string{},
+		}
+	}
+	progress := func(token, id string) map[string]interface{} {
+		return map[string]interface{}{"data": map[string]interface{}{"status": "in_progress", "token": token, "id": id}}
+	}
+
+	run := newRun()
+	run.hops = 1
+	run.capture(progress("mid1", "r1"), true)
+	hops := &streamContinuation{run: run}
+	hops.abort()
+	if fields := run.resumeFields(); fields != nil {
+		t.Fatalf("a first stream that ended in an error event has no resume point, got %#v", fields)
+	}
+	if hint := run.resumeHint(); hint != "" {
+		t.Fatalf("hint = %q", hint)
+	}
+
+	run = newRun()
+	run.hops = 1
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"status": "more", "token": "t1", "id": "r1"}}, true)
+	if more, err := run.advance(); !more || err != nil {
+		t.Fatalf("advance = %v, %v", more, err)
+	}
+	run.hops = 2
+	run.beginHop()
+	run.capture(progress("mid2", "r2"), true)
+	hops = &streamContinuation{run: run}
+	hops.abort()
+	want := map[string]interface{}{"$.token": "t1", "$.previous": "r1"}
+	if fields := run.resumeFields(); !reflect.DeepEqual(fields, want) {
+		t.Fatalf("resume = %#v, want the last completed hop %#v", fields, want)
+	}
+
+	run.outcome.States["done"] = "success"
+	run.beginHop()
+	run.capture(map[string]interface{}{"data": map[string]interface{}{"status": "done", "id": "r2"}}, true)
+	hops.abort()
+	if fields := run.resumeFields(); !reflect.DeepEqual(fields, want) {
+		t.Fatalf("an error after a success frame keeps the last checkpoint: got %#v, want %#v", fields, want)
+	}
+}
+
+func TestContinuationOptionalOnlyHopFallsBack(t *testing.T) {
+	request := map[string]interface{}{"persist": false}
+	run := &continuationRun{
+		cfg: &continuationConfig{Bind: []continuationBinding{
+			{Pointer: "/token", To: "$.token", ToPath: []string{"token"}, UnlessRequest: &continuationRequestCondition{Pointer: "/persist", Equals: false}},
+			{Pointer: "/id", To: "$.previous", ToPath: []string{"previous"}, Optional: true},
+		}},
+		outcome:    &outcomeConfig{StatePointer: "/status", States: map[string]string{"in_progress": "pending", "more": "continue"}},
+		request:    &request,
+		original:   map[string]interface{}{"persist": false},
+		auto:       true,
+		limit:      3,
+		hops:       1,
+		values:     map[string]string{},
+		sentValues: map[string]string{},
+	}
+	run.capture(map[string]interface{}{"status": "more", "id": "r1"}, false)
+	if more, err := run.advance(); !more || err != nil {
+		t.Fatalf("advance = %v, %v", more, err)
+	}
+	run.hops = 2
+	run.beginHop()
+	want := map[string]interface{}{"$.previous": "r1"}
+	if got := run.resumeFields(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("a failed send keeps the last checkpoint: got %#v, want %#v", got, want)
+	}
+	run.capture(map[string]interface{}{"status": "in_progress"}, false)
+	if got := run.resumeFields(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("a pending hop without values keeps the last checkpoint: got %#v, want %#v", got, want)
+	}
+	if !run.resumable() {
+		t.Fatal("the last checkpoint must stay resumable")
+	}
+}
+
+func TestContinuationRepeatedTokenDropKeepsIssuingOwner(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		frame map[string]interface{}
+	}{
+		{"echoed token without an id", map[string]interface{}{"data": map[string]interface{}{"status": "in_progress", "token": "t1"}}},
+		{"echoed token with a new id", map[string]interface{}{"data": map[string]interface{}{"status": "in_progress", "token": "t1", "id": "i2"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := map[string]interface{}{"prompt": "hi"}
+			run := &continuationRun{
+				cfg: &continuationConfig{Bind: []continuationBinding{
+					{StreamPointers: []string{"/data/token"}, To: "$.token", ToPath: []string{"token"}},
+					{StreamPointers: []string{"/data/id"}, To: "$.previous", ToPath: []string{"previous"}, Optional: true},
+				}},
+				outcome:    &outcomeConfig{StreamStatePointers: []string{"/data/status"}, States: map[string]string{"in_progress": "pending", "more": "continue"}},
+				request:    &request,
+				auto:       true,
+				limit:      3,
+				hops:       1,
+				values:     map[string]string{},
+				sentValues: map[string]string{},
+			}
+			run.capture(map[string]interface{}{"data": map[string]interface{}{"status": "more", "token": "t1", "id": "i1"}}, true)
+			if more, err := run.advance(); !more || err != nil {
+				t.Fatalf("advance = %v, %v", more, err)
+			}
+			run.hops = 2
+			run.beginHop()
+			run.capture(tc.frame, true)
+
+			var wrapped *continuationError
+			if !errors.As(run.wrap(errors.New("stream dropped")), &wrapped) {
+				t.Fatal("expected a continuation error")
+			}
+			want := map[string]interface{}{"$.token": "t1", "$.previous": "i1"}
+			if got := wrapped.MachineErrorFields()["continuation"]; !reflect.DeepEqual(got, want) {
+				t.Fatalf("continuation = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestMergedContinuationResultKeepsResponseMetadata(t *testing.T) {
+	apiRequest, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:8080/v1/widgets", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiRequest.Header.Set("Authorization", "Bearer secret")
+	lastResponse := &http.Response{
+		Status:     "201 Created",
+		StatusCode: http.StatusCreated,
+		Proto:      "HTTP/1.1",
+		Header:     http.Header{"X-Request-Id": []string{"r1"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"i1"}`)),
+		Request:    apiRequest,
+	}
+	last := &continuationResultEnvelope{HTTPMeta: continuationHTTPMeta{Response: lastResponse}}
+	merged := map[string]interface{}{"id": "i1", "ids": []interface{}{"i1"}}
+
+	got := extractHTTPResponse(mergedContinuationResult(last, merged))
+	if got == nil || got == lastResponse {
+		t.Fatalf("expected a fresh response, got %#v", got)
+	}
+	if got.Request != apiRequest || got.StatusCode != http.StatusCreated || got.Status != "201 Created" || got.Proto != "HTTP/1.1" {
+		t.Fatalf("response metadata was dropped: %#v", got)
+	}
+	if got.Header.Get("X-Request-Id") != "r1" {
+		t.Fatalf("headers = %#v", got.Header)
+	}
+	got.Header.Set("X-Request-Id", "changed")
+	if lastResponse.Header.Get("X-Request-Id") != "r1" {
+		t.Fatal("the merged response must not share headers with the last hop")
+	}
+	body, err := io.ReadAll(got.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"id":"i1","ids":["i1"]}` || got.ContentLength != int64(len(body)) {
+		t.Fatalf("body = %s, content length %d", body, got.ContentLength)
+	}
+}
+
+func TestContinuationResultCombinedArtifactDownloadsFromAPIOrigin(t *testing.T) {
+	ResetAgentMode()
+	ResetPreparsedRendering()
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("png"))
+	}))
+	t.Cleanup(server.Close)
+
+	recipe, _ := json.Marshal(continuationConfig{
+		Bind:    []continuationBinding{{Pointer: "/token", To: "$.token", ToPath: []string{"token"}}},
+		Collect: []continuationCollect{{To: "/ids", From: []string{"/id"}}},
+	})
+	outcome, _ := json.Marshal(outcomeConfig{StatePointer: "/status", States: map[string]string{"completed": "success", "more": "continue"}})
+	artifact, _ := json.Marshal(artifactConfig{Pointer: []artifactSegment{{Field: "outputs"}, {Wild: true}}, Kind: "image", DefaultPath: "asset.png"})
+	var stdout, stderr bytes.Buffer
+	cmd := &cobra.Command{Use: "image", Annotations: map[string]string{
+		continuationAnnotation: string(recipe),
+		outcomeAnnotation:      string(outcome),
+		artifactAnnotation:     string(artifact),
+	}}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.Flags().Bool("auto-continue", true, "")
+	cmd.Flags().String("out", filepath.Join(t.TempDir(), "asset.png"), "")
+	cmd.Flags().String("output-format", "pretty", "")
+
+	request := map[string]interface{}{"prompt": "hi"}
+	hop := func() (interface{}, error) {
+		apiRequest, err := http.NewRequest(http.MethodPost, server.URL+"/v1/widgets", nil)
+		if err != nil {
+			return nil, err
+		}
+		apiRequest.Header.Set("Authorization", "Bearer secret")
+		raw := `{"status":"completed","id":"i1","outputs":[{"type":"image","uri":"` + server.URL + `/asset.png"}]}`
+		return &continuationResultEnvelope{HTTPMeta: continuationHTTPMeta{Response: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(raw)),
+			Request:    apiRequest,
+		}}}, nil
+	}
+	if err := ContinuationResult(cmd, &request, hop); err != nil {
+		t.Fatalf("ContinuationResult: %v (stderr %q)", err, stderr.String())
+	}
+	if authorization != "Bearer secret" {
+		t.Fatalf("the same-origin download must carry the API credentials, got %q", authorization)
+	}
+}
+
+func TestContinuationResumeHintNamesOmittedFields(t *testing.T) {
+	newRun := func(body map[string]interface{}) *continuationRun {
+		return &continuationRun{
+			cfg: &continuationConfig{
+				Bind: []continuationBinding{{Pointer: "/token", To: "$.token", ToPath: []string{"token"}, Flag: "token"}},
+				Omit: []continuationOmit{{Name: "$.prompt", Path: []string{"prompt"}, UnlessRequest: &continuationRequestCondition{Pointer: "/persist", Equals: false}}},
+			},
+			outcome:  &outcomeConfig{StatePointer: "/status", States: map[string]string{"more": "continue"}},
+			original: body,
+			values:   map[string]string{"$.token": "t1"},
+			state:    "more",
+		}
+	}
+	if got := newRun(map[string]interface{}{"prompt": "hi"}).resumeHint(); got != `To continue, re-run the same command with --token "t1", leaving $.prompt out of the request body` {
+		t.Fatalf("hint = %q", got)
+	}
+	if got := newRun(map[string]interface{}{"prompt": "hi", "persist": false}).resumeHint(); got != `To continue, re-run the same command with --token "t1"` {
+		t.Fatalf("hint = %q", got)
+	}
+}
+
+func TestUpdateContinuationBodySetsAndOmits(t *testing.T) {
+	request := map[string]interface{}{"prompt": "hi", "nested": map[string]interface{}{"prompt": "x", "keep": 1}, "engine": "e"}
+	err := updateContinuationBody(&request, []continuationBodySet{{to: "$.token", path: []string{"token"}, value: "t1"}}, [][]string{{"prompt"}, {"nested", "prompt"}, {"missing", "prompt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := continuationTestJSON(t, request); got != `{"engine":"e","nested":{"keep":1},"token":"t1"}` {
+		t.Fatalf("request = %s", got)
+	}
+}
+
+func TestContinuationIgnoresUnboundedNumbers(t *testing.T) {
+	for _, number := range unboundedJSONNumbers() {
+		if _, ok := continuationNumber(number); ok {
+			t.Errorf("continuationNumber(%.20q) parsed", number)
+		}
+		if continuationValuesEqual(number, json.Number("1")) {
+			t.Errorf("continuationValuesEqual(%.20q, 1) = true", number)
+		}
+		if _, ok := continuationGroupKey(number); ok {
+			t.Errorf("continuationGroupKey(%.20q) grouped", number)
+		}
+		payloads := []interface{}{map[string]interface{}{
+			"total":  number,
+			"counts": []interface{}{map[string]interface{}{"id": number, "n": json.Number("1")}, map[string]interface{}{"id": "a", "n": number}},
+		}}
+		if total, ok := sumContinuationValues(payloads, "/total"); ok {
+			t.Errorf("sumContinuationValues(%.20q) = %s", number, total)
+		}
+		items, ok := sumContinuationGroups(payloads, continuationSumBy{Pointer: "/counts", Key: "id", Value: "n"})
+		if !ok || len(items) != 2 || !reflect.DeepEqual(items[0], map[string]interface{}{"id": number, "n": json.Number("1")}) || !reflect.DeepEqual(items[1], map[string]interface{}{"id": "a", "n": number}) {
+			t.Errorf("sumContinuationGroups(%.20q) = %v", number, items)
+		}
+	}
+}
+
+func TestContinuationSumSkipsTotalsWithUnboundedTerms(t *testing.T) {
+	payloads := []interface{}{
+		map[string]interface{}{"total": json.Number("1"), "counts": []interface{}{map[string]interface{}{"id": "a", "n": json.Number("1")}, map[string]interface{}{"id": "b", "n": json.Number("1")}}},
+		map[string]interface{}{"total": json.Number("1e100000000"), "counts": []interface{}{map[string]interface{}{"id": "a", "n": json.Number("1e100000000")}, map[string]interface{}{"id": "b", "n": json.Number("2")}}},
+	}
+	if total, ok := sumContinuationValues(payloads, "/total"); ok {
+		t.Errorf("sumContinuationValues = %s, want no total", total)
+	}
+	items, ok := sumContinuationGroups(payloads, continuationSumBy{Pointer: "/counts", Key: "id", Value: "n"})
+	want := []interface{}{map[string]interface{}{"id": "a", "n": json.Number("1")}, map[string]interface{}{"id": "b", "n": json.Number("3")}}
+	if !ok || !reflect.DeepEqual(items, want) {
+		t.Errorf("sumContinuationGroups = %v, want %v", items, want)
+	}
+}
+
+func unboundedJSONNumbers() []json.Number {
+	return []json.Number{
+		"1e100000000",
+		"1e-100000000",
+		"1E+99999999999999999999",
+		json.Number(strings.Repeat("9", maxDecimalLength+1)),
+		"1/2",
+		"0x1p100000000",
+		"1_000",
+		"+1",
+		".5",
+		"1.",
+		"1e",
+		"",
+		"00",
+		"01",
+		"-01",
+		"01e2",
+		"01.5",
+	}
+}
+
+func TestParseBoundedRat(t *testing.T) {
+	for _, number := range unboundedJSONNumbers() {
+		if _, ok := parseBoundedRat(number.String()); ok {
+			t.Errorf("parseBoundedRat(%.20q) parsed", number)
+		}
+	}
+	for text, want := range map[string]string{
+		"0":       "0",
+		"-0":      "0",
+		"0.5":     "1/2",
+		"-0e1":    "0",
+		"10":      "10",
+		"12":      "12",
+		"-1.5":    "-3/2",
+		"2.5E+1":  "25",
+		"25e-1":   "5/2",
+		"1e1000":  "1" + strings.Repeat("0", 1000),
+		"1e-1000": "1/1" + strings.Repeat("0", 1000),
+	} {
+		got, ok := parseBoundedRat(text)
+		if !ok || got.RatString() != want {
+			t.Errorf("parseBoundedRat(%q) = %v, %t, want %s", text, got, ok, want)
+		}
+	}
+	if _, ok := parseBoundedRat("1e1001"); ok {
+		t.Error("parseBoundedRat(1e1001) parsed")
+	}
+}
+
+func TestCanonicalNumberKeepsUnboundedLexemes(t *testing.T) {
+	for _, number := range unboundedJSONNumbers() {
+		if got := canonicalNumber(number); got != number {
+			t.Errorf("canonicalNumber(%.20q) = %v", number, got)
+		}
+	}
+	if got := canonicalNumber("1.50"); got != json.Number("1.5") {
+		t.Errorf("canonicalNumber(1.50) = %v", got)
 	}
 }
 

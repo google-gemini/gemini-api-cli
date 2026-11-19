@@ -2180,6 +2180,30 @@ func TestAttachInteractionInputsAndNormalizeFilesURIs(t *testing.T) {
 	})
 }
 
+func TestAttachInteractionInputsRejectsDriftedAgentRunLong(t *testing.T) {
+	noop := func(*cobra.Command, []string) error { return nil }
+	root := &cobra.Command{Use: "gemini-api"}
+	for _, name := range []string{"generate", "image", "video", "music"} {
+		cmd := &cobra.Command{Use: name, RunE: noop}
+		cmd.Flags().String("body", "", "")
+		root.AddCommand(cmd)
+	}
+	agentGroup := &cobra.Command{Use: "agent"}
+	runCmd := &cobra.Command{
+		Use:  "run [input]",
+		Long: "Some unexpected generated Long help text.",
+		RunE: noop,
+	}
+	runCmd.Flags().String("body", "", "")
+	agentGroup.AddCommand(runCmd)
+	root.AddCommand(agentGroup)
+
+	err := attachInteractionInputs(root)
+	if err == nil || !strings.Contains(err.Error(), "generated Long help text changed") {
+		t.Fatalf("attachInteractionInputs(drifted Long) = %v, want generated Long help text drift error", err)
+	}
+}
+
 func TestResolveEnvUploadAndDownloadArgsCoverage(t *testing.T) {
 	if _, _, extra := resolveEnvUploadArgs([]string{"extra"}, "env1", "file1"); !extra {
 		t.Error("resolveEnvUploadArgs with both flags and positional arg: want extra=true")

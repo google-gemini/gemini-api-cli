@@ -43,6 +43,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks"
 	"github.com/google-gemini/gemini-api-cli/internal/usage"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // maxInlineRequestBytes is the CLI's conservative budget for one interaction
@@ -675,6 +676,10 @@ type intentInputs struct {
 	// file is -f/--file, a text content block read from a file; only for
 	// commands without media inputs, where -i already takes text files.
 	file bool
+	// continuationResume allows omitting the positional prompt/input when
+	// manually resuming a stored continuation checkpoint via continuation_token,
+	// while still enforcing input for all other invocations.
+	continuationResume bool
 }
 
 // attachInteractionInputs wires -i/--input, --mime-type, --stdin, -f/--file,
@@ -687,7 +692,7 @@ func attachInteractionInputs(root *cobra.Command) error {
 		promptDesc string
 		inputs     intentInputs
 	}{
-		{"generate", "prompt", "Prompt to send to the model", intentInputs{media: true, stdin: true}},
+		{"generate", "prompt", "Prompt to send to the model", intentInputs{media: true, stdin: true, continuationResume: true}},
 		{"image", "prompt", "Description of the image to generate", intentInputs{media: true, stdin: true}},
 		{"video", "prompt", "Scene description for the video to generate", intentInputs{media: true, stdin: true}},
 		{"music", "prompt", "Music prompt", intentInputs{stdin: true, file: true}},
@@ -709,15 +714,20 @@ func attachInteractionInputs(root *cobra.Command) error {
 	agentRunCmd := findChild(agentGroup, "run")
 	// agent run keeps piped stdin as the request body: it is the full-control
 	// surface, so it takes media inputs but no --stdin/--file text.
-	if err := attachIntentInputs(agentRunCmd, "input", "Prompt or task to send", intentInputs{media: true}); err != nil {
+	hadGeneratedLong := agentRunCmd != nil && agentRunCmd.Long != ""
+	if err := attachIntentInputs(agentRunCmd, "input", "Prompt or task to send", intentInputs{media: true, continuationResume: true}); err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
-	agentRunCmd.Long = strings.Replace(
-		agentRunCmd.Long,
-		"Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).",
-		"Run one interaction with a Gemini model (--model, default) or a managed agent (--agent).\nStreams text as it arrives (--stream=false or --background for one interaction unless --stream is passed); --body takes exact request JSON.",
-		1,
-	)
+	if hadGeneratedLong {
+		const (
+			generatedAgentRunLong = "Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).\n\nArguments:\n  <input>  Prompt or task to send\n\nRequest variants: Agent (--agent), Model (--model; default).\nVariant-specific flags cannot be combined."
+			compactAgentRunLong   = "Run one interaction with a Gemini model (--model, default) or a managed agent (--agent); streams text as it arrives (--stream=false or --background for one interaction unless --stream is passed; --body takes exact request JSON).\nArguments: <input>  Prompt or task to send\nRequest variants: Agent (--agent), Model (--model; default). Variant-specific flags cannot be combined."
+		)
+		if !strings.Contains(agentRunCmd.Long, generatedAgentRunLong) {
+			return fmt.Errorf("agent run: generated Long help text changed; update compactAgentRunLong in attachInteractionInputs")
+		}
+		agentRunCmd.Long = strings.Replace(agentRunCmd.Long, generatedAgentRunLong, compactAgentRunLong, 1)
+	}
 	return nil
 }
 
@@ -766,6 +776,9 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 		}
 		flagutil.MarkRequestInput(cmd, "stdin")
 		satisfiedBy = append(satisfiedBy, "stdin")
+	}
+	if in.continuationResume && cmd.Flags().Lookup("continuation-token") != nil {
+		satisfiedBy = append(satisfiedBy, "continuation-token")
 	}
 	declareInteractive(cmd, interactive.CommandSpec{Args: []interactive.ArgSpec{
 		{
@@ -860,6 +873,11 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 			text = ""
 		}
 		if len(inputs) == 0 && text == "" && suppliedBodyFlag == "" && !stdinAttached {
+			if in.continuationResume {
+				if err := validateContinuationInput(c, args, argName, false, nil, "", false); err != nil {
+					return err
+				}
+			}
 			return original(c, args)
 		}
 
@@ -874,6 +892,14 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 				rawBody, _ = io.ReadAll(c.InOrStdin())
 				c.SetIn(bytes.NewReader(rawBody))
 				bodySource = "stdin"
+			}
+			if len(bytes.TrimSpace(rawBody)) == 0 {
+				if in.continuationResume {
+					if err := validateContinuationInput(c, args, argName, len(inputs) > 0 || text != "", map[string]any{}, suppliedBodyFlag, stdinAttached); err != nil {
+						return err
+					}
+				}
+				return original(c, args)
 			}
 			if err := decodeBodyJSON(rawBody, &bodyMap); err != nil || bodyMap == nil {
 				if err != nil && stdinAttached && in.stdin {
@@ -892,6 +918,11 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 					return original(c, args)
 				}
 				return usageError(fmt.Sprintf("cannot combine positional <%s> with \"input\" in %s", argName, bodySource))
+			}
+		}
+		if in.continuationResume {
+			if err := validateContinuationInput(c, args, argName, len(inputs) > 0 || text != "", bodyMap, suppliedBodyFlag, stdinAttached); err != nil {
+				return err
 			}
 		}
 
@@ -962,6 +993,115 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 		return original(c, args)
 	}
 	return nil
+}
+
+// validateContinuationInput enforces a prompt/input on commands whose generated
+// spec leaves $.input optional so manual stored-mode continuation resumes can
+// follow resumeHint ("--continuation-token ... --previous-interaction-id ...,
+// leaving $.input out of the request body"). Omitting input is allowed only
+// when a non-empty continuation_token is provided in stored model mode (not
+// --store=false, --agent, or --background).
+func validateContinuationInput(c *cobra.Command, args []string, argName string, hasMediaOrText bool, bodyMap map[string]any, suppliedBodyFlag string, stdinAttached bool) error {
+	if len(args) > 0 || hasMediaOrText || (bodyMap != nil && bodyMap["input"] != nil) {
+		return nil
+	}
+	if shouldDeferAgentRunDispatchError(c, bodyMap) {
+		return nil
+	}
+
+	hasToken := false
+	if c.Flags().Lookup("continuation-token") != nil && flagutil.FlagChanged(c, "continuation-token") {
+		if v, ok := flagutil.GetStringFlag(c, "continuation-token"); ok && strings.TrimSpace(v) != "" {
+			hasToken = true
+		}
+	}
+	if bodyMap != nil {
+		if s, ok := bodyMap["continuation_token"].(string); ok && strings.TrimSpace(s) != "" {
+			hasToken = true
+		}
+	}
+
+	storeFlagChanged := c.Flags().Lookup("store") != nil && flagutil.FlagChanged(c, "store")
+	_, bodyHasStore := bodyMap["store"]
+	if hasToken && storeFlagChanged && bodyHasStore {
+		// Let the generated command report the duplicate --store / body key error.
+		return nil
+	}
+
+	stateless := false
+	if storeFlagChanged {
+		if v, err := c.Flags().GetBool("store"); err == nil && !v {
+			stateless = true
+		}
+	}
+	if bodyMap != nil {
+		if b, ok := bodyMap["store"].(bool); ok && !b {
+			stateless = true
+		}
+	}
+
+	agentSet := (c.Flags().Lookup("agent") != nil && flagutil.FlagChanged(c, "agent")) ||
+		(bodyMap != nil && bodyMap["agent"] != nil)
+	backgroundTrue := false
+	if c.Flags().Lookup("background") != nil && flagutil.FlagChanged(c, "background") {
+		if v, err := c.Flags().GetBool("background"); err == nil && v {
+			backgroundTrue = true
+		}
+	}
+	if bodyMap != nil {
+		if b, ok := bodyMap["background"].(bool); ok && b {
+			backgroundTrue = true
+		}
+	}
+
+	if hasToken && !stateless && !agentSet && !backgroundTrue {
+		return nil
+	}
+
+	if suppliedBodyFlag == "" && !stdinAttached && !hasRequestInputFlagChanged(c) {
+		return output.UsageHelpError(c, fmt.Errorf("missing required argument <%s> (or pass a full request with --body)", argName))
+	}
+	if hasToken && stateless {
+		return flagutil.WithCLIValidation(fmt.Errorf("stateless continuation (store=false) requires <%s> (or \"input\" in --body)", argName))
+	}
+	if suppliedBodyFlag != "" || stdinAttached {
+		source := "stdin"
+		if suppliedBodyFlag != "" {
+			source = "--" + suppliedBodyFlag
+		}
+		return flagutil.WithCLIValidation(fmt.Errorf("the request body from %s has no \"input\": pass the <%s> argument, set \"input\" in the body, or pass --continuation-token to resume", source, argName))
+	}
+	return flagutil.WithCLIValidation(fmt.Errorf("missing required argument <%s> (or pass --continuation-token to resume, or a full request with --body)", argName))
+}
+
+func hasRequestInputFlagChanged(c *cobra.Command) bool {
+	changed := false
+	c.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed && len(f.Annotations[flagutil.AnnotationRequestInput]) > 0 {
+			changed = true
+		}
+	})
+	return changed
+}
+
+// shouldDeferAgentRunDispatchError returns true when agent run has a route
+// selection conflict or missing --agent selector so flagutil.Select reports
+// the specific route error rather than a generic missing-input error.
+func shouldDeferAgentRunDispatchError(c *cobra.Command, bodyMap map[string]any) bool {
+	if c.Name() != "run" {
+		return false
+	}
+	hasModel := (c.Flags().Lookup("model") != nil && flagutil.FlagChanged(c, "model")) ||
+		(bodyMap != nil && bodyMap["model"] != nil)
+	hasAgent := (c.Flags().Lookup("agent") != nil && flagutil.FlagChanged(c, "agent")) ||
+		(bodyMap != nil && bodyMap["agent"] != nil)
+	if hasModel && hasAgent {
+		return true
+	}
+	if bodyMap != nil && bodyMap["agent_config"] != nil && !hasAgent {
+		return true
+	}
+	return false
 }
 
 func decodeBodyJSON(raw []byte, dst *map[string]any) error {
