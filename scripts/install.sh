@@ -140,8 +140,8 @@ install_cli() {
     log_info "Downloading from: $download_url"
 
     # Create temporary directory
-    local tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    tmp_dir=$(mktemp -d) || exit 1
+    trap 'rm -rf -- "$tmp_dir"' EXIT
 
     # Download archive
     if command -v curl >/dev/null 2>&1; then
