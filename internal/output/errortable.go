@@ -134,6 +134,57 @@ var errorProbes = []errorProbe{
 		promote: true,
 	},
 	{
+		// $.code
+		segments: []reasonCarrierSegment{
+			{field: "code"},
+		},
+		rules: map[string]errorRule{
+			"blocklist": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"content_blocked": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"image_safety": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"jailbreak": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"model_armor": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"prohibited_content": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+			"safety": {
+				Type: ErrorType("api_error"),
+				Hints: []string{
+					"The input or question was blocked by safety filters; sending the same request again will not succeed",
+				},
+			},
+		},
+		promote: true,
+	},
+	{
 		// $.status
 		segments: []reasonCarrierSegment{
 			{field: "status"},

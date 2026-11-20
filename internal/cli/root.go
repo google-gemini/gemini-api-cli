@@ -26,6 +26,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/cli/agent"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/credentials"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/custom"
+	"github.com/google-gemini/gemini-api-cli/internal/cli/decisions"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/environments"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/files"
 	"github.com/google-gemini/gemini-api-cli/internal/cli/models"
@@ -111,6 +112,9 @@ func NewRootCommand() (*cobra.Command, error) {
 	}
 	if err := credentials.InitCredentialsRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init credentials: %w", err)
+	}
+	if err := decisions.InitDecisionsRoot(rootCmd); err != nil {
+		return nil, fmt.Errorf("init decisions: %w", err)
 	}
 	if err := environments.InitEnvironmentsRoot(rootCmd); err != nil {
 		return nil, fmt.Errorf("init environments: %w", err)

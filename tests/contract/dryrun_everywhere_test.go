@@ -114,6 +114,8 @@ func TestDryRunEverywhereKeylessHumanAndJSON(t *testing.T) {
 		{name: "music", args: []string{"music", "synthwave"}, requests: 1},
 		{name: "analyze local", args: []string{"analyze", "-i", imageInput}, requests: 1},
 		{name: "analyze remote", args: []string{"analyze", "-i", "files/abc"}, requests: 2},
+		{name: "decide local", args: []string{"decide", "-i", imageInput, "Is this valid?"}, requests: 1},
+		{name: "decide remote", args: []string{"decide", "-i", "files/abc", "Is this valid?"}, requests: 1},
 		{name: "transcribe multiple", args: []string{"transcribe", "-i", audioA, "-i", audioB, "--out", transcribeOut}, requests: 2, absentPaths: []string{transcribeOut}},
 		// The catalog is a padded table in human mode and a structured value list
 		// under machine formats; both mark the default entry.

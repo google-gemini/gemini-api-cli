@@ -71,6 +71,11 @@ func initIntentCmds(rootCmd *cobra.Command) error {
 	} else {
 		owner.GroupID = "understand"
 	}
+	if owner := findOwningCommand(rootCmd, "decide"); owner == nil {
+		rootCmd.AddCommand(newCustomCmd("decide", "Ask yes/no, pick-one, and rating questions about text or media (gemini-decision-1)", "", "understand"))
+	} else {
+		owner.GroupID = "understand"
+	}
 	if owner := findOwningCommand(rootCmd, "transcribe"); owner == nil {
 		rootCmd.AddCommand(newCustomCmd("transcribe", "Audio/video → text (timestamps, captions) (gemini-3.5-transcribe)", "", "understand"))
 	} else {
@@ -192,6 +197,7 @@ var intentDeclarationOrder = []intentOrderEntry{
 	{ParentPath: []string{}, Name: "auth"},
 	{ParentPath: []string{}, Name: "configure"},
 	{ParentPath: []string{}, Name: "credentials"},
+	{ParentPath: []string{}, Name: "decide"},
 	{ParentPath: []string{}, Name: "environments"},
 	{ParentPath: []string{}, Name: "files"},
 	{ParentPath: []string{}, Name: "generate"},

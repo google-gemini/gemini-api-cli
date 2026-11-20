@@ -40,9 +40,11 @@ import (
 // Here it turns tier-1 commands the declarative intent layer cannot express
 // into hand-written porcelain backed by the Interactions API (the CLI's own
 // embedded SDK, plus a resumable uploader for the Files API):
-//   - tts / analyze / transcribe are declared `custom: true` in the command
-//     manifest; the generated intent layer attaches each one with its name,
-//     category, and help-group position and leaves RunE to us.
+//   - tts / analyze / decide / transcribe are declared `custom: true` in the
+//     command manifest; the generated intent layer attaches each one with its
+//     name, category, and help-group position and leaves RunE to us.
+//   - The raw generated decisions group is removed so decide is the single
+//     visible Decisions command across help, usage, and explore.
 //   - files upload is added under the generated files group (whose leaf
 //     commands — list/get/delete/register — stay generated).
 //   - files get / delete normalize "files/<id>" to the bare "<id>" path
@@ -63,14 +65,15 @@ func Register(root *cobra.Command) {
 }
 
 func register(root *cobra.Command) error {
-	// tts, analyze, and transcribe are declared custom and backed by real
-	// porcelain over the Interactions API.
+	// tts, analyze, decide, and transcribe are declared custom and backed by
+	// real porcelain commands.
 	claims := []struct {
 		name   string
 		attach func(*cobra.Command)
 	}{
 		{"tts", attachTTS},
 		{"analyze", attachAnalyze},
+		{"decide", attachDecide},
 		{"transcribe", attachTranscribe},
 	}
 	for _, c := range claims {
@@ -79,6 +82,11 @@ func register(root *cobra.Command) error {
 			return fmt.Errorf("expected custom command %q to attach to, but it is not registered", c.name)
 		}
 		c.attach(cmd)
+	}
+	// Remove the raw generated decisions group so decide is the single visible
+	// Decisions command in --help, --usage, and explore.
+	if rawDecisions := findChild(root, "decisions"); rawDecisions != nil {
+		root.RemoveCommand(rawDecisions)
 	}
 
 	files := findChild(root, "files")

@@ -126,9 +126,10 @@ func TestRegisterMountsRuntimeCommandsAsDynamic(t *testing.T) {
 	noopRunE := func(*cobra.Command, []string) error { return nil }
 	buildSkeleton := func() (*cobra.Command, *cobra.Command) {
 		root := &cobra.Command{Use: "gemini-api"}
-		for _, customName := range []string{"tts", "analyze", "transcribe"} {
+		for _, customName := range []string{"tts", "analyze", "decide", "transcribe"} {
 			root.AddCommand(&cobra.Command{Use: customName})
 		}
+		root.AddCommand(&cobra.Command{Use: "decisions"})
 
 		filesGroup := &cobra.Command{Use: "files"}
 		for _, leaf := range []string{"get", "delete"} {
