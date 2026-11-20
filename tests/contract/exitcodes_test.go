@@ -129,6 +129,7 @@ func TestExitCodeBareIntent(t *testing.T) {
 	commands := [][]string{
 		{"generate"},        // generated intent
 		{"analyze"},         // porcelain: --input required
+		{"decide"},          // porcelain: input and question required
 		{"transcribe"},      // porcelain: --input required
 		{"tts"},             // porcelain: input text required
 		{"files", "upload"}, // porcelain: <file> argument required

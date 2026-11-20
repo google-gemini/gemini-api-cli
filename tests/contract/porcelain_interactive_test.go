@@ -118,6 +118,13 @@ func TestPorcelainInteractivePrompts(t *testing.T) {
 			wantStderr: []string{`"data"`, "<bytes:3>", "what is this, exactly?"},
 		},
 		{
+			name:       "decide",
+			command:    []string{"decide"},
+			answers:    map[string][]string{"arg:question": {"is this a test image?"}, "flag:input": {image}},
+			wantFields: []string{"arg:question", "flag:input"},
+			wantStderr: []string{"/v1beta/decisions", `"data"`, "<bytes:3>", "is this a test image?"},
+		},
+		{
 			name:       "transcribe",
 			command:    []string{"transcribe"},
 			answers:    map[string][]string{"flag:input": {audio}},

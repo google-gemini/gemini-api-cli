@@ -122,6 +122,7 @@ Run `gemini-api --help` to see all top-level commands, or `gemini-api <command> 
 | | `gemini-api music` | `-m`, `-f/--file`, `--stdin`, `--out`, `--body` | Music generation (`lyria-3.5`) |
 | | `gemini-api video` | `-m`, `-i/--input`, `--stdin`, `--async`, `--out`, `--body` | Conversational video generation and editing (`gemini-omni-1.2-flash`) |
 | **Understand** | `gemini-api analyze` | `-i/--input` *(repeatable)*, `--stdin`, `--system`, `-m` | Ask questions about PDFs, images, audio, video, CSV/text files, or YouTube URLs (`gemini-4-hydrogen`) |
+| | `gemini-api decide` | `-i/--input` *(repeatable)*, `--stdin`, `--mime-type`, `--body`, `--schema`, `-m` | Ask yes/no, pick-one, and rating questions about text or media and return calibrated probabilities (`gemini-decision-1`) |
 | | `gemini-api transcribe` | `-i/--input` *(repeatable)*, `--format` (`md`, `text`, `json`, `srt`), `--out` | Transcribe audio or video to Markdown (`md`), plain text (`text`), JSON (`json`), or SRT captions (`srt`) (`gemini-3.5-transcribe`) |
 | **Manage** | `gemini-api agent` | `run`, `status`, `cancel`, `delete-interaction`, `create`, `list`, `get`, `delete` | Run interactions with models or managed agents (`run`, `status`, `cancel`) and manage agent definitions |
 | | `gemini-api files` | `upload`, `list`, `get`, `generated-files-list`, `register`, `delete` | Upload, list, inspect, register, and delete files via the Files API (48-hour retention) |
@@ -197,11 +198,15 @@ Assistants like OpenClaw or Hermes can turn documents, media files, and YouTube 
 gemini-api analyze --input product-brief.pdf "What should we build first, and why?" > plan.md
 gemini-api analyze --input before.png --input after.png "Summarize the visual design changes"
 
+# Evaluate yes/no, pick-one, or rating questions with calibrated probabilities
+gemini-api decide -i doorstep.jpg "Is a package clearly visible?" -o json
+gemini-api decide -i ticket.txt --body @route.json --jq '.answers.route.choice'
+
 # Transcribe audio or video (valid formats: md, text, json, srt)
 gemini-api transcribe --input interview.mp4 --format srt --out interview.srt
 ```
 
-For larger media files (over ~14 MB raw / 20 MB base64-encoded), upload once with `files upload --wait` and reuse the returned `files/<id>` URI across `analyze`, `transcribe`, `generate`, `image`, `video`, or `agent run`:
+For larger media files (over ~14 MB raw / 20 MB base64-encoded), upload once with `files upload --wait` and reuse the returned `files/<id>` URI across `analyze`, `decide`, `transcribe`, `generate`, `image`, `video`, or `agent run`:
 
 <!-- readme-examples: skip (needs local file and uploaded file URI) -->
 ```bash

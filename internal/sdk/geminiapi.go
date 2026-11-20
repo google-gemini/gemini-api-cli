@@ -87,6 +87,7 @@ type GeminiAPI struct {
 	Agent *Agent
 	// Manage stored credentials (bearer tokens, OAuth2, environment variables) that agents inject into outgoing HTTP requests
 	Credentials *Credentials
+	Decisions   *Decisions
 	// Manage sandbox environments and inspect environment files
 	Environments *Environments
 	// Upload, list, inspect, register, and delete files (48-hour retention)
@@ -219,6 +220,7 @@ func New(opts ...SDKOption) *GeminiAPI {
 
 	sdk.Agent = newAgent(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Credentials = newCredentials(sdk, sdk.sdkConfiguration, sdk.hooks)
+	sdk.Decisions = newDecisions(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Environments = newEnvironments(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Files = newFiles(sdk, sdk.sdkConfiguration, sdk.hooks)
 	sdk.Models = newModels(sdk, sdk.sdkConfiguration, sdk.hooks)

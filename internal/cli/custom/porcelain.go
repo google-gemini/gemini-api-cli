@@ -46,6 +46,7 @@ import (
 // Spec's tier-1 line-up and the reference CLI's model registry.
 const (
 	defaultTextModel       = "gemini-4-hydrogen"
+	defaultDecisionModel   = "gemini-decision-1"
 	defaultTranscribeModel = "gemini-3.5-transcribe"
 	defaultTTSModel        = "gemini-3.8-flash-tts"
 	defaultTTSVoice        = "Kore"
