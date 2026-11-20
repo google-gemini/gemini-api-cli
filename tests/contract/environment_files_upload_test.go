@@ -41,17 +41,17 @@ func environmentUploadArgs(extra ...string) func(serverURL, src string) []string
 func newEnvironmentUploadMock(t *testing.T, finalizeBody func(received int) string) *uploadMock {
 	t.Helper()
 	mock := newUploadMock(t)
-	var received int
-	mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
-		received += len(r.body)
+	var received atomic.Int64
+	mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
+		total := int(received.Add(int64(len(r.body))))
 		if r.command != "upload, finalize" {
 			return false
 		}
 		w.Header().Set("X-Goog-Upload-Status", "final")
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, finalizeBody(received))
+		fmt.Fprint(w, finalizeBody(total))
 		return true
-	}
+	})
 	return mock
 }
 

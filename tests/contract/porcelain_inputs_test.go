@@ -28,12 +28,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestAnalyzeMultiInputRequestAndEnvelope(t *testing.T) {
+	var bodyMu sync.Mutex
 	var generateBody map[string]any
 	var fileGets atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,8 +43,13 @@ func TestAnalyzeMultiInputRequestAndEnvelope(t *testing.T) {
 		switch {
 		case r.URL.Path == "/v1beta/interactions":
 			raw, _ := io.ReadAll(r.Body)
-			if err := json.Unmarshal(raw, &generateBody); err != nil {
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
 				t.Errorf("decode interaction request: %v", err)
+			} else {
+				bodyMu.Lock()
+				generateBody = decoded
+				bodyMu.Unlock()
 			}
 			fmt.Fprint(w, completedInteraction("combined answer", `{"total_input_tokens":12,"total_output_tokens":3,"total_tokens":15}`))
 		case r.URL.Path == "/v1beta/files/abc123":
@@ -74,7 +81,10 @@ func TestAnalyzeMultiInputRequestAndEnvelope(t *testing.T) {
 
 	// The interaction input is a single user_input step containing four
 	// ordered content blocks: the three media inputs followed by the text question.
-	parts := assertUserInputStepParts(t, generateBody)
+	bodyMu.Lock()
+	capturedBody := generateBody
+	bodyMu.Unlock()
+	parts := assertUserInputStepParts(t, capturedBody)
 	if len(parts) != 4 {
 		t.Fatalf("request input parts = %#v, want four ordered content blocks", parts)
 	}
@@ -497,11 +507,14 @@ func TestTranscribeMultiOutMustBeDirectory(t *testing.T) {
 // audio or video is rejected by name, local files before any request is sent
 // and uploaded files before the interaction is.
 func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
-	serve := func(t *testing.T, fileMeta string) (*httptest.Server, *[]string) {
+	serve := func(t *testing.T, fileMeta string) (*httptest.Server, func() []string) {
 		t.Helper()
+		var mu sync.Mutex
 		var paths []string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
 			paths = append(paths, r.URL.Path)
+			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			if strings.Contains(r.URL.Path, "/files/") {
 				fmt.Fprint(w, fileMeta)
@@ -510,7 +523,11 @@ func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
 			fmt.Fprint(w, completedInteraction("hello", ""))
 		}))
 		t.Cleanup(server.Close)
-		return server, &paths
+		return server, func() []string {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]string(nil), paths...)
+		}
 	}
 
 	for _, name := range []string{"shot.png", "paper.pdf", "table.csv", "notes.txt"} {
@@ -530,8 +547,8 @@ func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
 					t.Errorf("stderr missing %q:\n%s", want, result.stderr)
 				}
 			}
-			if len(*paths) != 0 {
-				t.Errorf("requests sent = %v, want none", *paths)
+			if got := paths(); len(got) != 0 {
+				t.Errorf("requests sent = %v, want none", got)
 			}
 		})
 	}
@@ -546,8 +563,8 @@ func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
 		if !strings.Contains(result.stderr, "only audio or video inputs are accepted; got image/png") {
 			t.Errorf("stderr = %q", result.stderr)
 		}
-		if len(*paths) != 0 {
-			t.Errorf("requests sent = %v, want none", *paths)
+		if got := paths(); len(got) != 0 {
+			t.Errorf("requests sent = %v, want none", got)
 		}
 	})
 
@@ -568,8 +585,9 @@ func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
 			if !strings.Contains(result.stderr, tc.wantStderr) {
 				t.Errorf("stderr = %q, want it to contain %q", result.stderr, tc.wantStderr)
 			}
-			if len(*paths) != 1 || !strings.Contains((*paths)[0], "/files/abc123") {
-				t.Errorf("requests sent = %v, want only the files.get lookup", *paths)
+			got := paths()
+			if len(got) != 1 || !strings.Contains(got[0], "/files/abc123") {
+				t.Errorf("requests sent = %v, want only the files.get lookup", got)
 			}
 		})
 	}
@@ -581,8 +599,8 @@ func TestTranscribeAcceptsOnlyAudioVideo(t *testing.T) {
 		if result := runCLI(t, dir, nil, args...); result.err != nil {
 			t.Fatalf("transcribe failed: %v\nstderr: %s", result.err, result.stderr)
 		}
-		if len(*paths) != 2 {
-			t.Errorf("requests sent = %v, want the lookup and the interaction", *paths)
+		if got := paths(); len(got) != 2 {
+			t.Errorf("requests sent = %v, want the lookup and the interaction", got)
 		}
 	})
 }
@@ -659,50 +677,52 @@ func TestPorcelainModelOverride(t *testing.T) {
 	}
 }
 
+const finalInteractionBodyLimit = 20 << 20
+
+func newBodyLimitCountingSink(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int64) {
+	t.Helper()
+	var calls atomic.Int32
+	var lastBytes atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		lastBytes.Store(int64(len(raw)))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, completedInteraction("ok", ""))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls, &lastBytes
+}
+
+func assertBodyLimitRejected(t *testing.T, res commandResult, calls *atomic.Int32, jsonMode bool) {
+	t.Helper()
+	if code := exitCode(t, res); code != 2 {
+		t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
+	}
+	if res.stdout != "" {
+		t.Errorf("stdout = %q, want empty on rejected request", res.stdout)
+	}
+	if calls != nil && calls.Load() != 0 {
+		t.Errorf("network calls = %d, want 0", calls.Load())
+	}
+	if jsonMode {
+		env := decodeEnvelope(t, res.stderr)
+		if env.ErrorReason != "CLI_VALIDATION" {
+			t.Errorf("error_reason = %q, want CLI_VALIDATION\nstderr: %s", env.ErrorReason, res.stderr)
+		}
+	}
+	for _, want := range []string{"20 MB", "gemini-api files upload"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, res.stderr)
+		}
+	}
+}
+
 func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
-	const limit = 20 << 20
-
-	newCountingSink := func(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int64) {
-		t.Helper()
-		var calls atomic.Int32
-		var lastBytes atomic.Int64
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			calls.Add(1)
-			raw, _ := io.ReadAll(r.Body)
-			lastBytes.Store(int64(len(raw)))
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, completedInteraction("ok", ""))
-		}))
-		t.Cleanup(srv.Close)
-		return srv, &calls, &lastBytes
-	}
-
-	assertRejected := func(t *testing.T, res commandResult, calls *atomic.Int32, jsonMode bool) {
-		t.Helper()
-		if code := exitCode(t, res); code != 2 {
-			t.Fatalf("exit code = %d, want 2\nstdout: %s\nstderr: %s", code, res.stdout, res.stderr)
-		}
-		if res.stdout != "" {
-			t.Errorf("stdout = %q, want empty on rejected request", res.stdout)
-		}
-		if calls != nil && calls.Load() != 0 {
-			t.Errorf("network calls = %d, want 0", calls.Load())
-		}
-		if jsonMode {
-			env := decodeEnvelope(t, res.stderr)
-			if env.ErrorReason != "CLI_VALIDATION" {
-				t.Errorf("error_reason = %q, want CLI_VALIDATION\nstderr: %s", env.ErrorReason, res.stderr)
-			}
-		}
-		for _, want := range []string{"20 MB", "gemini-api files upload"} {
-			if !strings.Contains(res.stderr, want) {
-				t.Errorf("stderr missing %q:\n%s", want, res.stderr)
-			}
-		}
-	}
+	const limit = finalInteractionBodyLimit
 
 	t.Run("wire byte capture across encodings and surfaces", func(t *testing.T) {
-		srv, calls, lastBytes := newCountingSink(t)
+		srv, calls, lastBytes := newBodyLimitCountingSink(t)
 		dir := t.TempDir()
 		textFile := filepath.Join(dir, "special.txt")
 		// Plain text, <>&, quotes/backslashes, control chars, and Unicode (\u2028 + emoji).
@@ -726,7 +746,7 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 	})
 
 	t.Run("generate exact boundary vs one byte over via body and stdin", func(t *testing.T) {
-		srv, calls, lastBytes := newCountingSink(t)
+		srv, calls, lastBytes := newBodyLimitCountingSink(t)
 		dir := t.TempDir()
 
 		// Measure baseline wire size for 1-char input.
@@ -759,11 +779,11 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 
 		calls.Store(0)
 		badRes := runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "generate", "--body", "@"+overBodyPath)...)
-		assertRejected(t, badRes, calls, true)
+		assertBodyLimitRejected(t, badRes, calls, true)
 
 		calls.Store(0)
 		badStdin := runCLIWithStdin(t, dir, nil, overBodyJSON, append(plainArgs(srv.URL), "-o", "json", "generate")...)
-		assertRejected(t, badStdin, calls, true)
+		assertBodyLimitRejected(t, badStdin, calls, true)
 
 		// Dry-run -o json: exact limit succeeds even though indented preview formatting is larger than wire size.
 		dryExact := runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--body", "@"+exactBodyPath)...)
@@ -776,14 +796,45 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 
 		// Dry-run -o json: 1 byte over limit rejects with exit 2 and no preview output.
 		dryOver := runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--body", "@"+overBodyPath)...)
-		assertRejected(t, dryOver, calls, true)
+		assertBodyLimitRejected(t, dryOver, calls, true)
 
 		dryOverStdin := runCLIWithStdin(t, dir, nil, overPrompt, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "--stream=false", "--stdin")...)
-		assertRejected(t, dryOverStdin, calls, true)
+		assertBodyLimitRejected(t, dryOverStdin, calls, true)
 	})
+}
 
-	t.Run("analyze and generate escaping and combined overhead", func(t *testing.T) {
-		srv, calls, lastBytes := newCountingSink(t)
+func TestFinalSerializedInteractionBodyLimitAnalyzeEscaping(t *testing.T) {
+	t.Run("analyze and generate escaping overhead", func(t *testing.T) {
+		srv, calls, _ := newBodyLimitCountingSink(t)
+		dir := t.TempDir()
+
+		// 3.5 MiB of '<' is 3,670,016 raw bytes (well under 19 MiB preflight),
+		// but escapes to 6 * 3,670,016 = 22,020,096 wire bytes (> 20 MiB).
+		htmlFile := filepath.Join(dir, "angles.txt")
+		if err := os.WriteFile(htmlFile, bytes.Repeat([]byte{'<'}, 3584*1024), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls.Store(0)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "-i", htmlFile, "q")...), calls, true)
+
+		// Quotes/backslashes (2x wire expansion) + control chars (6x wire expansion) + Unicode \u2028 (2x byte expansion).
+		escapedMix := filepath.Join(dir, "mix.txt")
+		mixPayload := append(bytes.Repeat([]byte{'\x01'}, 3<<20), bytes.Repeat([]byte{'"', '\\'}, 2<<20)...)
+		if err := os.WriteFile(escapedMix, mixPayload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls.Store(0)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", escapedMix, "q")...), calls, true)
+	})
+}
+
+func TestFinalSerializedInteractionBodyLimitAnalyzeBoundaryAndMedia(t *testing.T) {
+	const limit = finalInteractionBodyLimit
+
+	t.Run("analyze exact boundary and combined media overhead", func(t *testing.T) {
+		srv, calls, lastBytes := newBodyLimitCountingSink(t)
 		dir := t.TempDir()
 
 		// Measure analyze baseline with a 1-byte text file.
@@ -796,26 +847,6 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 			t.Fatalf("analyze probe failed: %v\nstderr: %s", probe.err, probe.stderr)
 		}
 		analyzeFraming := int(lastBytes.Load()) - 1
-
-		// 3.5 MiB of '<' is 3,670,016 raw bytes (well under 19 MiB preflight),
-		// but escapes to 6 * 3,670,016 = 22,020,096 wire bytes (> 20 MiB).
-		htmlFile := filepath.Join(dir, "angles.txt")
-		if err := os.WriteFile(htmlFile, bytes.Repeat([]byte{'<'}, 3584*1024), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		calls.Store(0)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", htmlFile, "q")...), calls, true)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "generate", "-i", htmlFile, "q")...), calls, true)
-
-		// Quotes/backslashes (2x wire expansion) + control chars (6x wire expansion) + Unicode \u2028 (2x byte expansion).
-		escapedMix := filepath.Join(dir, "mix.txt")
-		mixPayload := append(bytes.Repeat([]byte{'\x01'}, 3<<20), bytes.Repeat([]byte{'"', '\\'}, 2<<20)...)
-		if err := os.WriteFile(escapedMix, mixPayload, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		calls.Store(0)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", escapedMix, "q")...), calls, true)
 
 		// Exact boundary and +1 byte on analyze using '<' (6 wire bytes each) + ASCII filler.
 		remaining := limit - analyzeFraming
@@ -846,8 +877,8 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 		}
 
 		calls.Store(0)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
-		assertRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
+		assertBodyLimitRejected(t, runCLI(t, dir, nil, append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", exactAnalyzeFile, "qq")...), calls, true)
 
 		// Base64 media (13.5 MB raw = 18,000,000 bytes base64, under 19 MiB preflight) + 3,000,000 bytes --stdin text exceeds 20 MiB (20,971,520 bytes) final body.
 		mediaFile := filepath.Join(dir, "clip.png")
@@ -856,9 +887,9 @@ func TestFinalSerializedInteractionBodyLimit(t *testing.T) {
 		}
 		extraStdin := strings.Repeat("s", 3_000_000)
 		calls.Store(0)
-		assertRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
+		assertBodyLimitRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
 			append(plainArgs(srv.URL), "-o", "json", "analyze", "-i", mediaFile, "--stdin", "q")...), calls, true)
-		assertRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
+		assertBodyLimitRejected(t, runCLIWithStdin(t, dir, nil, extraStdin,
 			append(plainArgs(srv.URL), "--dry-run", "-o", "json", "analyze", "-i", mediaFile, "--stdin", "q")...), calls, true)
 	})
 }

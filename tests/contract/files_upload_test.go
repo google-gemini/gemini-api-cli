@@ -48,19 +48,25 @@ type uploadRequest struct {
 	ctx     context.Context
 }
 
-// uploadMock records every request of the resumable protocol. respond may
+// uploadMock records every request of the resumable protocol. setRespond may
 // override the default well-behaved answers; returning false falls through.
 type uploadMock struct {
 	*httptest.Server
-	mu       sync.Mutex
-	requests []uploadRequest
-	respond  func(w http.ResponseWriter, r uploadRequest) bool
+	mu        sync.Mutex
+	requests  []uploadRequest
+	respondFn func(w http.ResponseWriter, r uploadRequest) bool
+}
+
+func (m *uploadMock) setRespond(fn func(w http.ResponseWriter, r uploadRequest) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.respondFn = fn
 }
 
 func newUploadMock(t *testing.T) *uploadMock {
 	t.Helper()
 	mock := &uploadMock{}
-	mock.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mock.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		req := uploadRequest{
 			method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, command: r.Header.Get("X-Goog-Upload-Command"),
@@ -68,8 +74,9 @@ func newUploadMock(t *testing.T) *uploadMock {
 		}
 		mock.mu.Lock()
 		mock.requests = append(mock.requests, req)
+		respond := mock.respondFn
 		mock.mu.Unlock()
-		if mock.respond != nil && mock.respond(w, req) {
+		if respond != nil && respond(w, req) {
 			return
 		}
 		switch req.command {
@@ -85,6 +92,7 @@ func newUploadMock(t *testing.T) *uploadMock {
 			t.Errorf("unexpected upload command %q", req.command)
 		}
 	}))
+	mock.Server.Start()
 	t.Cleanup(mock.Close)
 	return mock
 }
@@ -293,13 +301,13 @@ func runUploadFailures(t *testing.T, cases []uploadFailure, args func(serverURL,
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := newUploadMock(t)
-			mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 				if r.command != tc.on {
 					return false
 				}
 				tc.answer(w)
 				return true
-			}
+			})
 			src := filepath.Join(t.TempDir(), "data.bin")
 			if err := os.WriteFile(src, patterned(tc.size), 0o644); err != nil {
 				t.Fatal(err)
@@ -357,13 +365,13 @@ func checkForeignSessionRefused(t *testing.T, args func(serverURL, src string) [
 	defer foreign.Close()
 	// Same loopback host, different port: still a different service.
 	mock := newUploadMock(t)
-	mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+	mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 		if r.command != "start" {
 			return false
 		}
 		w.Header().Set("X-Goog-Upload-Url", foreign.URL+"/steal?upload_id=secret")
 		return true
-	}
+	})
 	src := writeTempFile(t, "clip.mp3", "some audio bytes")
 	result := runCLI(t, t.TempDir(), nil, args(mock.URL, src)...)
 	if code := exitCode(t, result); code != 1 {
@@ -519,13 +527,13 @@ func TestFilesUploadTransportParity(t *testing.T) {
 	t.Run("debug redacts the upload session id", func(t *testing.T) {
 		const sessionID = "secret-session-123"
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			if r.command != "start" {
 				return false
 			}
 			w.Header().Set("X-Goog-Upload-Url", mock.URL+"/upload-session?upload_id="+sessionID+"&upload_protocol=resumable")
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp3", "some audio bytes")
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "--debug", "files", "upload", src)...)
 		if result.err != nil {
@@ -548,7 +556,7 @@ func TestFilesUploadTransportParity(t *testing.T) {
 		// --debug and the command's own error message print.
 		const sessionID = "secret-session-456"
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			if r.command == "start" {
 				w.Header().Set("X-Goog-Upload-Url", mock.URL+"/upload-session?upload_id="+sessionID)
 				return true
@@ -562,7 +570,7 @@ func TestFilesUploadTransportParity(t *testing.T) {
 			}
 			conn.Close()
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp3", "some audio bytes")
 		for _, mode := range [][]string{nil, {"--debug"}} {
 			result := runCLI(t, t.TempDir(), nil, append(append(plainArgs(mock.URL), mode...), "files", "upload", src)...)
@@ -740,7 +748,7 @@ func TestFilesUploadTimeout(t *testing.T) {
 	}
 	t.Run("body after headers", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = delayedFinalize(150 * time.Millisecond)
+		mock.setRespond(delayedFinalize(150 * time.Millisecond))
 		src := writeTempFile(t, "clip.mp3", "some audio bytes")
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "--timeout", "5s", "files", "upload", src)...)
 		if result.err != nil {
@@ -752,7 +760,7 @@ func TestFilesUploadTimeout(t *testing.T) {
 	})
 	t.Run("stalled body", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = delayedFinalize(2 * time.Second)
+		mock.setRespond(delayedFinalize(2 * time.Second))
 		src := writeTempFile(t, "clip.mp3", "some audio bytes")
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "--timeout", "300ms", "files", "upload", src)...)
 		if code := exitCode(t, result); code != 1 {
@@ -789,7 +797,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 
 	t.Run("stateless poll then active", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -804,7 +812,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp4", "some video bytes")
 		args := append(plainArgs(mock.URL), "--output-format", "json", "files", "upload", src, "--wait", "--wait-timeout", "10s")
 		result := runCLI(t, t.TempDir(), nil, args...)
@@ -831,7 +839,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 
 	t.Run("poll fails", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -843,7 +851,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp4", "some video bytes")
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "files", "upload", src, "--wait")...)
 		if code := exitCode(t, result); code != 1 {
@@ -857,7 +865,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 	t.Run("prompt active and delayed processing then delayed active before deadline", func(t *testing.T) {
 		// Prompt ACTIVE on first poll.
 		mockPrompt := newUploadMock(t)
-		mockPrompt.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mockPrompt.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -868,7 +876,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp4", "some video bytes")
 		resPrompt := runCLI(t, t.TempDir(), nil, append(plainArgs(mockPrompt.URL), "files", "upload", src, "--wait", "--wait-timeout", "3s")...)
 		if resPrompt.err != nil {
@@ -880,7 +888,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 
 		// Delayed PROCESSING on poll 1, then delayed ACTIVE on poll 2 before the deadline.
 		mockDelayed := newUploadMock(t)
-		mockDelayed.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mockDelayed.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -896,7 +904,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		resDelayed := runCLI(t, t.TempDir(), nil, append(plainArgs(mockDelayed.URL), "files", "upload", src, "--wait", "--wait-timeout", "4s")...)
 		if resDelayed.err != nil {
 			t.Fatalf("delayed active upload failed: %v\nstderr: %s", resDelayed.err, resDelayed.stderr)
@@ -911,7 +919,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 
 	t.Run("hanging poll exits near wait-timeout with wait-timeout message and never late success", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -927,7 +935,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp4", "some video bytes")
 		start := time.Now()
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "files", "upload", src, "--wait", "--wait-timeout", "3s")...)
@@ -948,7 +956,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 
 	t.Run("earlier per-request --timeout 1s is not relabeled as --wait-timeout 3s expiry", func(t *testing.T) {
 		mock := newUploadMock(t)
-		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+		mock.setRespond(func(w http.ResponseWriter, r uploadRequest) bool {
 			switch r.command {
 			case "upload, finalize":
 				finalizeProcessing(w)
@@ -962,7 +970,7 @@ func TestFilesUploadWaitEdges(t *testing.T) {
 				return false
 			}
 			return true
-		}
+		})
 		src := writeTempFile(t, "clip.mp4", "some video bytes")
 		start := time.Now()
 		result := runCLI(t, t.TempDir(), nil, append(plainArgs(mock.URL), "--timeout", "1s", "files", "upload", src, "--wait", "--wait-timeout", "3s")...)

@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1279,6 +1280,7 @@ func TestEnvironmentFilesUploadProtocol(t *testing.T) {
 	}
 
 	var (
+		mu            sync.Mutex
 		startMethod   string
 		startPath     string
 		startQuery    string
@@ -1289,21 +1291,25 @@ func TestEnvironmentFilesUploadProtocol(t *testing.T) {
 	)
 
 	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/upload/v1beta/environments/env_abc123/files/app/bundle.tar.gz":
+			mu.Lock()
 			startMethod = r.Method
 			startPath = r.URL.Path
 			startQuery = r.URL.RawQuery
 			startHeaders = r.Header.Clone()
+			mu.Unlock()
 			w.Header().Set("X-Goog-Upload-Url", srv.URL+"/upload-session?upload_id=session_xyz")
 			w.Header().Set("X-Goog-Upload-Status", "active")
 			w.WriteHeader(http.StatusOK)
 		case "/upload-session":
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
 			chunkMethod = r.Method
 			chunkHeaders = r.Header.Clone()
-			body, _ := io.ReadAll(r.Body)
 			uploadedBytes = append(uploadedBytes, body...)
+			mu.Unlock()
 			w.Header().Set("X-Goog-Upload-Status", "final")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -1313,6 +1319,7 @@ func TestEnvironmentFilesUploadProtocol(t *testing.T) {
 			http.Error(w, "unexpected path", http.StatusNotFound)
 		}
 	}))
+	srv.Start()
 	defer srv.Close()
 
 	root, stdout, _ := newTestEnvironmentFilesRoot(srv.URL)
@@ -1327,6 +1334,9 @@ func TestEnvironmentFilesUploadProtocol(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute upload failed: %v", err)
 	}
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	if startMethod != http.MethodPut {
 		t.Errorf("start method = %q, want PUT", startMethod)
