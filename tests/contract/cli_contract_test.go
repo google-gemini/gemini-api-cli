@@ -550,7 +550,7 @@ func TestImageArtifactMissingContent(t *testing.T) {
 
 	t.Run("uri-download", func(t *testing.T) {
 		var server *httptest.Server
-		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/asset.png" {
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write([]byte("\x89PNG\r\n\x1a\npayload"))
@@ -559,6 +559,7 @@ func TestImageArtifactMissingContent(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"id":"int-4","status":"completed","steps":[{"type":"model_output","content":[{"type":"image","uri":"%s/asset.png"}]}]}`, server.URL)
 		}))
+		server.Start()
 		defer server.Close()
 		dir := t.TempDir()
 		args := []string{"--server-url", server.URL, "--api-version", "v1beta", "--no-interactive", "--no-retries", "--color", "never", "--api-key", "test", "image", "a lighthouse"}
@@ -1326,7 +1327,7 @@ func TestBodySchemaFlag(t *testing.T) {
 			}
 
 			var modelDef struct {
-				Required   []string                   `json:"required"`
+				Required   []string                  `json:"required"`
 				Properties map[string]map[string]any `json:"properties"`
 			}
 			if err := json.Unmarshal(modelRaw, &modelDef); err != nil {

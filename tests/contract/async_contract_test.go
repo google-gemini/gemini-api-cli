@@ -41,7 +41,7 @@ type asyncVideoServer struct {
 func newAsyncVideoServer(t *testing.T, createBody string, polls ...string) *asyncVideoServer {
 	t.Helper()
 	s := &asyncVideoServer{polls: polls}
-	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.requests = append(s.requests, r.Method+" "+r.URL.Path)
 		n := len(s.requests)
@@ -69,6 +69,7 @@ func newAsyncVideoServer(t *testing.T, createBody string, polls ...string) *asyn
 			fmt.Fprint(w, `{"error":{"message":"unexpected request"}}`)
 		}
 	}))
+	s.Server.Start()
 	t.Cleanup(s.Close)
 	return s
 }

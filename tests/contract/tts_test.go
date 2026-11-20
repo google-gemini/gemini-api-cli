@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -770,15 +771,35 @@ func TestTTSSingleAndMultiSpeakerStyleAnnotations(t *testing.T) {
 
 func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 	pcm := []byte{0x01, 0x02, 0x03, 0x04}
+	var bodyMu sync.Mutex
 	var createdVoiceBody map[string]any
 	var interactionBody map[string]any
+	getCreatedVoiceBody := func() map[string]any {
+		bodyMu.Lock()
+		defer bodyMu.Unlock()
+		return createdVoiceBody
+	}
+	clearCreatedVoiceBody := func() {
+		bodyMu.Lock()
+		createdVoiceBody = nil
+		bodyMu.Unlock()
+	}
+	getInteractionBody := func() map[string]any {
+		bodyMu.Lock()
+		defer bodyMu.Unlock()
+		return interactionBody
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/voices":
 			raw, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(raw, &createdVoiceBody)
+			var decoded map[string]any
+			_ = json.Unmarshal(raw, &decoded)
+			bodyMu.Lock()
+			createdVoiceBody = decoded
+			bodyMu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":           "voice_custom_123",
 				"type":         "prompted",
@@ -791,7 +812,11 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1beta/interactions":
 			raw, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(raw, &interactionBody)
+			var decoded map[string]any
+			_ = json.Unmarshal(raw, &decoded)
+			bodyMu.Lock()
+			interactionBody = decoded
+			bodyMu.Unlock()
 			_, _ = w.Write([]byte(ttsAudioResponse(pcm, "audio/l16", 24000, 1)))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1beta/voices/voice_custom_123":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -819,15 +844,16 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("tts --voice-prompt failed: %v\nstderr: %s", res.err, res.stderr)
 	}
-	if createdVoiceBody["store"] != true {
-		t.Errorf("voices create store = %#v, want true", createdVoiceBody["store"])
+	gotVoice := getCreatedVoiceBody()
+	if gotVoice["store"] != true {
+		t.Errorf("voices create store = %#v, want true", gotVoice["store"])
 	}
-	voiceMap, _ := createdVoiceBody["voice"].(map[string]any)
+	voiceMap, _ := gotVoice["voice"].(map[string]any)
 	promptedMap, _ := voiceMap["prompted"].(map[string]any)
 	if voiceMap["type"] != "prompted" || promptedMap["input"] != "Warm radio host" {
-		t.Errorf("voices create payload = %#v", createdVoiceBody)
+		t.Errorf("voices create payload = %#v", gotVoice)
 	}
-	genCfg, _ := interactionBody["generation_config"].(map[string]any)
+	genCfg, _ := getInteractionBody()["generation_config"].(map[string]any)
 	speechCfg, _ := genCfg["speech_config"].([]any)
 	if len(speechCfg) != 1 || speechCfg[0].(map[string]any)["voice"] != "voice_custom_123" {
 		t.Errorf("interaction speech_config = %#v, want voice_custom_123", speechCfg)
@@ -852,23 +878,25 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 
 	// 2b. `voices create` keeps --store optional (for replicated voices via --voice or --body),
 	// while `voices create --help` includes --store=true in its prompted example.
-	createdVoiceBody = nil
+	clearCreatedVoiceBody()
 	repFlagRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "create",
 		"--voice", `{"type":"replicated"}`)...)
 	if repFlagRes.err != nil {
 		t.Fatalf("voices create --voice without --store failed: %v\nstderr: %s", repFlagRes.err, repFlagRes.stderr)
 	}
-	if _, hasStore := createdVoiceBody["store"]; hasStore {
-		t.Errorf("voices create --voice without --store sent store = %#v, want omitted", createdVoiceBody["store"])
+	gotVoice = getCreatedVoiceBody()
+	if _, hasStore := gotVoice["store"]; hasStore {
+		t.Errorf("voices create --voice without --store sent store = %#v, want omitted", gotVoice["store"])
 	}
-	createdVoiceBody = nil
+	clearCreatedVoiceBody()
 	repBodyRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "create",
 		"--body", `{"voice":{"type":"replicated"}}`)...)
 	if repBodyRes.err != nil {
 		t.Fatalf("voices create --body without store failed: %v\nstderr: %s", repBodyRes.err, repBodyRes.stderr)
 	}
-	if _, hasStore := createdVoiceBody["store"]; hasStore {
-		t.Errorf("voices create --body without store sent store = %#v, want omitted", createdVoiceBody["store"])
+	gotVoice = getCreatedVoiceBody()
+	if _, hasStore := gotVoice["store"]; hasStore {
+		t.Errorf("voices create --body without store sent store = %#v, want omitted", gotVoice["store"])
 	}
 	helpRes := runCLI(t, dir, nil, "voices", "create", "--help")
 	if helpRes.err != nil {

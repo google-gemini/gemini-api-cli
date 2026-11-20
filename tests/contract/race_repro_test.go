@@ -21,13 +21,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-func slowChunkedVideoServer(t *testing.T, createBody string, gotPolls *[]string) *httptest.Server {
+func slowChunkedVideoServer(t *testing.T, createBody string) (*httptest.Server, func() []string) {
 	payload := base64.StdEncoding.EncodeToString([]byte("mock-video-bytes"))
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var mu sync.Mutex
+	var gotPolls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
 			fl := w.(http.Flusher)
@@ -44,10 +47,18 @@ func slowChunkedVideoServer(t *testing.T, createBody string, gotPolls *[]string)
 			}
 			return
 		}
-		*gotPolls = append(*gotPolls, r.URL.Path)
+		mu.Lock()
+		gotPolls = append(gotPolls, r.URL.Path)
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"id":"int-race-1","object":"interaction","status":"completed","model":"m","steps":[{"type":"model_output","content":[{"type":"video","data":"%s","mime_type":"video/mp4"}]}]}`, payload)
 	}))
+	polls := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), gotPolls...)
+	}
+	return server, polls
 }
 
 // Repro attempts for the eval's video "response-body lifetime race": the create
@@ -62,8 +73,7 @@ func TestVideoHandleSurvivesSlowChunkedCreateResponse(t *testing.T) {
 		{"multi_megabyte", `{"id":"int-race-1","object":"interaction","status":"in_progress","outputs":[{"type":"text","text":"` + strings.Repeat("x", 3<<20) + `"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotPolls []string
-			server := slowChunkedVideoServer(t, tc.body, &gotPolls)
+			server, polls := slowChunkedVideoServer(t, tc.body)
 			defer server.Close()
 
 			dir := t.TempDir()
@@ -71,6 +81,7 @@ func TestVideoHandleSurvivesSlowChunkedCreateResponse(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("video failed: %v\nstdout: %s\nstderr: %s", result.err, result.stdout, result.stderr)
 			}
+			gotPolls := polls()
 			if len(gotPolls) == 0 {
 				t.Fatal("no poll request observed")
 			}
@@ -85,8 +96,7 @@ func TestVideoHandleSurvivesSlowChunkedCreateResponse(t *testing.T) {
 
 // --async must print the interaction handle from the same slow chunked response.
 func TestVideoAsyncHandleSurvivesSlowChunkedCreateResponse(t *testing.T) {
-	var gotPolls []string
-	server := slowChunkedVideoServer(t, `{"id":"int-race-1","object":"interaction","status":"in_progress"}`, &gotPolls)
+	server, _ := slowChunkedVideoServer(t, `{"id":"int-race-1","object":"interaction","status":"in_progress"}`)
 	defer server.Close()
 
 	dir := t.TempDir()

@@ -181,7 +181,7 @@ func TestFilesUploadWait(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var polls atomic.Int32
 			var server *httptest.Server
-			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.Header.Get("X-Goog-Upload-Command") {
 				case "start":
@@ -195,6 +195,7 @@ func TestFilesUploadWait(t *testing.T) {
 					fmt.Fprintf(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":%q}`, state)
 				}
 			}))
+			server.Start()
 			defer server.Close()
 
 			dir := t.TempDir()
