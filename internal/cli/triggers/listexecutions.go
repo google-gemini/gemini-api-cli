@@ -30,7 +30,7 @@ import (
 
 var listExecutionsCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "The maximum number of executions to return per page."},
-	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "A page token from a previous ListTriggerExecutions call."},
+	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "A page token from a previous call to list trigger executions."},
 	{FlagName: "id", Shorthand: "i", FieldPath: "ID", Kind: flagutil.FlagKindString, Required: true, Pattern: "^$|[^.]|[.]{3}", PatternErrorMessage: "Resource IDs cannot be \".\" or \"..\".", Description: "Required. The trigger ID to list executions from. [required]"},
 }
 

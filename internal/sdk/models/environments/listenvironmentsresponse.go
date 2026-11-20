@@ -20,7 +20,7 @@ import (
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-// ListEnvironmentsResponse - Response for `ListEnvironments`.
+// ListEnvironmentsResponse - Response for listing environments.
 type ListEnvironmentsResponse struct {
 	// Environments belonging to the provided project.
 	Environments []Environment `json:"environments,omitzero"`

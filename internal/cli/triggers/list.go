@@ -30,7 +30,7 @@ import (
 var listCmdMeta = []flagutil.FlagMeta{
 	{FlagName: "filter", Shorthand: "f", FieldPath: "Filter", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. Filter expression (e.g., by state)."},
 	{FlagName: "page-size", FieldPath: "PageSize", Kind: flagutil.FlagKindInt64, Optional: true, Description: "Optional. The maximum number of triggers to return per page."},
-	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. A page token from a previous ListTriggers call."},
+	{FlagName: "page-token", FieldPath: "PageToken", Kind: flagutil.FlagKindString, Optional: true, Description: "Optional. A page token from a previous call to list triggers."},
 }
 
 // initListCmd initializes the list command.

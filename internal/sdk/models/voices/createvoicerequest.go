@@ -16,7 +16,7 @@
 
 package voices
 
-// CreateVoiceRequest - Request message for `VoicesService.CreateVoice`.
+// CreateVoiceRequest - Request for creating a voice.
 type CreateVoiceRequest struct {
 	// Persist the voice on the server and return a reusable voice_<id> (required for prompted voices; expires after 1y of inactivity and counts toward project quota; false returns a client-side voicekey_)
 	Store *bool `json:"store,omitzero"`
