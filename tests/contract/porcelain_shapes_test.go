@@ -48,7 +48,7 @@ type interactionStub struct {
 func newInteractionStub(t *testing.T, response string) *interactionStub {
 	t.Helper()
 	stub := &interactionStub{}
-	stub.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	stub.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1beta/interactions" {
 			t.Errorf("request path = %q, want /v1beta/interactions", r.URL.Path)
 		}
@@ -69,6 +69,7 @@ func newInteractionStub(t *testing.T, response string) *interactionStub {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, response)
 	}))
+	stub.Server.Start()
 	t.Cleanup(stub.Close)
 	return stub
 }
@@ -1089,7 +1090,13 @@ func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
 		path string
 		body map[string]any
 	}
+	var lastReqMu sync.Mutex
 	var lastReq capturedReq
+	getLastReq := func() capturedReq {
+		lastReqMu.Lock()
+		defer lastReqMu.Unlock()
+		return lastReq
+	}
 	var reqCount atomic.Int32
 
 	var serverURL string
@@ -1107,7 +1114,9 @@ func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
 				t.Errorf("request body is not JSON: %v\n%s", err, raw)
 			}
 		}
+		lastReqMu.Lock()
 		lastReq = capturedReq{path: r.URL.Path, body: body}
+		lastReqMu.Unlock()
 
 		// Emulate the v1 server validation from issue #177 across all convenience
 		// requests: top-level input arrays must contain step objects, never bare content blocks.
@@ -1170,14 +1179,15 @@ func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
 			if err != nil {
 				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", args, err, stderr)
 			}
-			if lastReq.path != tc.wantPath {
-				t.Errorf("request path = %q, want %q", lastReq.path, tc.wantPath)
+			got := getLastReq()
+			if got.path != tc.wantPath {
+				t.Errorf("request path = %q, want %q", got.path, tc.wantPath)
 			}
-			assertNotStored(t, lastReq.body)
-			if lastReq.body["stream"] != false {
-				t.Errorf("stream = %v, want false", lastReq.body["stream"])
+			assertNotStored(t, got.body)
+			if got.body["stream"] != false {
+				t.Errorf("stream = %v, want false", got.body["stream"])
 			}
-			parts := assertUserInputStepParts(t, lastReq.body)
+			parts := assertUserInputStepParts(t, got.body)
 			wantParts := []map[string]any{
 				{"type": "video", "uri": "https://www.youtube.com/watch?v=rRJ7Jhun12I"},
 				{"type": "text", "text": "Transcribe the spoken audio verbatim."},
@@ -1197,10 +1207,11 @@ func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
 		if res.err != nil {
 			t.Fatalf("runCLI analyze failed: %v\nstderr: %s", res.err, res.stderr)
 		}
-		if lastReq.path != "/v1/interactions" {
-			t.Errorf("request path = %q, want /v1/interactions", lastReq.path)
+		got := getLastReq()
+		if got.path != "/v1/interactions" {
+			t.Errorf("request path = %q, want /v1/interactions", got.path)
 		}
-		parts := assertUserInputStepParts(t, lastReq.body)
+		parts := assertUserInputStepParts(t, got.body)
 		wantParts := []map[string]any{
 			{"type": "video", "mime_type": "video/mp4", "data": wantVideoB64},
 			{"type": "text", "text": "Describe this clip."},
@@ -1317,15 +1328,16 @@ func TestDefaultV1MediaRequestsUseUserInputStep(t *testing.T) {
 			if err != nil {
 				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", args, err, stderr)
 			}
-			if lastReq.path != "/v1/interactions" {
-				t.Errorf("request path = %q, want /v1/interactions", lastReq.path)
+			got := getLastReq()
+			if got.path != "/v1/interactions" {
+				t.Errorf("request path = %q, want /v1/interactions", got.path)
 			}
-			parts := assertUserInputStepParts(t, lastReq.body)
+			parts := assertUserInputStepParts(t, got.body)
 			if !reflect.DeepEqual(parts, tc.wantParts) {
 				t.Errorf("user_input content = %#v, want %#v", parts, tc.wantParts)
 			}
 			if tc.checkBody != nil {
-				tc.checkBody(t, lastReq.body)
+				tc.checkBody(t, got.body)
 			}
 		})
 	}
@@ -1343,15 +1355,24 @@ func TestIntentBodyAndInputMergeSemantics(t *testing.T) {
 		"data":      base64.StdEncoding.EncodeToString([]byte("png-bytes")),
 	}
 
+	var capMu sync.Mutex
 	var gotPath string
 	var gotBody map[string]any
+	getCaptured := func() (string, map[string]any) {
+		capMu.Lock()
+		defer capMu.Unlock()
+		return gotPath, gotBody
+	}
 	var reqCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqCount.Add(1)
-		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
-		gotBody = nil
-		_ = json.Unmarshal(raw, &gotBody)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		capMu.Lock()
+		gotPath = r.URL.Path
+		gotBody = body
+		capMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, completedInteraction("ok", ""))
 	}))
@@ -1393,11 +1414,12 @@ func TestIntentBodyAndInputMergeSemantics(t *testing.T) {
 			if err != nil {
 				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", tc.cmdArgs, err, stderr)
 			}
-			if gotPath != "/v1beta/interactions" {
-				t.Errorf("path = %q, want /v1beta/interactions", gotPath)
+			path, body := getCaptured()
+			if path != "/v1beta/interactions" {
+				t.Errorf("path = %q, want /v1beta/interactions", path)
 			}
-			if !reflect.DeepEqual(gotBody["input"], tc.wantInput) {
-				t.Errorf("input = %#v, want %#v", gotBody["input"], tc.wantInput)
+			if !reflect.DeepEqual(body["input"], tc.wantInput) {
+				t.Errorf("input = %#v, want %#v", body["input"], tc.wantInput)
 			}
 		})
 	}
@@ -1548,8 +1570,9 @@ func TestIntentBodyAndInputMergeSemantics(t *testing.T) {
 			if err != nil {
 				t.Fatalf("executeRealRoot(%v) failed: %v\nstderr: %s", tc.cmdArgs, err, stderr)
 			}
-			if !reflect.DeepEqual(gotBody["input"], tc.wantInput) {
-				t.Errorf("input = %#v, want %#v", gotBody["input"], tc.wantInput)
+			_, body := getCaptured()
+			if !reflect.DeepEqual(body["input"], tc.wantInput) {
+				t.Errorf("input = %#v, want %#v", body["input"], tc.wantInput)
 			}
 		})
 	}

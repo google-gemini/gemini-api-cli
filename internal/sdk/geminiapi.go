@@ -197,7 +197,7 @@ func New(opts ...SDKOption) *GeminiAPI {
 	sdk := &GeminiAPI{
 		SDKVersion: "0.5.0",
 		sdkConfiguration: config.SDKConfiguration{
-			UserAgent:         "speakeasy-sdk/go 0.5.0 internal v1beta google3/third_party/gemini_api_cli/internal/sdk",
+			UserAgent:         "speakeasy-sdk/go 0.5.0 internal v1beta github.com/google-gemini/gemini-api-cli/internal/sdk",
 			SDKVersion:        "0.5.0",
 			GenVersion:        "internal",
 			OpenAPIDocVersion: "v1beta",
