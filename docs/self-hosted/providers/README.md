@@ -1,8 +1,10 @@
 # Cloud & MicroVM Sandbox Providers
 
-Each subfolder shows how to spin up an isolated microVM or container with a
-cloud provider's CLI, install `gemini-api`, and connect it to your Gemini API
-environment in 3 commands:
+Most subfolders show how to start an isolated microVM or container with a
+provider's CLI, install `gemini-api`, and run `environments connect` in three
+commands. [Google Cloud Run](./cloud-run/README.md) instead runs split
+`environments poll` and `environments serve` on a Cloud Run Worker Pool with
+Cloud Run Sandboxes:
 
 ```bash
 # 1. Create an isolated instance with the provider's CLI
@@ -35,8 +37,9 @@ export GEMINI_ENVIRONMENT_ID="..."   # "id" from response (no "environments/" pr
 export GEMINI_ENVIRONMENT_KEY="..."  # "environment_key" from response
 ```
 
-2.  Once your provider worker is running `gemini-api environments connect`, send
-    an interaction to it from your local machine with `gemini-api agent run`:
+2.  Once your worker is running `environments connect` (or `environments poll`
+    on [Google Cloud Run](./cloud-run/README.md)), send an interaction from your
+    local machine with `gemini-api agent run`:
 
 ```bash
 gemini-api agent run \
@@ -54,5 +57,5 @@ Provider                        | CLI                           | Guide
 **E2B**                         | `e2b` (`@e2b/cli`)            | [`e2b/README.md`](./e2b/README.md)
 **Modal**                       | `modal`                       | [`modal/README.md`](./modal/README.md)
 **Fly.io (Sprites & Machines)** | `sprite` / `fly` (`flyctl`)   | [`fly-machines/README.md`](./fly-machines/README.md)
-**Google Cloud Run**            | `gcloud`                      | [`cloud-run/README.md`](./cloud-run/README.md)
+**Google Cloud Run**            | `gcloud`                      | [`cloud-run/README.md`](./cloud-run/README.md) (split `poll`/`serve` Worker Pool + Sandboxes)
 **Cloudflare Sandbox**          | `npx wrangler`                | [`cloudflare/README.md`](./cloudflare/README.md)
