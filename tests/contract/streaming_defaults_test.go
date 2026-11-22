@@ -447,7 +447,7 @@ func TestImageInteractivePromptsForOutputFile(t *testing.T) {
 	if data, err := os.ReadFile(target); err != nil || len(data) != 69 {
 		t.Errorf("written file %q: err=%v len=%d, want the 69-byte PNG", target, err, len(data))
 	}
-	if !strings.Contains(stderr, "Note: hero.jpg contains image/png content; its extension does not match") {
+	if !strings.Contains(stderr, `Note: hero.jpg contains "image/png" content; its extension does not match`) {
 		t.Errorf("stderr lacks the extension-mismatch note:\n%s", stderr)
 	}
 
