@@ -29,6 +29,7 @@ import (
 
 	"github.com/google-gemini/gemini-api-cli/internal/clierrors"
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -180,6 +181,10 @@ func Classify(cmd *cobra.Command, err error) Classification {
 	}
 	if classification, ok := ClassificationFrom(err); ok {
 		return classification
+	}
+	var invalidPath *utils.InvalidPathParameterError
+	if errors.As(err, &invalidPath) {
+		err = flagutil.WithCLIValidation(err)
 	}
 
 	c := Classification{
