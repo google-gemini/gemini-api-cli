@@ -106,7 +106,7 @@ func TestDryRunEverywhereKeylessHumanAndJSON(t *testing.T) {
 		{name: "image nested out", args: []string{"image", "a lighthouse", "--out", imageOut}, requests: 1, absentPaths: []string{filepath.Dir(imageOut)}},
 		{name: "tts nested out", args: []string{"tts", "hello", "--out", ttsOut}, requests: 1, absentPaths: []string{filepath.Dir(ttsOut)}},
 		{name: "tts voice prompt", args: []string{"tts", "hello", "--voice-prompt", "Warm narrator", "--out", ttsOut}, requests: 2, absentPaths: []string{filepath.Dir(ttsOut)}},
-		{name: "voices create", args: []string{"voices", "create", "--store", "--voice", `{"type":"prompted","prompted":{"input":"Warm narrator"}}`}, requests: 1},
+		{name: "voices create", args: []string{"voices", "create", "--store", "--type", "prompted", "--prompted", `{"input":"Warm narrator"}`}, requests: 1},
 		{name: "voices list", args: []string{"voices", "list"}, requests: 1},
 		{name: "voices get", args: []string{"voices", "get", "voice_abc123"}, requests: 1},
 		{name: "voices delete", args: []string{"voices", "delete", "voice_abc123"}, requests: 1},

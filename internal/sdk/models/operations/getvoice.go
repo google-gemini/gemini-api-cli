@@ -98,7 +98,7 @@ func (g *GetVoiceRequest) GetID() string {
 type GetVoiceResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
-	Voice *voices.VoiceOutput
+	Voice *voices.Voice
 }
 
 func (g GetVoiceResponse) MarshalJSON() ([]byte, error) {
@@ -119,7 +119,7 @@ func (g *GetVoiceResponse) GetHTTPMeta() components.HTTPMetadata {
 	return g.HTTPMeta
 }
 
-func (g *GetVoiceResponse) GetVoice() *voices.VoiceOutput {
+func (g *GetVoiceResponse) GetVoice() *voices.Voice {
 	if g == nil {
 		return nil
 	}

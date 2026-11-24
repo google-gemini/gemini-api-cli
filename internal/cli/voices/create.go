@@ -28,8 +28,20 @@ import (
 )
 
 var createCmdMeta = []flagutil.FlagMeta{
+	{FlagName: "accent", Shorthand: "a", FieldPath: "Body.Accent", Kind: flagutil.FlagKindString, Optional: true, Description: "Regional accent descriptor (e.g. American, British)"},
+	{FlagName: "context", Shorthand: "c", FieldPath: "Body.Context", Kind: flagutil.FlagKindString, Optional: true, Description: "Intended usage context (e.g. Conversational, Audiobook, News)"},
+	{FlagName: "description", FieldPath: "Body.Description", Kind: flagutil.FlagKindString, Optional: true, Description: "Descriptive summary of vocal timbre, personality, and tone"},
+	{FlagName: "display-name", FieldPath: "Body.DisplayName", Kind: flagutil.FlagKindString, Optional: true, Description: "User-provided display name for a stored voice (--store=true)"},
+	{FlagName: "gender", Shorthand: "g", FieldPath: "Body.Gender", Kind: flagutil.FlagKindString, Optional: true, Description: "Perceived gender presentation (e.g. female, male, neutral)"},
+	{FlagName: "language-code", Shorthand: "l", FieldPath: "Body.LanguageCode", Kind: flagutil.FlagKindString, Optional: true, Description: "Primary BCP-47 language tag (e.g. en-US, fr-FR)"},
+	{FlagName: "model", Shorthand: "m", FieldPath: "Body.Model", Kind: flagutil.FlagKindString, Optional: true, Description: "Voice creation model (defaults to the service default if omitted)"},
+	{FlagName: "persona", FieldPath: "Body.Persona", Kind: flagutil.FlagKindString, Optional: true, Description: "Intended persona or archetype (e.g. Warm, Friendly, Narrator)"},
+	{FlagName: "pitch", FieldPath: "Body.Pitch", Kind: flagutil.FlagKindEnum, Optional: true, EnumValues: []string{"low", "medium", "high"}, Description: "options: low, medium, high"},
+	{FlagName: "prompted", FieldPath: "Body.Prompted", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"prompted,omitempty"`, Description: "Parameters for prompted voice generation.\nRequired when creating a voice with 'type' '\"prompted\"'. Returned when\ncreating, getting, or listing prompted voices."},
+	{FlagName: "region-code", FieldPath: "Body.RegionCode", Kind: flagutil.FlagKindString, Optional: true, Description: "ISO 3166-1 alpha-2 or UN M.49 region code (e.g. US, GB, 001)"},
+	{FlagName: "replicated", FieldPath: "Body.Replicated", Kind: flagutil.FlagKindJSON, Optional: true, Annotations: `json:"replicated,omitempty"`, Description: "Input only. Parameters for replicated voice generation.\nRequired on input when 'type' is '\"replicated\"'. Not returned in\nresponses."},
 	{FlagName: "store", Shorthand: "s", FieldPath: "Body.Store", Kind: flagutil.FlagKindBool, Optional: true, Description: "Persist the voice on the server and return a reusable voice_<id> (required for prompted voices; expires after 1y of inactivity and counts toward project quota; false returns a client-side voicekey_)"},
-	{FlagName: "voice", Shorthand: "v", FieldPath: "Body.Voice", Kind: flagutil.FlagKindJSON, Required: true, Annotations: `json:"voice"`, Description: "A custom (\"prompted\" or \"replicated\") or prebuilt voice resource. [required]"},
+	{FlagName: "type", Shorthand: "t", FieldPath: "Body.Type", Kind: flagutil.FlagKindEnum, Required: true, EnumValues: []string{"replicated", "prompted", "prebuilt"}, Description: "options: replicated, prompted, prebuilt [required]"},
 }
 
 // initCreateCmd initializes the create command.
@@ -38,7 +50,7 @@ func initCreateCmd(parent *cobra.Command) error {
 		Use:     "create",
 		Short:   "Create a custom voice from a prompt or reference audio",
 		Long:    "Creates a custom voice from a natural-language prompt (type \"prompted\", which requires --store) or from reference and consent audio recordings (type \"replicated\"). Stored voices expire after 1 year of inactivity and count against a per-project active-voice quota.",
-		Example: "  gemini-api voices create --voice '{\"prompted\":{\"input\":\"A warm, calm narrator with a British accent\"},\"type\":\"prompted\"}'",
+		Example: "  gemini-api voices create --type prompted",
 		Args:    cobra.NoArgs,
 		RunE:    runCreateCmd,
 		Annotations: map[string]string{

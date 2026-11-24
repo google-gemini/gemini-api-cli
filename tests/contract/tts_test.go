@@ -822,9 +822,8 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 	if createdVoiceBody["store"] != true {
 		t.Errorf("voices create store = %#v, want true", createdVoiceBody["store"])
 	}
-	voiceMap, _ := createdVoiceBody["voice"].(map[string]any)
-	promptedMap, _ := voiceMap["prompted"].(map[string]any)
-	if voiceMap["type"] != "prompted" || promptedMap["input"] != "Warm radio host" {
+	promptedMap, _ := createdVoiceBody["prompted"].(map[string]any)
+	if createdVoiceBody["type"] != "prompted" || promptedMap["input"] != "Warm radio host" {
 		t.Errorf("voices create payload = %#v", createdVoiceBody)
 	}
 	genCfg, _ := interactionBody["generation_config"].(map[string]any)
@@ -840,9 +839,9 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 		t.Errorf("tts envelope voice_id = %#v, want voice_custom_123", ttsEnv["voice_id"])
 	}
 
-	// 2. `voices create --store --voice` creates a prompted voice.
+	// 2. `voices create --store --type prompted --prompted` creates a prompted voice.
 	createRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "create",
-		"--store", "--voice", `{"type":"prompted","prompted":{"input":"Gravelly detective","base_voice":"Puck"}}`)...)
+		"--store", "--type", "prompted", "--prompted", `{"input":"Gravelly detective","base_voice":"Puck"}`)...)
 	if createRes.err != nil {
 		t.Fatalf("voices create failed: %v\nstderr: %s", createRes.err, createRes.stderr)
 	}
@@ -850,20 +849,20 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 		t.Errorf("voices create stdout = %q, want voice_custom_123", createRes.stdout)
 	}
 
-	// 2b. `voices create` keeps --store optional (for replicated voices via --voice or --body),
+	// 2b. `voices create` keeps --store optional (for replicated voices via --type or --body),
 	// while `voices create --help` includes --store=true in its prompted example.
 	createdVoiceBody = nil
 	repFlagRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "create",
-		"--voice", `{"type":"replicated"}`)...)
+		"--type", "replicated")...)
 	if repFlagRes.err != nil {
-		t.Fatalf("voices create --voice without --store failed: %v\nstderr: %s", repFlagRes.err, repFlagRes.stderr)
+		t.Fatalf("voices create --type replicated without --store failed: %v\nstderr: %s", repFlagRes.err, repFlagRes.stderr)
 	}
 	if _, hasStore := createdVoiceBody["store"]; hasStore {
-		t.Errorf("voices create --voice without --store sent store = %#v, want omitted", createdVoiceBody["store"])
+		t.Errorf("voices create --type replicated without --store sent store = %#v, want omitted", createdVoiceBody["store"])
 	}
 	createdVoiceBody = nil
 	repBodyRes := runCLI(t, dir, nil, append(plainArgs(server.URL), "-o", "json", "voices", "create",
-		"--body", `{"voice":{"type":"replicated"}}`)...)
+		"--body", `{"type":"replicated"}`)...)
 	if repBodyRes.err != nil {
 		t.Fatalf("voices create --body without store failed: %v\nstderr: %s", repBodyRes.err, repBodyRes.stderr)
 	}
@@ -874,7 +873,7 @@ func TestTTSVoicePromptAndVoicesCommandGroup(t *testing.T) {
 	if helpRes.err != nil {
 		t.Fatalf("voices create --help failed: %v\nstderr: %s", helpRes.err, helpRes.stderr)
 	}
-	if !strings.Contains(helpRes.stdout, "--store=true --voice") {
+	if !strings.Contains(helpRes.stdout, "--store=true --type prompted") {
 		t.Errorf("voices create --help missing --store=true example:\n%s", helpRes.stdout)
 	}
 	if strings.Contains(helpRes.stdout, "--store") && strings.Contains(helpRes.stdout, "voicekey_) [required]") {

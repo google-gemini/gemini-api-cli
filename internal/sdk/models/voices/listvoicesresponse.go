@@ -26,7 +26,7 @@ type ListVoicesResponse struct {
 	// If empty, there are no subsequent pages.
 	NextPageToken *string `json:"next_page_token,omitzero"`
 	// The voices from the specified collection.
-	Voices []VoiceOutput `json:"voices,omitzero"`
+	Voices []Voice `json:"voices,omitzero"`
 }
 
 func (l ListVoicesResponse) MarshalJSON() ([]byte, error) {
@@ -47,7 +47,7 @@ func (l *ListVoicesResponse) GetNextPageToken() *string {
 	return l.NextPageToken
 }
 
-func (l *ListVoicesResponse) GetVoices() []VoiceOutput {
+func (l *ListVoicesResponse) GetVoices() []Voice {
 	if l == nil {
 		return nil
 	}
