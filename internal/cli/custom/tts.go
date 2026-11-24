@@ -611,20 +611,18 @@ func extractAudio(it *interactions.Interaction) ([]byte, string, int, int, error
 // returns its voice_<id> so `gemini-api tts --voice-prompt` can synthesize
 // immediately with the newly designed voice.
 func designVoiceForTTS(cmd *cobra.Command, s *sdk.GeminiAPI, opts []operations.Option, prompt, language string) (string, error) {
-	voiceInput := voices.VoiceInput{
-		Type: voices.VoiceTypePrompted,
+	body := voices.VoiceCreateParams{
+		Store: boolPtr(true),
+		Type:  voices.VoiceTypePrompted,
 		Prompted: &voices.PromptedVoice{
 			Input: prompt,
 		},
 	}
 	if language != "" {
-		voiceInput.LanguageCode = stringPtr(language)
+		body.LanguageCode = stringPtr(language)
 	}
 	req := operations.CreateVoiceRequest{
-		Body: voices.CreateVoiceRequest{
-			Store: boolPtr(true),
-			Voice: voiceInput,
-		},
+		Body: body,
 	}
 	if !isDryRun(cmd) {
 		progress(cmd, "Designing custom voice...")

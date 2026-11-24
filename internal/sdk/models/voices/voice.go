@@ -17,11 +17,14 @@
 package voices
 
 import (
+	"time"
+
+	"github.com/google-gemini/gemini-api-cli/internal/sdk/models/interactions"
 	"github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/utils"
 )
 
-// VoiceInput - A custom ("prompted" or "replicated") or prebuilt voice resource.
-type VoiceInput struct {
+// Voice - A custom ("prompted" or "replicated") or prebuilt voice resource.
+type Voice struct {
 	// Optional. Regional accent descriptor (e.g. "American", "British").
 	Accent *string `json:"accent,omitzero"`
 	// Optional. Optimal usage context or domain (e.g. "Conversational",
@@ -32,9 +35,32 @@ type VoiceInput struct {
 	// Optional. User-provided display name for a stored voice (`store = true`),
 	// or the catalog name for a prebuilt voice.
 	DisplayName *string `json:"display_name,omitzero"`
+	// Output only. The timestamp at which a custom stored voice (`store = true`)
+	// or replicated voice key (`store = false`) expires. For custom stored voices
+	// (`store = true`), this expiration time is extended when the voice is used
+	// for speech synthesis or as a `base_voice` when creating another voice.
+	// Unset for prebuilt catalog voices (`"prebuilt"`), which do not expire.
+	ExpireTime *time.Time `json:"expire_time,omitzero"`
 	// Optional. Perceived voice gender presentation (e.g. "female", "male",
 	// "neutral").
 	Gender *string `json:"gender,omitzero"`
+	// Output only. The unique identifier of the voice.
+	//
+	// * For Google-managed custom voices (`store = true`), this is a generated ID
+	//   with prefix `voice_` (for example, `voice_abc123def456`). Pass
+	//   `voices/{id}` as the `name` when getting or deleting the voice, and pass
+	//   `{id}` directly to `SpeechConfig.voice_config.voice` (or
+	//   `SpeechConfig.voice`) during speech synthesis.
+	// * For prebuilt catalog voices (`"prebuilt"` returned when listing voices),
+	//   this is the speaker name (for example, `Puck` or `Charon`).
+	// * Unset when the voice is created with `store = false`.
+	ID *string `json:"id,omitzero"`
+	// Output only. The client-managed voice replication key (with prefix
+	// `voicekey_`). Returned only when creating a voice with `type`
+	// `"replicated"` and `store` `false`. Pass this key to
+	// `SpeechConfig.voice_config.voice` (or `SpeechConfig.voice`) during speech
+	// synthesis.
+	Key *string `json:"key,omitzero"`
 	// Optional. Primary BCP-47 language tag (e.g. "en-US", "fr-FR").
 	LanguageCode *string `json:"language_code,omitzero"`
 	// Optional. The model used to design or replicate the voice.
@@ -55,120 +81,139 @@ type VoiceInput struct {
 	// Optional. ISO 3166-1 alpha-2 or UN M.49 geographic region code (e.g. "US",
 	// "GB", "001").
 	RegionCode *string `json:"region_code,omitzero"`
-	// Input only. Parameters for replicated voice generation.
-	// Required on input when `type` is `"replicated"`. Not returned in
-	// responses.
-	Replicated *ReplicatedVoice `json:"replicated,omitzero"`
 	// Audio payload used for voice creation.
 	SampleAudio *AudioData `json:"sample_audio,omitzero"`
 	Type        VoiceType  `json:"type"`
+	// Statistics on the interaction request's token usage.
+	Usage *interactions.Usage `json:"usage,omitzero"`
 }
 
-func (v VoiceInput) MarshalJSON() ([]byte, error) {
+func (v Voice) MarshalJSON() ([]byte, error) {
 	return utils.MarshalJSON(v, "", false)
 }
 
-func (v *VoiceInput) UnmarshalJSON(data []byte) error {
+func (v *Voice) UnmarshalJSON(data []byte) error {
 	if err := utils.UnmarshalJSON(data, &v, "", false, nil); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *VoiceInput) GetAccent() *string {
+func (v *Voice) GetAccent() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Accent
 }
 
-func (v *VoiceInput) GetContext() *string {
+func (v *Voice) GetContext() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Context
 }
 
-func (v *VoiceInput) GetDescription() *string {
+func (v *Voice) GetDescription() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Description
 }
 
-func (v *VoiceInput) GetDisplayName() *string {
+func (v *Voice) GetDisplayName() *string {
 	if v == nil {
 		return nil
 	}
 	return v.DisplayName
 }
 
-func (v *VoiceInput) GetGender() *string {
+func (v *Voice) GetExpireTime() *time.Time {
+	if v == nil {
+		return nil
+	}
+	return v.ExpireTime
+}
+
+func (v *Voice) GetGender() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Gender
 }
 
-func (v *VoiceInput) GetLanguageCode() *string {
+func (v *Voice) GetID() *string {
+	if v == nil {
+		return nil
+	}
+	return v.ID
+}
+
+func (v *Voice) GetKey() *string {
+	if v == nil {
+		return nil
+	}
+	return v.Key
+}
+
+func (v *Voice) GetLanguageCode() *string {
 	if v == nil {
 		return nil
 	}
 	return v.LanguageCode
 }
 
-func (v *VoiceInput) GetModel() *string {
+func (v *Voice) GetModel() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Model
 }
 
-func (v *VoiceInput) GetPersona() *string {
+func (v *Voice) GetPersona() *string {
 	if v == nil {
 		return nil
 	}
 	return v.Persona
 }
 
-func (v *VoiceInput) GetPitch() *Pitch {
+func (v *Voice) GetPitch() *Pitch {
 	if v == nil {
 		return nil
 	}
 	return v.Pitch
 }
 
-func (v *VoiceInput) GetPrompted() *PromptedVoice {
+func (v *Voice) GetPrompted() *PromptedVoice {
 	if v == nil {
 		return nil
 	}
 	return v.Prompted
 }
 
-func (v *VoiceInput) GetRegionCode() *string {
+func (v *Voice) GetRegionCode() *string {
 	if v == nil {
 		return nil
 	}
 	return v.RegionCode
 }
 
-func (v *VoiceInput) GetReplicated() *ReplicatedVoice {
-	if v == nil {
-		return nil
-	}
-	return v.Replicated
-}
-
-func (v *VoiceInput) GetSampleAudio() *AudioData {
+func (v *Voice) GetSampleAudio() *AudioData {
 	if v == nil {
 		return nil
 	}
 	return v.SampleAudio
 }
 
-func (v *VoiceInput) GetType() VoiceType {
+func (v *Voice) GetType() VoiceType {
 	if v == nil {
 		return VoiceType("")
 	}
 	return v.Type
+}
+
+func (v *Voice) GetUsage() *interactions.Usage {
+	if v == nil {
+		return nil
+	}
+	return v.Usage
 }

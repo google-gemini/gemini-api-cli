@@ -475,7 +475,7 @@ func (s *Voices) Create(ctx context.Context, request operations.CreateVoiceReque
 					return nil, err
 				}
 
-				var out voices.VoiceOutput
+				var out voices.Voice
 				if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
 					return nil, err
 				}
@@ -861,7 +861,7 @@ func (s *Voices) Get(ctx context.Context, request operations.GetVoiceRequest, op
 					return nil, err
 				}
 
-				var out voices.VoiceOutput
+				var out voices.Voice
 				if err := utils.UnmarshalJsonFromResponseBody(bytes.NewBuffer(rawBody), &out, ""); err != nil {
 					return nil, err
 				}

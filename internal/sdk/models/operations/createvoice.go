@@ -60,7 +60,7 @@ type CreateVoiceRequest struct {
 	// Which version of the API to use. Defaults to v1beta (the only version covering the full interactions surface).
 	APIVersion *string `default:"v1beta" pathParam:"style=simple,explode=false,name=api_version"`
 	// The request body.
-	Body voices.CreateVoiceRequest `request:"mediaType=application/json"`
+	Body voices.VoiceCreateParams `request:"mediaType=application/json"`
 }
 
 func (c CreateVoiceRequest) MarshalJSON() ([]byte, error) {
@@ -88,9 +88,9 @@ func (c *CreateVoiceRequest) GetAPIVersion() *string {
 	return c.APIVersion
 }
 
-func (c *CreateVoiceRequest) GetBody() voices.CreateVoiceRequest {
+func (c *CreateVoiceRequest) GetBody() voices.VoiceCreateParams {
 	if c == nil {
-		return voices.CreateVoiceRequest{}
+		return voices.VoiceCreateParams{}
 	}
 	return c.Body
 }
@@ -98,7 +98,7 @@ func (c *CreateVoiceRequest) GetBody() voices.CreateVoiceRequest {
 type CreateVoiceResponse struct {
 	HTTPMeta components.HTTPMetadata `json:"-"`
 	// Successful operation
-	Voice *voices.VoiceOutput
+	Voice *voices.Voice
 }
 
 func (c CreateVoiceResponse) MarshalJSON() ([]byte, error) {
@@ -119,7 +119,7 @@ func (c *CreateVoiceResponse) GetHTTPMeta() components.HTTPMetadata {
 	return c.HTTPMeta
 }
 
-func (c *CreateVoiceResponse) GetVoice() *voices.VoiceOutput {
+func (c *CreateVoiceResponse) GetVoice() *voices.Voice {
 	if c == nil {
 		return nil
 	}

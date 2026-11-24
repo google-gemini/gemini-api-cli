@@ -2956,16 +2956,15 @@ func TestTTSVoicePrompt(t *testing.T) {
 		if lastVoiceBody["store"] != true {
 			t.Errorf("store = %v, want true", lastVoiceBody["store"])
 		}
-		voiceObj, _ := lastVoiceBody["voice"].(map[string]any)
-		if _, hasModel := voiceObj["model"]; hasModel {
-			t.Errorf("voice.model = %v, want omitted so server selects default voice design model", voiceObj["model"])
+		if _, hasModel := lastVoiceBody["model"]; hasModel {
+			t.Errorf("model = %v, want omitted so server selects default voice design model", lastVoiceBody["model"])
 		}
-		promptedObj, _ := voiceObj["prompted"].(map[string]any)
+		promptedObj, _ := lastVoiceBody["prompted"].(map[string]any)
 		if got := promptedObj["input"]; got != "A warm British voice" {
-			t.Errorf("voice.prompted.input = %q, want trimmed %q", got, "A warm British voice")
+			t.Errorf("prompted.input = %q, want trimmed %q", got, "A warm British voice")
 		}
-		if got := voiceObj["language_code"]; got != "en-GB" {
-			t.Errorf("voice.language_code = %q, want en-GB", got)
+		if got := lastVoiceBody["language_code"]; got != "en-GB" {
+			t.Errorf("language_code = %q, want en-GB", got)
 		}
 		genCfg, _ := lastInteractionBody["generation_config"].(map[string]any)
 		speechArr, _ := genCfg["speech_config"].([]any)

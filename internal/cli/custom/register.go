@@ -116,7 +116,7 @@ func register(root *cobra.Command) error {
 	if voicesCreate == nil {
 		return fmt.Errorf("voices create: command is not registered")
 	}
-	voicesCreate.Example = "  gemini-api voices create --store=true --voice '{\"prompted\":{\"input\":\"A warm, calm narrator with a British accent\"},\"type\":\"prompted\"}'"
+	voicesCreate.Example = "  gemini-api voices create --store=true --type prompted --prompted '{\"input\":\"A warm, calm narrator with a British accent\"}'"
 	if err := normalizeIdentifier(findChild(voices, "get"), "id", normalizeVoicePositional); err != nil {
 		return fmt.Errorf("voices get: %w", err)
 	}
