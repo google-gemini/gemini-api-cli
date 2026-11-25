@@ -194,7 +194,7 @@ func TestMarshalAndUnmarshalClientEventBatch(t *testing.T) {
 			{
 				SeqNum: 2,
 				Payload: &EventPayload{
-					FunctionInvocation: &FunctionInvocation{
+					FunctionCall: &FunctionCallEvent{
 						CallID:    "fi_1",
 						Name:      "list_dir",
 						Arguments: map[string]any{"dir": "."},
@@ -290,9 +290,9 @@ func TestMarshalAndUnmarshalClientEventBatch(t *testing.T) {
 		!reflect.DeepEqual(got.Step.ToolResult.FunctionResult.Result, map[string]any{"error": "missing"}) {
 		t.Errorf("decoded Events[0] = %+v", got)
 	}
-	if got := decoded.Events[1].Payload; got.FunctionInvocation.CallID != "fi_1" ||
-		got.FunctionInvocation.Name != "list_dir" ||
-		got.FunctionInvocation.Arguments["dir"] != "." ||
+	if got := decoded.Events[1].Payload; got.FunctionCall.CallID != "fi_1" ||
+		got.FunctionCall.Name != "list_dir" ||
+		got.FunctionCall.Arguments["dir"] != "." ||
 		got.FunctionResult.CallID != "fi_1" ||
 		got.FunctionResult.Name != "list_dir" ||
 		!got.FunctionResult.IsError ||
@@ -670,7 +670,7 @@ func TestEventPayloadCloneAndNopObserver(t *testing.T) {
 				},
 			},
 		},
-		FunctionInvocation: &FunctionInvocation{
+		FunctionCall: &FunctionCallEvent{
 			CallID:    "f1",
 			Name:      "fn2",
 			Arguments: map[string]any{"a": "b"},
@@ -689,8 +689,8 @@ func TestEventPayloadCloneAndNopObserver(t *testing.T) {
 	cloned.Step.ToolCall.FunctionCall.Arguments["arr"].([]any)[0].(map[string]any)["inner"] = "mutated"
 	cloned.Step.ToolResult.FunctionResult.Name = "mutated_fn"
 	cloned.Step.ToolResult.FunctionResult.Result.(map[string]any)["out"] = "mutated"
-	cloned.FunctionInvocation.Name = "mutated_fn2"
-	cloned.FunctionInvocation.Arguments["a"] = "mutated"
+	cloned.FunctionCall.Name = "mutated_fn2"
+	cloned.FunctionCall.Arguments["a"] = "mutated"
 	cloned.FunctionResult.Name = "mutated_fn2"
 	cloned.FunctionResult.Result.([]string)[0] = "mutated"
 	cloned.CallHookRequest.RawWire[0] = 99
@@ -705,8 +705,8 @@ func TestEventPayloadCloneAndNopObserver(t *testing.T) {
 	if orig.Step.ToolResult.FunctionResult.Name != "fn" || orig.Step.ToolResult.FunctionResult.Result.(map[string]any)["out"] != "ok" {
 		t.Errorf("Clone() shared Step.ToolResult.FunctionResult with original: %+v", orig.Step.ToolResult.FunctionResult)
 	}
-	if orig.FunctionInvocation.Name != "fn2" || orig.FunctionInvocation.Arguments["a"] != "b" {
-		t.Errorf("Clone() shared FunctionInvocation with original: %+v", orig.FunctionInvocation)
+	if orig.FunctionCall.Name != "fn2" || orig.FunctionCall.Arguments["a"] != "b" {
+		t.Errorf("Clone() shared FunctionCall with original: %+v", orig.FunctionCall)
 	}
 	if orig.FunctionResult.Name != "fn2" || orig.FunctionResult.Result.([]string)[0] != "s1" {
 		t.Errorf("Clone() shared FunctionResult with original: %+v", orig.FunctionResult)
@@ -929,21 +929,27 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 			t.Errorf("UnmarshalServerEventBatchJSON(%q) = (%+v, %v), want empty batch and nil error", emptySrv, b, err)
 		}
 	}
-	if decSrvMulti.Events[0].Payload.FunctionInvocation == nil || decSrvMulti.Events[0].Payload.FunctionInvocation.Name != "read_file" {
-		t.Errorf("UnmarshalServerEventBatchJSON(srvMulti).Events[0].Payload = %+v, want FunctionInvocation{Name:\"read_file\"}", decSrvMulti.Events[0].Payload)
+	if decSrvMulti.Events[0].Payload.FunctionCall == nil || decSrvMulti.Events[0].Payload.FunctionCall.Name != "read_file" {
+		t.Errorf("UnmarshalServerEventBatchJSON(srvMulti).Events[0].Payload = %+v, want FunctionCall{Name:\"read_file\"}", decSrvMulti.Events[0].Payload)
 	}
 
-	// Golden literal JSON server events: interaction.complete, step.start, interaction.status_update, string error.code, and bare error object.
+	// Golden literal JSON server events: function_call, legacy function_invocation, interaction.complete, step.start, interaction.status_update, string error.code, and bare error object.
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"function_call","seq_num":"13","call_id":"call_fc_1","name":"read_file","arguments":{"path":"README.md"}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 13 || b.Events[0].Payload.FunctionCall == nil || b.Events[0].Payload.FunctionCall.CallID != "call_fc_1" || b.Events[0].Payload.FunctionCall.Name != "read_file" || b.Events[0].Payload.FunctionCall.Arguments["path"] != "README.md" {
+		t.Errorf("UnmarshalServerEventBatchJSON(function_call) = (%+v, %v), want seq=13 call_id=\"call_fc_1\" name=\"read_file\" path=\"README.md\"", b, err)
+	}
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"function_invocation","seq_num":"13","call_id":"call_fi_legacy","name":"read_file","arguments":{"path":"README.md"}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 13 || b.Events[0].Payload.FunctionCall == nil || b.Events[0].Payload.FunctionCall.CallID != "call_fi_legacy" || b.Events[0].Payload.FunctionCall.Name != "read_file" || b.Events[0].Payload.FunctionCall.Arguments["path"] != "README.md" {
+		t.Errorf("UnmarshalServerEventBatchJSON(legacy function_invocation) = (%+v, %v), want seq=13 call_id=\"call_fi_legacy\" name=\"read_file\" path=\"README.md\"", b, err)
+	}
 	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"interaction.complete","status":{"code":0,"message":"ok"}}`)); err != nil || b.InteractionCompleted == nil {
 		t.Errorf("UnmarshalServerEventBatchJSON(interaction.complete) = (%+v, %v), want non-nil InteractionCompleted", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step.start","seq_num":"14","step":{"type":"function_call","id":"call_99","name":"execute_bash","arguments":{"command":"ls"}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 14 || b.Events[0].Payload.FunctionInvocation == nil || b.Events[0].Payload.FunctionInvocation.CallID != "call_99" || b.Events[0].Payload.FunctionInvocation.Name != "execute_bash" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step.start","seq_num":"14","step":{"type":"function_call","id":"call_99","name":"execute_bash","arguments":{"command":"ls"}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 14 || b.Events[0].Payload.FunctionCall == nil || b.Events[0].Payload.FunctionCall.CallID != "call_99" || b.Events[0].Payload.FunctionCall.Name != "execute_bash" {
 		t.Errorf("UnmarshalServerEventBatchJSON(step.start) = (%+v, %v), want seq=14 call_id=\"call_99\" name=\"execute_bash\"", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","seq_num":"15","type":"function_call","id":"call_flat_1","name":"execute_bash","arguments":{"command":"pwd"}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 15 || b.Events[0].Payload.FunctionInvocation == nil || b.Events[0].Payload.FunctionInvocation.CallID != "call_flat_1" || b.Events[0].Payload.FunctionInvocation.Name != "execute_bash" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","seq_num":"15","type":"function_call","id":"call_flat_1","name":"execute_bash","arguments":{"command":"pwd"}}`)); err != nil || len(b.Events) != 1 || b.Events[0].SeqNum != 15 || b.Events[0].Payload.FunctionCall == nil || b.Events[0].Payload.FunctionCall.CallID != "call_flat_1" || b.Events[0].Payload.FunctionCall.Name != "execute_bash" {
 		t.Errorf("UnmarshalServerEventBatchJSON(flattened step) = (%+v, %v), want seq=15 call_id=\"call_flat_1\" name=\"execute_bash\"", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","type":"function_call","call_id":"call_flat_cid","id":"ignored_flat_id","name":"execute_bash"}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionInvocation == nil || b.Events[0].Payload.FunctionInvocation.CallID != "call_flat_cid" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","type":"function_call","call_id":"call_flat_cid","id":"ignored_flat_id","name":"execute_bash"}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionCall == nil || b.Events[0].Payload.FunctionCall.CallID != "call_flat_cid" {
 		t.Errorf("UnmarshalServerEventBatchJSON(flattened step call_id precedence) = (%+v, %v), want call_id=\"call_flat_cid\"", b, err)
 	}
 	for _, nonFCStep := range []string{
@@ -1042,7 +1048,7 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 			},
 			{
 				Payload: &EventPayload{
-					FunctionInvocation: &FunctionInvocation{CallID: "fi_z", Name: "fn"},
+					FunctionCall: &FunctionCallEvent{CallID: "fi_z", Name: "fn"},
 				},
 			},
 			{
@@ -1094,7 +1100,7 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 				SeqNum:          3,
 				TimestampMicros: 999,
 				Payload: &EventPayload{
-					FunctionInvocation: &FunctionInvocation{
+					FunctionCall: &FunctionCallEvent{
 						CallID:    "fi_1",
 						Name:      "exec",
 						Arguments: map[string]any{"x": 1},
@@ -1114,8 +1120,8 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 			},
 		},
 	})
-	if err != nil || strings.Contains(string(rawSrvDirectEvents), "ack_input_seq_num") || !strings.Contains(string(rawSrvDirectEvents), `"timestamp_micros":"999"`) || !strings.Contains(string(rawSrvDirectEvents), `"timestamp_micros":"1001"`) {
-		t.Errorf("MarshalServerEventBatchJSON(direct FunctionInvocation + CallHookRequest) = (%s, %v), want timestamp_micros 999 and 1001 without ack_input_seq_num", rawSrvDirectEvents, err)
+	if err != nil || strings.Contains(string(rawSrvDirectEvents), "ack_input_seq_num") || !strings.Contains(string(rawSrvDirectEvents), `"event_type":"function_call"`) || !strings.Contains(string(rawSrvDirectEvents), `"timestamp_micros":"999"`) || !strings.Contains(string(rawSrvDirectEvents), `"timestamp_micros":"1001"`) {
+		t.Errorf("MarshalServerEventBatchJSON(direct FunctionCall + CallHookRequest) = (%s, %v), want function_call and timestamp_micros 999 and 1001 without ack_input_seq_num", rawSrvDirectEvents, err)
 	}
 	rawSrvMultiWithAck, err := MarshalServerEventBatchJSON(&ServerEventBatch{
 		AckInputSeqNum:       11,
@@ -1132,7 +1138,7 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 				SeqNum:          3,
 				TimestampMicros: 999,
 				Payload: &EventPayload{
-					FunctionInvocation: &FunctionInvocation{
+					FunctionCall: &FunctionCallEvent{
 						CallID:    "fi_1",
 						Name:      "exec",
 						Arguments: map[string]any{"x": float64(1)},
@@ -1175,13 +1181,13 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"interaction.completed","status":null}`)); err != nil || b.InteractionCompleted == nil || b.InteractionCompleted.Status != nil {
 		t.Errorf("UnmarshalServerEventBatchJSON(null status) = (%+v, %v), want InteractionCompleted with nil Status", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"function_call":{"call_id":"fc_cid","name":"view_file","arguments":{"p":"a"}}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionInvocation.CallID != "fc_cid" || b.Events[0].Payload.FunctionInvocation.Name != "view_file" || b.Events[0].Payload.FunctionInvocation.Arguments["p"] != "a" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"function_call":{"call_id":"fc_cid","name":"view_file","arguments":{"p":"a"}}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionCall.CallID != "fc_cid" || b.Events[0].Payload.FunctionCall.Name != "view_file" || b.Events[0].Payload.FunctionCall.Arguments["p"] != "a" {
 		t.Errorf("UnmarshalServerEventBatchJSON(nested function_call call_id) = (%+v, %v), want call_id=\"fc_cid\" name=\"view_file\"", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"function_call":{"id":"fc_id","name":"view_file"}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionInvocation.CallID != "fc_id" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"function_call":{"id":"fc_id","name":"view_file"}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionCall.CallID != "fc_id" {
 		t.Errorf("UnmarshalServerEventBatchJSON(nested function_call id) = (%+v, %v), want call_id=\"fc_id\"", b, err)
 	}
-	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"call_id":"outer_cid","name":"outer_fn","arguments":{"k":"outer"},"function_call":{"call_id":"inner_cid","name":"inner_fn","arguments":{"k":"inner"}}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionInvocation.CallID != "outer_cid" || b.Events[0].Payload.FunctionInvocation.Name != "outer_fn" || b.Events[0].Payload.FunctionInvocation.Arguments["k"] != "outer" {
+	if b, err := UnmarshalServerEventBatchJSON([]byte(`{"event_type":"step","step":{"call_id":"outer_cid","name":"outer_fn","arguments":{"k":"outer"},"function_call":{"call_id":"inner_cid","name":"inner_fn","arguments":{"k":"inner"}}}}`)); err != nil || len(b.Events) != 1 || b.Events[0].Payload.FunctionCall.CallID != "outer_cid" || b.Events[0].Payload.FunctionCall.Name != "outer_fn" || b.Events[0].Payload.FunctionCall.Arguments["k"] != "outer" {
 		t.Errorf("UnmarshalServerEventBatchJSON(outer step precedence over nested function_call) = (%+v, %v), want call_id=\"outer_cid\" name=\"outer_fn\"", b, err)
 	}
 
@@ -1250,8 +1256,8 @@ func TestEventBatchJSONRoundTripAndWSCloseMapping(t *testing.T) {
 	for _, badSrvJSON := range []string{
 		`{"ack_input_seq_num":"not_int"}`,
 		`{"events":[],"event_type":123}`,
-		`{"event_type":"function_invocation","seq_num":"not_int"}`,
-		`{"event_type":"function_invocation","timestamp_micros":"not_int"}`,
+		`{"event_type":"function_call","seq_num":"not_int"}`,
+		`{"event_type":"function_call","timestamp_micros":"not_int"}`,
 		`{"event_type":"interaction.connected","next_input_seq_num":"not_int"}`,
 		`{"event_type":"yield","next_input_seq_num":"not_int"}`,
 	} {

@@ -168,7 +168,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 				// Attempt 1: transient connect error -> retried because RetryConnectErrors=true.
 				return nil, errors.New("transient dial error")
 			case 2:
-				// Attempt 2: delivers empty payload + FunctionInvocation("fi_once") + Step.ToolCall("call_1"), Send fails -> rolls back seq while caching both!
+				// Attempt 2: delivers empty payload + FunctionCallEvent("fi_once") + Step.ToolCall("call_1"), Send fails -> rolls back seq while caching both!
 				return &scriptedStream{
 					sendFn: func(call int, _ *ClientEventBatch) error {
 						if call == 1 {
@@ -188,7 +188,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 2,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_once",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "fn_once"},
@@ -216,7 +216,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 				// Attempt 3:
 				// - Call 1: ack-only event (SeqNum=1, Payload=nil).
 				// - Call 2: replays "fi_once" (SeqNum=2) and "call_1" (SeqNum=3) verifying rolled-back client seq 1 & 2.
-				// - Call 3: InteractionReconnected{NextInputSeqNum: 10} + CallHookRequest("hk_1") + FunctionInvocation("fi_big", "huge") + non-terminal Yield{NextInputSeqNum: 1}.
+				// - Call 3: InteractionReconnected{NextInputSeqNum: 10} + CallHookRequest("hk_1") + FunctionCallEvent("fi_big", "huge") + non-terminal Yield{NextInputSeqNum: 1}.
 				// - Call 4: ReconnectionRequired.
 				s := &scriptedStream{
 					recvFn: func(call int) (*ServerEventBatch, error) {
@@ -233,7 +233,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 2,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_once",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "fn_once"},
@@ -266,7 +266,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 5,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_big",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "huge"},
@@ -343,7 +343,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 		t.Errorf("side-effecting tool execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
 	}
 	if got := fnCalls.Load(); got != 1 {
-		t.Errorf("FunctionInvocation execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
+		t.Errorf("FunctionCall execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
 	}
 	if got := hookCalls.Load(); got != 1 {
 		t.Errorf("hook execution count = %d, want 1 (replay cache must prevent duplicate hook run)", got)

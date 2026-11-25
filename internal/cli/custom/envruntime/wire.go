@@ -211,12 +211,12 @@ func marshalPayload(p *EventPayload) []byte {
 			sub = appendBytesField(sub, 11, stepBytes)
 		}
 	}
-	if fi := p.FunctionInvocation; fi != nil {
-		var fib []byte
-		fib = appendStringField(fib, 1, fi.CallID)
-		fib = appendStringField(fib, 2, fi.Name)
-		fib = appendBytesField(fib, 3, EncodeProtoStruct(fi.Arguments))
-		sub = appendBytesField(sub, 14, fib)
+	if fc := p.FunctionCall; fc != nil {
+		var fcb []byte
+		fcb = appendStringField(fcb, 1, fc.CallID)
+		fcb = appendStringField(fcb, 2, fc.Name)
+		fcb = appendBytesField(fcb, 3, EncodeProtoStruct(fc.Arguments))
+		sub = appendBytesField(sub, 14, fcb)
 	}
 	if req := p.CallHookRequest; req != nil {
 		if len(req.RawWire) > 0 {
@@ -683,11 +683,11 @@ func unmarshalPayload(data []byte) (*EventPayload, error) {
 			}
 			out.Step = st
 		case num == 14 && wt == wireBytes:
-			fi, err := unmarshalFunctionInvocation(vb)
+			fc, err := unmarshalFunctionCallEvent(vb)
 			if err != nil {
 				return nil, err
 			}
-			out.FunctionInvocation = fi
+			out.FunctionCall = fc
 		case num == 15 && wt == wireBytes:
 			hr, err := unmarshalCallHookRequest(vb)
 			if err != nil {
@@ -827,8 +827,8 @@ func unmarshalFunctionResultStep(data []byte) (*FunctionResultStep, error) {
 	return out, nil
 }
 
-func unmarshalFunctionInvocation(data []byte) (*FunctionInvocation, error) {
-	out := &FunctionInvocation{}
+func unmarshalFunctionCallEvent(data []byte) (*FunctionCallEvent, error) {
+	out := &FunctionCallEvent{}
 	for len(data) > 0 {
 		num, wt, _, vb, n, err := ConsumeField(data)
 		if err != nil {
@@ -1066,9 +1066,9 @@ func functionResultJSONMap(callID, name string, isError bool, result any) map[st
 	return ev
 }
 
-func functionInvocationJSONMap(callID, name string, args map[string]any) map[string]any {
+func functionCallJSONMap(callID, name string, args map[string]any) map[string]any {
 	ev := map[string]any{
-		"event_type": "function_invocation",
+		"event_type": "function_call",
 		"call_id":    callID,
 		"name":       name,
 	}
@@ -1252,12 +1252,12 @@ func MarshalServerEventBatchJSON(b *ServerEventBatch) ([]byte, error) {
 		p := se.Payload
 		var ev map[string]any
 		switch {
-		case p.FunctionInvocation != nil:
-			ev = functionInvocationJSONMap(p.FunctionInvocation.CallID, p.FunctionInvocation.Name, p.FunctionInvocation.Arguments)
+		case p.FunctionCall != nil:
+			ev = functionCallJSONMap(p.FunctionCall.CallID, p.FunctionCall.Name, p.FunctionCall.Arguments)
 		case p.Step != nil && p.Step.ToolCall != nil && p.Step.ToolCall.FunctionCall != nil:
 			tc := p.Step.ToolCall
 			fc := tc.FunctionCall
-			ev = functionInvocationJSONMap(tc.ID, fc.Name, fc.Arguments)
+			ev = functionCallJSONMap(tc.ID, fc.Name, fc.Arguments)
 		case p.CallHookRequest != nil:
 			ev = map[string]any{
 				"event_type": "call_hook_request",
@@ -1467,12 +1467,12 @@ func UnmarshalServerEventBatchJSON(data []byte) (*ServerEventBatch, error) {
 			out.InteractionReconnected = &InteractionReconnectedEvent{
 				NextInputSeqNum: nextIn,
 			}
-		case "function_invocation":
+		case "function_call", "function_invocation":
 			out.Events = append(out.Events, &ServerEvent{
 				SeqNum:          seqNum,
 				TimestampMicros: tsMicros,
 				Payload: &EventPayload{
-					FunctionInvocation: &FunctionInvocation{
+					FunctionCall: &FunctionCallEvent{
 						CallID:    ev.CallID,
 						Name:      ev.Name,
 						Arguments: ev.Arguments,
@@ -1507,7 +1507,7 @@ func UnmarshalServerEventBatchJSON(data []byte) (*ServerEventBatch, error) {
 					SeqNum:          seqNum,
 					TimestampMicros: tsMicros,
 					Payload: &EventPayload{
-						FunctionInvocation: &FunctionInvocation{
+						FunctionCall: &FunctionCallEvent{
 							CallID:    callID,
 							Name:      name,
 							Arguments: args,
@@ -1523,7 +1523,7 @@ func UnmarshalServerEventBatchJSON(data []byte) (*ServerEventBatch, error) {
 					SeqNum:          seqNum,
 					TimestampMicros: tsMicros,
 					Payload: &EventPayload{
-						FunctionInvocation: &FunctionInvocation{
+						FunctionCall: &FunctionCallEvent{
 							CallID:    callID,
 							Name:      ev.Name,
 							Arguments: ev.Arguments,

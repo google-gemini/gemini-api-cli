@@ -513,7 +513,7 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 						Events: []*envruntime.ServerEvent{{
 							SeqNum: 1,
 							Payload: &envruntime.EventPayload{
-								FunctionInvocation: &envruntime.FunctionInvocation{
+								FunctionCall: &envruntime.FunctionCallEvent{
 									CallID:    "c_bash",
 									Name:      "execute_bash",
 									Arguments: map[string]any{"command": "echo nope"},
