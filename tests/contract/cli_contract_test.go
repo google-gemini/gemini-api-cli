@@ -176,7 +176,7 @@ func TestImageArtifactOutput(t *testing.T) {
 	if strings.TrimSpace(result.stdout) != target {
 		t.Errorf("--out path = %q, want %q (explicit path kept as given)", strings.TrimSpace(result.stdout), target)
 	}
-	if !strings.Contains(result.stderr, "Note: hero.jpg contains image/png content; its extension does not match") {
+	if !strings.Contains(result.stderr, `Note: hero.jpg contains "image/png" content; its extension does not match`) {
 		t.Errorf("mismatch note missing from stderr:\n%s", result.stderr)
 	}
 	<-requests
@@ -1326,7 +1326,7 @@ func TestBodySchemaFlag(t *testing.T) {
 			}
 
 			var modelDef struct {
-				Required   []string                   `json:"required"`
+				Required   []string                  `json:"required"`
 				Properties map[string]map[string]any `json:"properties"`
 			}
 			if err := json.Unmarshal(modelRaw, &modelDef); err != nil {
