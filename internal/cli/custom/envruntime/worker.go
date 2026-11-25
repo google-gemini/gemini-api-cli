@@ -813,11 +813,19 @@ func sendClientEventsChunked(
 }
 
 func exceedsClientBatchWire(batch *ClientEventBatch) bool {
-	if len(MarshalClientEventBatch(batch)) > MaxGRPCFrameBytes {
-		return true
+	var rawWireBytes int
+	if batch != nil {
+		for _, ev := range batch.Events {
+			if ev != nil && ev.Payload != nil && ev.Payload.CallHookResponse != nil {
+				rawWireBytes += len(ev.Payload.CallHookResponse.RawWire)
+				if rawWireBytes > MaxGRPCFrameBytes {
+					return true
+				}
+			}
+		}
 	}
 	rawJSON, err := MarshalClientEventBatchJSON(batch)
-	return err != nil || len(rawJSON) > MaxGRPCFrameBytes
+	return err != nil || rawWireBytes+len(rawJSON) > MaxGRPCFrameBytes
 }
 
 func (w *PullWorker) loadCachedCall(state *sessionState, key string) *EventPayload {
@@ -836,15 +844,15 @@ func (w *PullWorker) storeCachedCall(state *sessionState, key string, payload *E
 }
 
 func exceedsMaxToolResultWire(payload *EventPayload) bool {
-	if len(MarshalClientEvent(&ClientEvent{
-		SeqNum:          1,
-		TimestampMicros: 1,
-		Payload:         payload,
-	})) > MaxToolResultWireBytes {
-		return true
+	var rawWireBytes int
+	if payload != nil && payload.CallHookResponse != nil {
+		rawWireBytes = len(payload.CallHookResponse.RawWire)
+		if rawWireBytes > MaxToolResultWireBytes {
+			return true
+		}
 	}
 	rawJSON, err := MarshalClientEventBatchJSON(&ClientEventBatch{
 		Events: []*ClientEvent{{Payload: payload}},
 	})
-	return err != nil || len(rawJSON) > MaxToolResultWireBytes
+	return err != nil || rawWireBytes+len(rawJSON) > MaxToolResultWireBytes
 }
