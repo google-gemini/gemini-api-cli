@@ -15,8 +15,10 @@
 package custom
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google-gemini/gemini-api-cli/internal/flagutil"
@@ -35,7 +37,7 @@ const defaultAnalyzeQuestion = "Describe this file in detail."
 func attachAnalyze(cmd *cobra.Command) {
 	cmd.Use = "analyze [question]"
 	cmd.Short = "Ask questions about images, audio, video, documents, text files, or YouTube URLs (" + defaultTextModel + ")"
-	cmd.Long = "Ask a question about one or more images, audio files, videos, PDFs, CSV or text\nfiles, or YouTube URLs.\n\nPass each media source separately with --input. files/<id> references use the\nFiles API, and YouTube URLs are passed by URI. The optional question applies to\nall inputs; its default is \"" + defaultAnalyzeQuestion + "\"\nBy default, stdout prints only the model's answer. The request is not stored\nserver-side.\n\n" + inlineLimitNote
+	cmd.Long = "Ask a question about one or more images, audio files, videos, PDFs, CSV or text\nfiles, or YouTube URLs. Pass each source with --input: files/<id> uses the Files\nAPI and YouTube URLs go by URI. The question applies to every input; its default\nis \"" + defaultAnalyzeQuestion + "\" By default, stdout prints only the answer;\nnothing is stored. Video with a non-static --processing streams internally.\n\n" + inlineLimitNote
 	cmd.Example = "  gemini-api analyze -i report.pdf \"Summarize the key findings\"\n" +
 		"  gemini-api analyze -i photo.jpg\n" +
 		"  gemini-api analyze -i files/abc123 \"List every speaker with timestamps\"\n" +
@@ -47,6 +49,9 @@ func attachAnalyze(cmd *cobra.Command) {
 	cmd.Args = cobra.ArbitraryArgs
 	cmd.Flags().StringArrayP("input", "i", nil, "Local path, files/<id>, or YouTube URL to analyze (repeatable)")
 	cmd.Flags().String("mime-type", "", "Override the detected MIME type (one input only)")
+	cmd.Flags().Bool("upload", false, uploadFlagHelp)
+	cmd.Flags().String("processing", "", processingFlagHelp)
+	cmd.Flags().String("resolution", "", resolutionFlagHelp)
 	cmd.Flags().String("system", "", "System instruction to steer the analysis")
 	cmd.Flags().Bool("stdin", false, "Read text to analyze from stdin to EOF (sent after the --input media, before the question)")
 	modelFlag(cmd, defaultTextModel, "text")
@@ -117,6 +122,10 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	if sys, _ := flagutil.GetStringFlag(cmd, "system"); strings.TrimSpace(sys) != "" {
 		body.SystemInstruction = stringPtr(strings.TrimSpace(sys))
 	}
+	stream := streamsAnalysis(sources)
+	if stream {
+		body.Stream = boolPtr(true)
+	}
 	req := operations.CreateInteractionRequest{
 		Body: operations.CreateCreateInteractionRequestBodyCreateModelInteraction(body),
 	}
@@ -138,7 +147,13 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return output.Error(cmd, err)
 	}
-	text, err := interactionText(res.Interaction)
+	interaction := res.Interaction
+	if stream {
+		if interaction, err = collectStreamedInteraction(cmd, res); err != nil {
+			return err
+		}
+	}
+	text, err := interactionText(interaction)
 	if err != nil {
 		return err
 	}
@@ -149,8 +164,97 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	if len(mimeTypes) > 0 {
 		envelope["mime_types"] = mimeTypes
 	}
-	if u := usageEnvelope(res.Interaction.Usage); u != nil {
+	if u := usageEnvelope(interaction.Usage); u != nil {
 		envelope["usage"] = u
 	}
 	return emitResult(cmd, text, envelope)
+}
+
+// streamsAnalysis reports whether the request is sent as an SSE stream: a
+// video input processed in a mode other than static runs long enough that a
+// single unary response risks the connection and auth window. The stream is
+// consumed internally; the command still prints one answer.
+func streamsAnalysis(sources []*mediaSource) bool {
+	for _, src := range sources {
+		if src.class() == contentVideo && src.opts.agentic() {
+			return true
+		}
+	}
+	return false
+}
+
+// collectStreamedInteraction drains the event stream of a streaming create
+// and returns the interaction its completed event carries, rebuilt as the
+// full resource shape the text and usage readers expect. When the completed
+// event omits model-output text steps, streamed text deltas are assembled
+// into a model output step so interactionText still succeeds.
+func collectStreamedInteraction(cmd *cobra.Command, res *operations.CreateInteractionResponse) (*interactions.Interaction, error) {
+	es := res.InteractionSSEStreamEvent
+	if es == nil {
+		return nil, runtimeError("the API did not return an event stream")
+	}
+	defer es.Close()
+	var completed *interactions.InteractionCompletedEvent
+	var deltaText strings.Builder
+	for es.Next() {
+		ev := es.Value()
+		if ev == nil {
+			continue
+		}
+		if e := ev.GetDataError(); e != nil {
+			if raw, err := json.Marshal(e); err == nil {
+				return nil, output.Error(cmd, &output.StreamEventError{Body: string(raw)})
+			}
+			msg := "the API reported an error while streaming"
+			if e.Error != nil && e.Error.Message != nil && strings.TrimSpace(*e.Error.Message) != "" {
+				msg = *e.Error.Message
+			}
+			return nil, runtimeError(msg)
+		}
+		if sd := ev.GetDataStepDelta(); sd != nil {
+			if td := sd.GetDeltaText(); td != nil {
+				deltaText.WriteString(td.Text)
+			}
+		}
+		if c := ev.GetDataInteractionCompleted(); c != nil {
+			completed = c
+		}
+	}
+	if err := es.Err(); err != nil {
+		return nil, output.Error(cmd, err)
+	}
+	if completed == nil {
+		return nil, runtimeError("the stream ended without an interaction.completed event")
+	}
+	it := completed.Interaction
+	steps := it.Steps
+	if !stepsHaveText(steps) && deltaText.Len() > 0 {
+		steps = append(slices.Clone(steps), interactions.CreateStepModelOutput(interactions.ModelOutputStep{
+			Content: []interactions.Content{textContentBlock(deltaText.String())},
+		}))
+	}
+	full := &interactions.Interaction{
+		ID:     stringPtr(it.ID),
+		Status: interactions.InteractionStatus(it.Status),
+		Steps:  steps,
+		Usage:  it.Usage,
+	}
+	if it.Model != nil {
+		full.Model = modelPtr(*it.Model)
+	}
+	return full, nil
+}
+
+func stepsHaveText(steps []interactions.Step) bool {
+	for _, step := range steps {
+		if step.ModelOutputStep == nil {
+			continue
+		}
+		for _, block := range step.ModelOutputStep.Content {
+			if block.TextContent != nil && strings.TrimSpace(block.TextContent.Text) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

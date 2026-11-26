@@ -354,7 +354,8 @@ func interactionOutcome(it *interactions.Interaction) error {
 		detail = ": " + msg
 	}
 	switch it.Status {
-	case interactions.InteractionStatusIncomplete, interactions.InteractionStatusBudgetExceeded:
+	case interactions.InteractionStatusIncomplete, interactions.InteractionStatusBudgetExceeded,
+		interactions.InteractionStatusRequiresContinuation:
 		return runtimeError(fmt.Sprintf("the API stopped before the output was complete (status: %s)%s", it.Status, detail),
 			"Nothing was written; shorten or split the input, or raise the limit via gemini-api agent run")
 	case interactions.InteractionStatusFailed, interactions.InteractionStatusCancelled,

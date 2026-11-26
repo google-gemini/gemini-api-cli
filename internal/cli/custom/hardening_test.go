@@ -83,12 +83,15 @@ func TestCheckLocalFileInlineBoundary(t *testing.T) {
 	for name, tc := range map[string]struct {
 		file   string
 		size   int64
+		upload bool
 		wantOK bool
 	}{
-		"media at the cap":   {"a.mp4", largest, true},
-		"media over the cap": {"b.mp4", largest + 3, false},
-		"text at the cap":    {"a.txt", maxInlineBytes, true},
-		"text over the cap":  {"b.txt", maxInlineBytes + 1, false},
+		"media at the cap":               {"a.mp4", largest, false, true},
+		"media over the cap":             {"b.mp4", largest + 3, false, false},
+		"media over the cap with upload": {"c.mp4", largest + 3, true, true},
+		"text at the cap":                {"a.txt", maxInlineBytes, false, true},
+		"text over the cap":              {"b.txt", maxInlineBytes + 1, false, false},
+		"text over the cap with upload":  {"c.txt", maxInlineBytes + 1, true, false},
 	} {
 		path := filepath.Join(t.TempDir(), tc.file)
 		f, err := os.Create(path)
@@ -100,9 +103,12 @@ func TestCheckLocalFileInlineBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		f.Close()
-		_, _, err = checkLocalFile(path, "", "--input[1]", analyzePolicy)
+		cost, _, err := checkLocalFile(path, "", "--input[1]", analyzePolicy, tc.upload)
 		if (err == nil) != tc.wantOK {
 			t.Errorf("%s: checkLocalFile error = %v, want ok=%v", name, err, tc.wantOK)
+		}
+		if tc.upload && tc.wantOK && cost != 0 {
+			t.Errorf("%s: upload cost = %d, want 0", name, cost)
 		}
 	}
 }
@@ -124,6 +130,7 @@ func TestCanonicalRemoteMIME(t *testing.T) {
 func TestInteractionOutcome(t *testing.T) {
 	rejected := []interactions.InteractionStatus{
 		interactions.InteractionStatusIncomplete, interactions.InteractionStatusBudgetExceeded,
+		interactions.InteractionStatusRequiresContinuation,
 		interactions.InteractionStatusFailed, interactions.InteractionStatusCancelled,
 		interactions.InteractionStatusRequiresAction, interactions.InteractionStatusInProgress,
 		interactions.InteractionStatusQueued,
@@ -255,11 +262,8 @@ func TestWaitActiveCancellationAndDeadline(t *testing.T) {
 		_ = cmd.Flags().Set("wait-timeout", "5s")
 		cmd.SetContext(ctx)
 
-		tr, err := newRawTransport(cmd)
-		if err != nil {
-			t.Fatalf("newRawTransport: %v", err)
-		}
-		_, err = tr.waitActive(cmd, "files/xyz789")
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		_, err := waitActive(cmd, "files/xyz789", timeout)
 		if err == nil {
 			t.Fatal("expected error on caller cancellation")
 		}
@@ -291,11 +295,8 @@ func TestWaitActiveCancellationAndDeadline(t *testing.T) {
 		_ = cmd.Flags().Set("wait-timeout", "5s")
 		cmd.SetContext(ctx)
 
-		tr, err := newRawTransport(cmd)
-		if err != nil {
-			t.Fatalf("newRawTransport: %v", err)
-		}
-		_, err = tr.waitActive(cmd, "files/xyz789")
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		_, err := waitActive(cmd, "files/xyz789", timeout)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("error = %v, want context.Canceled", err)
 		}
@@ -317,11 +318,8 @@ func TestWaitActiveCancellationAndDeadline(t *testing.T) {
 		_ = cmd.Flags().Set("wait-timeout", "0s")
 		cmd.SetContext(t.Context())
 
-		tr, err := newRawTransport(cmd)
-		if err != nil {
-			t.Fatalf("newRawTransport: %v", err)
-		}
-		_, err = tr.waitActive(cmd, "files/xyz789")
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		_, err := waitActive(cmd, "files/xyz789", timeout)
 		if err == nil || !strings.Contains(err.Error(), "files/xyz789 did not become ACTIVE within 0s") {
 			t.Errorf("error = %v, want wait-timeout message", err)
 		}
@@ -340,11 +338,8 @@ func TestWaitActiveCancellationAndDeadline(t *testing.T) {
 		_ = cmd.Flags().Set("wait-timeout", "50ms")
 		cmd.SetContext(t.Context())
 
-		tr, err := newRawTransport(cmd)
-		if err != nil {
-			t.Fatalf("newRawTransport: %v", err)
-		}
-		_, err = tr.waitActive(cmd, "files/xyz789")
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		_, err := waitActive(cmd, "files/xyz789", timeout)
 		if err == nil || !strings.Contains(err.Error(), "files/xyz789 did not become ACTIVE within 50ms") {
 			t.Errorf("error = %v, want wait-timeout message", err)
 		}
@@ -367,11 +362,8 @@ func TestWaitActiveCancellationAndDeadline(t *testing.T) {
 		_ = cmd.Flags().Set("wait-timeout", "5s")
 		cmd.SetContext(t.Context())
 
-		tr, err := newRawTransport(cmd)
-		if err != nil {
-			t.Fatalf("newRawTransport: %v", err)
-		}
-		file, err := tr.waitActive(cmd, "files/xyz789")
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		file, err := waitActive(cmd, "files/xyz789", timeout)
 		if err != nil {
 			t.Fatalf("waitActive: %v", err)
 		}

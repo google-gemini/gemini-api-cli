@@ -60,6 +60,7 @@ func attachTranscribe(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-timestamps", false, "Do not include timestamps (ignored for srt)")
 	cmd.Flags().String("out", "", "Output path (default: ./transcript-<unix-ms>-<random>.<ext>)")
 	cmd.Flags().String("mime-type", "", "Override the detected MIME type (one input only)")
+	cmd.Flags().Bool("upload", false, uploadFlagHelp)
 	modelFlag(cmd, defaultTranscribeModel, "transcription")
 	annotatePromptFlag(cmd, "input", flagutil.PromptFlagSpec{Required: true, Kind: "string-array", Order: 0})
 	cmd.RunE = runTranscribe
@@ -94,23 +95,25 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	modelChanged := flagutil.FlagChanged(cmd, "model")
-	s, sources, err := resolveMediaSources(cmd, inputs, transcribePolicy)
-	if err != nil {
-		return err
-	}
+	policy := transcribePolicy
 	if modelChanged && isTranscribeModel(model) {
-		for i, src := range sources {
-			if class, _ := contentClassOf(src.mimeType); class == contentVideo {
+		policy.checkAccepted = func(mimeType, ref string) error {
+			if class, _ := contentClassOf(mimeType); class == contentVideo {
 				hints := []string{fmt.Sprintf("Omit --model or pass --model %s to transcribe video", defaultTextModel)}
-				if src.mimeType == "video/webm" {
+				if mimeType == "video/webm" {
 					hints = append(hints, webmAudioHint)
 				}
 				return usageError(
-					fmt.Sprintf("%s: model %q only accepts audio inputs (detected %s)", inputRef(i+1, inputs[i]), model, src.mimeType),
+					fmt.Sprintf("%s: model %q only accepts audio inputs (detected %s)", ref, model, mimeType),
 					hints...,
 				)
 			}
+			return nil
 		}
+	}
+	s, sources, err := resolveMediaSources(cmd, inputs, policy)
+	if err != nil {
+		return err
 	}
 	paths, err := transcribeArtifactPaths(cmd, sources, ext)
 	if err != nil {
