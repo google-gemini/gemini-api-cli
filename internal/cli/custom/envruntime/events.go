@@ -42,12 +42,12 @@ type ClientEvent struct {
 
 // EventPayload carries the typed event union shared by ClientEvent and ServerEvent.
 type EventPayload struct {
-	SubInteractionID   string
-	Step               *Step
-	FunctionInvocation *FunctionInvocation
-	FunctionResult     *FunctionResultEvent
-	CallHookRequest    *CallHookRequest
-	CallHookResponse   *CallHookResponse
+	SubInteractionID string
+	Step             *Step
+	FunctionCall     *FunctionCallEvent
+	FunctionResult   *FunctionResultEvent
+	CallHookRequest  *CallHookRequest
+	CallHookResponse *CallHookResponse
 }
 
 // Clone returns a deep copy of EventPayload suitable for caching across reconnects.
@@ -78,10 +78,10 @@ func (p *EventPayload) Clone() *EventPayload {
 		}
 		cp.Step = &st
 	}
-	if p.FunctionInvocation != nil {
-		fi := *p.FunctionInvocation
-		fi.Arguments = cloneMap(p.FunctionInvocation.Arguments)
-		cp.FunctionInvocation = &fi
+	if p.FunctionCall != nil {
+		fc := *p.FunctionCall
+		fc.Arguments = cloneMap(p.FunctionCall.Arguments)
+		cp.FunctionCall = &fc
 	}
 	if p.FunctionResult != nil {
 		fr := *p.FunctionResult
@@ -166,8 +166,8 @@ type FunctionResultStep struct {
 	Result  any
 }
 
-// FunctionInvocation represents a top-level server-to-client function call payload.
-type FunctionInvocation struct {
+// FunctionCallEvent represents a top-level server-to-client function call payload.
+type FunctionCallEvent struct {
 	CallID    string
 	Name      string
 	Arguments map[string]any
