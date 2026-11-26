@@ -108,28 +108,7 @@ func runFilesUpload(cmd *cobra.Command, args []string) error {
 		displayName = filepath.Base(path)
 	}
 
-	t, err := newRawTransport(cmd)
-	if err != nil {
-		return err
-	}
-
-	// Step 1: start the resumable session.
-	meta := map[string]any{"file": map[string]any{"display_name": displayName}}
-	metaBytes, _ := json.Marshal(meta)
-	startURL := t.apiURL("upload/" + t.apiVersion + "/files")
-	startReq, err := t.newRequest(cmd.Context(), http.MethodPost, startURL, bytes.NewReader(metaBytes))
-	if err != nil {
-		return err
-	}
-	startReq.Header.Set("Content-Type", "application/json")
-	setUploadStartHeaders(startReq, info.Size(), mimeType)
-
-	if !isDryRun(cmd) {
-		progress(cmd, "Starting upload of %s (%d bytes, %s)...", path, info.Size(), mimeType)
-	}
-	// Step 2: send the start request, then stream the bytes in chunks; only
-	// the last chunk finalizes.
-	finalBody, err := t.resumableUpload(cmd, startReq, source, path, info.Size())
+	file, err := uploadSource(cmd, source, path, info.Size(), mimeType, displayName)
 	if err != nil {
 		return err
 	}
@@ -139,26 +118,63 @@ func runFilesUpload(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	}
-	file, err := decodeUploadedFile(finalBody)
-	if err != nil {
-		return runtimeError(err.Error())
-	}
-	if file.Name == nil || *file.Name == "" {
-		return runtimeError("upload finished but the response had no file name")
-	}
 	name := *file.Name
-	progress(cmd, "Uploaded %s as %s.", path, name)
 
 	if wait, _ := flagutil.GetBoolFlag(cmd, "wait"); wait {
-		waited, err := t.waitActive(cmd, name)
+		timeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		waited, err := waitActive(cmd, name, timeout)
 		if err != nil {
 			return err
 		}
 		if waited != nil {
-			file = *waited
+			file = waited
 		}
 	}
-	return emitResult(cmd, name, fileEnvelope(&file))
+	return emitResult(cmd, name, fileEnvelope(file))
+}
+
+// uploadSource opens a resumable session for an already-open local file,
+// streams its bytes, and returns the named File the finalize response carries.
+// Under --dry-run the start request and every chunk are previewed and the
+// returned File is nil.
+func uploadSource(cmd *cobra.Command, source *os.File, path string, size int64, mimeType, displayName string) (*genai.File, error) {
+	t, err := newRawTransport(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: start the resumable session.
+	meta := map[string]any{"file": map[string]any{"display_name": displayName}}
+	metaBytes, _ := json.Marshal(meta)
+	startURL := t.apiURL("upload/" + t.apiVersion + "/files")
+	startReq, err := t.newRequest(cmd.Context(), http.MethodPost, startURL, bytes.NewReader(metaBytes))
+	if err != nil {
+		return nil, err
+	}
+	startReq.Header.Set("Content-Type", "application/json")
+	setUploadStartHeaders(startReq, size, mimeType)
+
+	if !isDryRun(cmd) {
+		progress(cmd, "Starting upload of %s (%d bytes, %s)...", path, size, mimeType)
+	}
+	// Step 2: send the start request, then stream the bytes in chunks; only
+	// the last chunk finalizes.
+	finalBody, err := t.resumableUpload(cmd, startReq, source, path, size)
+	if err != nil {
+		return nil, err
+	}
+	if isDryRun(cmd) {
+		return nil, nil
+	}
+	file, err := decodeUploadedFile(finalBody)
+	if err != nil {
+		return nil, runtimeError(err.Error())
+	}
+	if file.Name == nil || *file.Name == "" {
+		return nil, runtimeError("upload finished but the response had no file name")
+	}
+	progress(cmd, "Uploaded %s as %s.", path, *file.Name)
+	return &file, nil
 }
 
 // setUploadStartHeaders declares the resumable session a start request opens.
@@ -345,10 +361,9 @@ func (t *rawTransport) streamUpload(ctx context.Context, uploadURL string, sourc
 	}
 }
 
-// waitActive polls files.get until the file is ACTIVE, fails, or the
-// --wait-timeout deadline passes; every poll and sleep is bounded by that
-// deadline.
-func (t *rawTransport) waitActive(cmd *cobra.Command, name string) (*genai.File, error) {
+// waitActive polls files.get until the file is ACTIVE, fails, or timeout
+// passes; every poll and sleep is bounded by that deadline.
+func waitActive(cmd *cobra.Command, name string, timeout time.Duration) (*genai.File, error) {
 	s, err := client.NewClient(cmd)
 	if err != nil {
 		return nil, err
@@ -357,7 +372,6 @@ func (t *rawTransport) waitActive(cmd *cobra.Command, name string) (*genai.File,
 	if err != nil {
 		return nil, err
 	}
-	timeout, _ := cmd.Flags().GetDuration("wait-timeout")
 	waitTimedOut := func() error {
 		return runtimeError(fmt.Sprintf("%s did not become ACTIVE within %s", name, timeout),
 			fmt.Sprintf("Check its state later: gemini-api files get %s", name))

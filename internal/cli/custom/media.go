@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google-gemini/gemini-api-cli/internal/client"
@@ -67,8 +68,136 @@ func inlineCost(size int64, class contentClass) int64 {
 }
 
 // inlineLimitNote is the help sentence analyze and transcribe share.
-var inlineLimitNote = fmt.Sprintf("Local files are sent inline; this CLI keeps each request under %d MB, base64\nincluded (about %d MB of media). Upload larger files with \"gemini-api files upload\"\nand pass the returned files/<id>.",
-	maxInlineRequestBytes>>20, (maxInlineBytes/4*3)>>20)
+var inlineLimitNote = fmt.Sprintf("Local files are sent inline; this CLI keeps each request under %d MB, base64\nincluded. Pass --upload (or run \"gemini-api files upload\") for larger media.",
+	maxInlineRequestBytes>>20)
+
+// uploadReadyTimeout bounds how long --upload waits for a fresh upload to
+// become ACTIVE before the interaction is sent.
+const uploadReadyTimeout = 5 * time.Minute
+
+// uploadFlagHelp is the --upload description every media command shares.
+const uploadFlagHelp = "Send local media through the Files API instead of inline (waits until ready)"
+
+// uploadRequested reports whether the command carries --upload.
+func uploadRequested(cmd *cobra.Command) bool {
+	if cmd.Flags().Lookup("upload") == nil {
+		return false
+	}
+	upload, _ := flagutil.GetBoolFlag(cmd, "upload")
+	return upload
+}
+
+// uploadHint names the two ways past the inline cap for one input.
+func uploadHint(path string) string {
+	return fmt.Sprintf("Pass --upload to send it through the Files API, or run \"gemini-api files upload %s --wait\" and pass the returned files/<id>", path)
+}
+
+const (
+	processingFlagHelp = "How video, audio, and document inputs are processed (for example static or agentic)"
+	resolutionFlagHelp = "Media resolution for image, video, and document inputs (for example low or high)"
+)
+
+// mediaOptions are the request-level media parameters --processing and
+// --resolution, applied to every input block whose content type carries the
+// field. Values are passed through as given; the API validates them per
+// modality.
+type mediaOptions struct {
+	processing string
+	resolution string
+}
+
+func (o mediaOptions) empty() bool { return o.processing == "" && o.resolution == "" }
+
+// agentic reports whether --processing names a mode other than static.
+func (o mediaOptions) agentic() bool {
+	return o.processing != "" && o.processing != "static"
+}
+
+func mediaOptionsFromFlags(cmd *cobra.Command) mediaOptions {
+	var o mediaOptions
+	if cmd.Flags().Lookup("processing") != nil {
+		v, _ := flagutil.GetStringFlag(cmd, "processing")
+		o.processing = strings.ToLower(strings.TrimSpace(v))
+	}
+	if cmd.Flags().Lookup("resolution") != nil {
+		v, _ := flagutil.GetStringFlag(cmd, "resolution")
+		o.resolution = strings.ToLower(strings.TrimSpace(v))
+	}
+	return o
+}
+
+// applyMediaOptions sets processing and resolution on the block members that
+// carry them: video takes both, document takes both, image takes resolution,
+// audio takes processing.
+func applyMediaOptions(blk interactions.Content, o mediaOptions) interactions.Content {
+	if o.empty() {
+		return blk
+	}
+	var resolution *interactions.MediaResolution
+	if o.resolution != "" {
+		r := interactions.MediaResolution(o.resolution)
+		resolution = &r
+	}
+	switch {
+	case blk.VideoContent != nil:
+		if o.processing != "" {
+			p := interactions.CreateProcessingProcessingEnum(interactions.ProcessingEnum(o.processing))
+			blk.VideoContent.Processing = &p
+		}
+		if resolution != nil {
+			blk.VideoContent.Resolution = resolution
+		}
+	case blk.DocumentContent != nil:
+		if o.processing != "" {
+			p := interactions.CreateDocumentProcessingDocumentProcessingEnum(interactions.DocumentProcessingEnum(o.processing))
+			blk.DocumentContent.Processing = &p
+		}
+		if resolution != nil {
+			blk.DocumentContent.Resolution = resolution
+		}
+	case blk.ImageContent != nil:
+		if resolution != nil {
+			blk.ImageContent.Resolution = resolution
+		}
+	case blk.AudioContent != nil:
+		if o.processing != "" {
+			p := interactions.CreateAudioProcessingAudioProcessingEnum(interactions.AudioProcessingEnum(o.processing))
+			blk.AudioContent.Processing = &p
+		}
+	}
+	return blk
+}
+
+// checkMediaOptionsApply rejects --processing or --resolution when no input
+// carries the field, so a flag is never silently dropped.
+func checkMediaOptionsApply(sources []*mediaSource, o mediaOptions) error {
+	classes := make([]contentClass, 0, len(sources))
+	for _, src := range sources {
+		classes = append(classes, src.class())
+	}
+	return checkMediaClassesApply(classes, o)
+}
+
+func checkMediaClassesApply(classes []contentClass, o mediaOptions) error {
+	takesProcessing, takesResolution := false, false
+	for _, class := range classes {
+		switch class {
+		case contentVideo, contentDocument:
+			takesProcessing, takesResolution = true, true
+		case contentAudio:
+			takesProcessing = true
+		case contentImage:
+			takesResolution = true
+		}
+	}
+	if o.processing != "" && !takesProcessing {
+		return usageError("--processing applies to video, audio, and document inputs; none of the inputs is one")
+	}
+	if o.resolution != "" && !takesResolution {
+		return usageError("--resolution applies to image, video, and document inputs; none of the inputs is one")
+	}
+	return nil
+}
 
 // mimeByExtension maps common media/document extensions to the MIME types the
 // Interactions API accepts. It is consulted before the platform's mime database
@@ -176,6 +305,10 @@ type mediaPolicy struct {
 	// hint points at the command that takes the rest.
 	accepts string
 	hint    string
+	// checkAccepted applies an extra command-specific check (for example
+	// rejecting video inputs when a transcribe-only model was explicitly set)
+	// after the policy's base class check succeeds.
+	checkAccepted func(mimeType, ref string) error
 }
 
 var (
@@ -189,14 +322,16 @@ var (
 
 // checkClass rejects a MIME type whose content class the command does not take.
 func (p mediaPolicy) checkClass(mimeType, ref string) error {
-	if p.classes == nil {
-		return nil
+	if p.classes != nil {
+		class, _ := contentClassOf(mimeType)
+		if !slices.Contains(p.classes, class) {
+			return usageError(fmt.Sprintf("%s: only %s inputs are accepted; got %s", ref, p.accepts, mimeType), p.hint)
+		}
 	}
-	class, _ := contentClassOf(mimeType)
-	if slices.Contains(p.classes, class) {
-		return nil
+	if p.checkAccepted != nil {
+		return p.checkAccepted(mimeType, ref)
 	}
-	return usageError(fmt.Sprintf("%s: only %s inputs are accepted; got %s", ref, p.accepts, mimeType), p.hint)
+	return nil
 }
 
 // mediaSource is the resolved input of analyze/transcribe: a request content
@@ -211,6 +346,24 @@ type mediaSource struct {
 	mimeType string
 	// inlineBytes is what block found the local file to cost once read.
 	inlineBytes int64
+	opts        mediaOptions
+}
+
+// class is the content class of the block the source produces; a URI-backed
+// source may carry no MIME type, so its ready block decides.
+func (m *mediaSource) class() contentClass {
+	switch {
+	case m.content.VideoContent != nil:
+		return contentVideo
+	case m.content.ImageContent != nil:
+		return contentImage
+	case m.content.DocumentContent != nil:
+		return contentDocument
+	case m.content.AudioContent != nil:
+		return contentAudio
+	}
+	class, _ := contentClassOf(m.mimeType)
+	return class
 }
 
 // block returns the interaction content block. A local file is read and
@@ -271,7 +424,7 @@ func (m *mediaSource) block(cmd *cobra.Command) (interactions.Content, error) {
 	if class == contentText {
 		return textContentBlock(string(data)), nil
 	}
-	return mediaContentBlock(m.mimeType, string(data), true), nil
+	return applyMediaOptions(mediaContentBlock(m.mimeType, string(data), true), m.opts), nil
 }
 
 // mediaContentBlock builds an interactions Content block for a media input,
@@ -401,7 +554,7 @@ func classifyMediaInput(cmd *cobra.Command, arg, ref string, allowYouTube bool) 
 // checkLocalFile enforces what an inline input must satisfy — a non-empty
 // regular file within the inline cap whose MIME type the API and the command
 // accept — and returns its inline cost and MIME type.
-func checkLocalFile(path, mimeOverride, ref string, policy mediaPolicy) (int64, string, error) {
+func checkLocalFile(path, mimeOverride, ref string, policy mediaPolicy, upload bool) (int64, string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -433,10 +586,14 @@ func checkLocalFile(path, mimeOverride, ref string, policy mediaPolicy) (int64, 
 		// Text travels inline only; an uploaded copy could not be referenced.
 		return 0, "", usageError(fmt.Sprintf("%s: text file is %d bytes; this CLI sends text inline, up to %d MB per request", ref, info.Size(), maxInlineBytes>>20))
 	}
+	if upload && class != contentText {
+		// The bytes go through the Files API, so the inline cap does not apply.
+		return 0, mimeType, nil
+	}
 	if cost > maxInlineBytes {
 		return 0, "", usageError(
 			fmt.Sprintf("%s: file is %d bytes (%d as base64); this CLI keeps inline requests under %d MB", ref, info.Size(), cost, maxInlineRequestBytes>>20),
-			fmt.Sprintf("Run \"gemini-api files upload %s\" and pass the returned files/<id> instead", path))
+			uploadHint(path))
 	}
 	return cost, mimeType, nil
 }
@@ -468,6 +625,12 @@ func probeLocalFile(path, mimeType, ref string) error {
 // or sent. Probing each file also catches permissions and mislabelled text.
 func prevalidateMediaInputs(cmd *cobra.Command, inputs []string, mimeOverride string, policy mediaPolicy) error {
 	var inlineBytes int64
+	upload := uploadRequested(cmd)
+	if len(inputs) == 0 && upload {
+		return usageError("--upload requires --input")
+	}
+	var classes []contentClass
+	hasUnknownRemote := false
 	for i, raw := range inputs {
 		arg := strings.TrimSpace(raw)
 		ref := inputRef(i+1, arg)
@@ -475,21 +638,43 @@ func prevalidateMediaInputs(cmd *cobra.Command, inputs []string, mimeOverride st
 		if err != nil {
 			return err
 		}
-		if kind != mediaInputLocal {
+		switch kind {
+		case mediaInputYouTube:
+			classes = append(classes, contentVideo)
+			continue
+		case mediaInputRemoteFile:
+			if mt := strings.ToLower(strings.TrimSpace(mimeOverride)); mt != "" {
+				if err := checkRemoteMIME(mt, ref, policy); err != nil {
+					return err
+				}
+				class, _ := contentClassOf(mt)
+				classes = append(classes, class)
+			} else {
+				hasUnknownRemote = true
+			}
 			continue
 		}
-		cost, mimeType, err := checkLocalFile(arg, mimeOverride, ref, policy)
+		cost, mimeType, err := checkLocalFile(arg, mimeOverride, ref, policy, upload)
 		if err != nil {
 			return err
 		}
 		if err := probeLocalFile(arg, mimeType, ref); err != nil {
 			return err
 		}
+		class, _ := contentClassOf(mimeType)
+		classes = append(classes, class)
 		inlineBytes += cost
 		if policy.enforceCumulative && inlineBytes > maxInlineBytes {
 			return usageError(
 				fmt.Sprintf("%s: cumulative inline inputs (base64 included) exceed this CLI's %d MB request budget", ref, maxInlineRequestBytes>>20),
-				fmt.Sprintf("Run \"gemini-api files upload %s\" and pass the returned files/<id> instead", arg))
+				uploadHint(arg))
+		}
+	}
+	if !hasUnknownRemote {
+		if opts := mediaOptionsFromFlags(cmd); !opts.empty() {
+			if err := checkMediaClassesApply(classes, opts); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -516,6 +701,18 @@ func resolveMediaSources(cmd *cobra.Command, inputs []string, policy mediaPolicy
 			return nil, nil, err
 		}
 		sources = append(sources, src)
+	}
+	opts := mediaOptionsFromFlags(cmd)
+	if !opts.empty() {
+		if err := checkMediaOptionsApply(sources, opts); err != nil {
+			return nil, nil, err
+		}
+		for _, src := range sources {
+			src.opts = opts
+			if src.path == "" {
+				src.content = applyMediaOptions(src.content, opts)
+			}
+		}
 	}
 	return s, sources, nil
 }
@@ -545,12 +742,55 @@ func resolveMediaSource(cmd *cobra.Command, s *sdk.GeminiAPI, arg, mimeOverride 
 		name, id, _ := normalizeFileID(fileArg)
 		return resolveRemoteFile(cmd, s, name, id, mimeOverride, ref, policy)
 	}
-	_, mimeType, err := checkLocalFile(arg, mimeOverride, ref, policy)
+	upload := uploadRequested(cmd)
+	_, mimeType, err := checkLocalFile(arg, mimeOverride, ref, policy, upload)
 	if err != nil {
 		return nil, err
 	}
 	abs, _ := filepath.Abs(arg)
+	if class, _ := contentClassOf(mimeType); upload && class != contentText {
+		return uploadLocalMedia(cmd, arg, abs, mimeType, ref)
+	}
 	return &mediaSource{path: arg, ref: ref, label: abs, mimeType: mimeType}, nil
+}
+
+// uploadLocalMedia sends a local media file through the Files API and returns
+// a URI-backed source, waiting for the upload to become ACTIVE. Under
+// --dry-run the upload exchange is previewed and a placeholder URI stands in,
+// as for an explicit files/<id> input.
+func uploadLocalMedia(cmd *cobra.Command, path, label, mimeType, ref string) (*mediaSource, error) {
+	source, err := os.Open(path)
+	if err != nil {
+		return nil, usageError(fmt.Sprintf("%s: cannot read file: %v", ref, err))
+	}
+	defer source.Close()
+	info, err := source.Stat()
+	if err != nil {
+		return nil, usageError(fmt.Sprintf("%s: cannot access file: %v", ref, err))
+	}
+	file, err := uploadSource(cmd, source, path, info.Size(), mimeType, filepath.Base(path))
+	if err != nil {
+		return nil, err
+	}
+	if isDryRun(cmd) {
+		progress(cmd, "[DRY-RUN] %s: the file's URI comes from the upload response; the previewed block is a placeholder.", ref)
+		return &mediaSource{content: mediaContentBlock(mimeType, expandedFilesURI(cmd, "files/<uploaded>"), false), label: label, mimeType: mimeType}, nil
+	}
+	name := *file.Name
+	if file.State == nil || *file.State != genai.FileStateActive {
+		waited, err := waitActive(cmd, name, uploadReadyTimeout)
+		if err != nil {
+			return nil, err
+		}
+		if waited != nil {
+			file = waited
+		}
+	}
+	fileURI := expandedFilesURI(cmd, name)
+	if file.URI != nil && *file.URI != "" {
+		fileURI = *file.URI
+	}
+	return &mediaSource{content: mediaContentBlock(mimeType, fileURI, false), label: label, mimeType: mimeType}, nil
 }
 
 // resolveRemoteFile looks a Files API resource up so the request part carries
@@ -672,7 +912,11 @@ func extractFullFilesURI(cmd *cobra.Command, raw string) (string, bool) {
 // generated intent command on top of its declared flags.
 type intentInputs struct {
 	media bool // -i/--input and --mime-type: media content blocks
-	stdin bool // --stdin: a text content block read from stdin
+	// upload adds --upload, sending local media through the Files API.
+	upload bool
+	// mediaOptions adds --processing and --resolution for media inputs.
+	mediaOptions bool
+	stdin        bool // --stdin: a text content block read from stdin
 	// file is -f/--file, a text content block read from a file; only for
 	// commands without media inputs, where -i already takes text files.
 	file bool
@@ -692,7 +936,7 @@ func attachInteractionInputs(root *cobra.Command) error {
 		promptDesc string
 		inputs     intentInputs
 	}{
-		{"generate", "prompt", "Prompt to send to the model", intentInputs{media: true, stdin: true, continuationResume: true}},
+		{"generate", "prompt", "Prompt to send to the model", intentInputs{media: true, upload: true, mediaOptions: true, stdin: true, continuationResume: true}},
 		{"image", "prompt", "Description of the image to generate", intentInputs{media: true, stdin: true}},
 		{"video", "prompt", "Scene description for the video to generate", intentInputs{media: true, stdin: true}},
 		{"music", "prompt", "Music prompt", intentInputs{stdin: true, file: true}},
@@ -706,6 +950,18 @@ func attachInteractionInputs(root *cobra.Command) error {
 			return fmt.Errorf("%s: %w", spec.name, err)
 		}
 	}
+	// The media flags cost help lines; compact the generated description to stay within the 40-line budget.
+	generateCmd := findChild(root, "generate")
+	if generateCmd != nil && generateCmd.Long != "" {
+		const (
+			generatedGenerateLong = "Send a prompt to a Gemini model and stream text deltas to stdout. Uses the\nschema's default model (gemini-4-hydrogen) unless --model or --body names one\n(--stream=false returns one complete interaction; --output-format json shows\nthe raw NDJSON event stream). Full request control: \"gemini-api agent run\".\n\nArguments:\n  <prompt>  Prompt to send to the model"
+			compactGenerateLong   = "Send a prompt to a Gemini model and stream text deltas to stdout. Uses the\ndefault model (gemini-4-hydrogen) unless --model or --body names one\n(--stream=false for one interaction; --output-format json for NDJSON).\nArguments: <prompt>  Prompt to send to the model"
+		)
+		if !strings.Contains(generateCmd.Long, generatedGenerateLong) {
+			return fmt.Errorf("generate: generated Long help text changed; update compactGenerateLong in attachInteractionInputs")
+		}
+		generateCmd.Long = strings.Replace(generateCmd.Long, generatedGenerateLong, compactGenerateLong, 1)
+	}
 
 	agentGroup := findChild(root, "agent")
 	if agentGroup == nil {
@@ -715,19 +971,20 @@ func attachInteractionInputs(root *cobra.Command) error {
 	// agent run keeps piped stdin as the request body: it is the full-control
 	// surface, so it takes media inputs but no --stdin/--file text.
 	hadGeneratedLong := agentRunCmd != nil && agentRunCmd.Long != ""
-	if err := attachIntentInputs(agentRunCmd, "input", "Prompt or task to send", intentInputs{media: true, continuationResume: true}); err != nil {
+	if err := attachIntentInputs(agentRunCmd, "input", "Prompt or task to send", intentInputs{media: true, upload: true, mediaOptions: true, continuationResume: true}); err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
 	if hadGeneratedLong {
 		const (
 			generatedAgentRunLong = "Run one interaction with a Gemini model (--model, the default) or a\nmanaged agent (--agent); the two flag sets are mutually exclusive.\nStreams text as it arrives; --stream=false returns one complete\ninteraction. --body takes the exact request JSON (\"model\"/\"agent\" picks the variant).\n\nArguments:\n  <input>  Prompt or task to send\n\nRequest variants: Agent (--agent), Model (--model; default).\nVariant-specific flags cannot be combined."
-			compactAgentRunLong   = "Run one interaction with a Gemini model (--model, default) or a managed agent (--agent); streams text as it arrives (--stream=false or --background for one interaction unless --stream is passed; --body takes exact request JSON).\nArguments: <input>  Prompt or task to send\nRequest variants: Agent (--agent), Model (--model; default). Variant-specific flags cannot be combined."
+			compactAgentRunLong   = "Run one interaction with a Gemini model (--model, default) or a managed agent (--agent); streams text as it arrives (--stream=false or --background for one interaction unless --stream is passed; --body takes exact request JSON).\nArguments: <input>  Prompt or task to send · Request variants: Agent (--agent), Model (--model; default). Variant-specific flags cannot be combined."
 		)
 		if !strings.Contains(agentRunCmd.Long, generatedAgentRunLong) {
 			return fmt.Errorf("agent run: generated Long help text changed; update compactAgentRunLong in attachInteractionInputs")
 		}
 		agentRunCmd.Long = strings.Replace(agentRunCmd.Long, generatedAgentRunLong, compactAgentRunLong, 1)
 	}
+	agentRunCmd.Example = strings.Replace(agentRunCmd.Example, "\n  gemini-api agent run \"Write a detailed research report on solar batteries\" --background", "", 1)
 	return nil
 }
 
@@ -760,6 +1017,15 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 		}
 		flagutil.MarkRequestInput(cmd, "input", "mime-type")
 		satisfiedBy = append(satisfiedBy, "input")
+		if in.upload && cmd.Flags().Lookup("upload") == nil {
+			cmd.Flags().Bool("upload", false, uploadFlagHelp)
+			flagutil.MarkRequestInput(cmd, "upload")
+		}
+		if in.mediaOptions && cmd.Flags().Lookup("processing") == nil {
+			cmd.Flags().String("processing", "", processingFlagHelp)
+			cmd.Flags().String("resolution", "", resolutionFlagHelp)
+			flagutil.MarkRequestInput(cmd, "processing", "resolution")
+		}
 	}
 	fileFlag := ""
 	if in.file {
@@ -824,6 +1090,20 @@ func attachIntentInputs(cmd *cobra.Command, argName, promptDesc string, in inten
 			mimeOverride, _ := flagutil.GetStringFlag(c, "mime-type")
 			if len(inputs) == 0 && strings.TrimSpace(mimeOverride) != "" {
 				return usageError("--mime-type requires --input")
+			}
+			if len(inputs) == 0 {
+				if in.upload && uploadRequested(c) {
+					return usageError("--upload requires --input")
+				}
+				if in.mediaOptions {
+					opts := mediaOptionsFromFlags(c)
+					if opts.processing != "" {
+						return usageError("--processing requires --input")
+					}
+					if opts.resolution != "" {
+						return usageError("--resolution requires --input")
+					}
+				}
 			}
 		}
 

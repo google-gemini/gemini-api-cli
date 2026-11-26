@@ -245,6 +245,135 @@ func TestAnalyzeInputValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("--upload sends an over-cap file through the Files API", func(t *testing.T) {
+		mock := newUploadMock(t)
+		var interactionBody []byte
+		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			if r.command != "" {
+				return false
+			}
+			interactionBody = r.body
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, completedInteraction("ok", ""))
+			return true
+		}
+		dir := t.TempDir()
+		big := filepath.Join(dir, "big.mp4")
+		if err := os.WriteFile(big, bytes.Repeat([]byte{'x'}, 21<<20), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append(plainArgs(mock.URL), "analyze", "-i", big, "--upload", "What happens?")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze --upload failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if got := strings.TrimSpace(result.stdout); got != "ok" {
+			t.Errorf("stdout = %q, want ok", got)
+		}
+		chunks := 0
+		for _, r := range mock.recorded() {
+			if strings.HasPrefix(r.command, "upload") {
+				chunks++
+			}
+		}
+		if chunks != 3 {
+			t.Errorf("upload chunks = %d, want 3 for 21 MB in 8 MiB chunks", chunks)
+		}
+		for _, want := range []string{`"type":"video"`, `"uri":"https://example/files/xyz789"`, `"mime_type":"video/mp4"`} {
+			if !strings.Contains(string(interactionBody), want) {
+				t.Errorf("interaction body missing %s:\n%s", want, interactionBody)
+			}
+		}
+		if strings.Contains(string(interactionBody), `"data"`) {
+			t.Errorf("interaction body still carries inline data:\n%s", interactionBody)
+		}
+	})
+
+	t.Run("--upload waits for PROCESSING file to become ACTIVE", func(t *testing.T) {
+		mock := newUploadMock(t)
+		var polls atomic.Int32
+		var interactionBody []byte
+		mock.respond = func(w http.ResponseWriter, r uploadRequest) bool {
+			switch {
+			case r.command == "upload, finalize":
+				w.Header().Set("X-Goog-Upload-Status", "final")
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"file":{"name":"files/proc123","uri":"https://example/files/proc123","mimeType":"video/mp4","state":"PROCESSING"}}`)
+				return true
+			case r.method == http.MethodGet && strings.Contains(r.path, "/files/proc123"):
+				polls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"name":"files/proc123","uri":"https://example/files/proc123","mimeType":"video/mp4","state":"ACTIVE"}`)
+				return true
+			case r.command == "":
+				interactionBody = r.body
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, completedInteraction("ready", ""))
+				return true
+			}
+			return false
+		}
+		dir := t.TempDir()
+		clip := filepath.Join(dir, "clip.mp4")
+		if err := os.WriteFile(clip, []byte("video-bytes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append(plainArgs(mock.URL), "analyze", "-i", clip, "--upload", "Describe")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze --upload failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if got := strings.TrimSpace(result.stdout); got != "ready" {
+			t.Errorf("stdout = %q, want ready", got)
+		}
+		if polls.Load() != 1 {
+			t.Errorf("files.get polls = %d, want 1", polls.Load())
+		}
+		if !strings.Contains(string(interactionBody), `"uri":"https://example/files/proc123"`) {
+			t.Errorf("interaction body missing uploaded uri:\n%s", interactionBody)
+		}
+	})
+
+	t.Run("--upload --dry-run previews upload and placeholder without network calls", func(t *testing.T) {
+		mock := newUploadMock(t)
+		dir := t.TempDir()
+		clip := filepath.Join(dir, "clip.mp4")
+		if err := os.WriteFile(clip, []byte("video-bytes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append(plainArgs(mock.URL), "--dry-run", "analyze", "-i", clip, "--upload", "Describe")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze --upload --dry-run failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if got := len(mock.recorded()); got != 0 {
+			t.Errorf("recorded requests = %d, want 0 under --dry-run", got)
+		}
+		if !strings.Contains(result.stderr, "files/<uploaded>") {
+			t.Errorf("stderr missing placeholder URI:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("transcribe --upload rejects video on audio-only model before uploading", func(t *testing.T) {
+		mock := newUploadMock(t)
+		dir := t.TempDir()
+		clip := filepath.Join(dir, "clip.mp4")
+		if err := os.WriteFile(clip, []byte("video-bytes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append(plainArgs(mock.URL), "transcribe", "-i", clip, "--upload", "--model", "gemini-3.8-flash-transcribe")
+		result := runCLI(t, dir, nil, args...)
+		if code := exitCode(t, result); code != 2 {
+			t.Errorf("exit code = %d, want 2\nstderr: %s", code, result.stderr)
+		}
+		if got := len(mock.recorded()); got != 0 {
+			t.Errorf("recorded requests = %d, want 0 (must validate before uploading)", got)
+		}
+		if !strings.Contains(result.stderr, "only accepts audio inputs") {
+			t.Errorf("stderr = %q, want audio-only model error", result.stderr)
+		}
+	})
+
 	t.Run("existing path beats the files/ spelling", func(t *testing.T) {
 		// A local ./files/abc is a file, never a Files API lookup.
 		var lookups atomic.Int32
@@ -282,6 +411,246 @@ func TestAnalyzeInputValidation(t *testing.T) {
 			if !strings.Contains(result.stderr, want) {
 				t.Errorf("stderr missing %q: %s", want, result.stderr)
 			}
+		}
+	})
+}
+
+// TestAnalyzeMediaOptions pins --processing and --resolution: they land on
+// every block whose content type carries the field, a video processed in a
+// non-static mode is requested as an internal SSE stream that still yields one
+// answer, and a flag no input can take is a usage error.
+func TestAnalyzeMediaOptions(t *testing.T) {
+	const streamedCompletion = "data: {\"event_type\":\"interaction.completed\",\"interaction\":{\"id\":\"int_1\",\"status\":\"completed\",\"steps\":[{\"type\":\"model_output\",\"content\":[{\"type\":\"text\",\"text\":\"streamed answer\"}]}],\"usage\":{\"total_input_tokens\":9,\"total_output_tokens\":2,\"total_tokens\":11}}}\n\ndata: [DONE]\n\n"
+
+	newServer := func(t *testing.T) (*httptest.Server, *map[string]any) {
+		t.Helper()
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Errorf("decode interaction request: %v", err)
+			}
+			if body["stream"] == true {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, streamedCompletion)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, completedInteraction("unary answer", ""))
+		}))
+		t.Cleanup(server.Close)
+		return server, &body
+	}
+
+	dir := t.TempDir()
+	video := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(video, []byte("video-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(dir, "photo.png")
+	if err := os.WriteFile(image, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("agentic video streams internally and carries both options", func(t *testing.T) {
+		server, body := newServer(t)
+		args := append(plainArgs(server.URL), "--output-format", "json", "analyze", "-i", video, "--processing", "agentic", "--resolution", "high", "What happens?")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if (*body)["stream"] != true || (*body)["store"] != false {
+			t.Errorf("stream/store = %v/%v, want true/false", (*body)["stream"], (*body)["store"])
+		}
+		parts := assertUserInputStepParts(t, *body)
+		if len(parts) != 2 || parts[0]["type"] != "video" || parts[0]["processing"] != "agentic" || parts[0]["resolution"] != "high" {
+			t.Errorf("video block = %#v, want processing agentic and resolution high", parts)
+		}
+		var envelope struct {
+			Text  string         `json:"text"`
+			Usage map[string]any `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
+			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
+		}
+		if envelope.Text != "streamed answer" || envelope.Usage["total_tokens"] != float64(11) {
+			t.Errorf("envelope = %+v, want the streamed text and usage", envelope)
+		}
+	})
+
+	t.Run("agentic video falls back to step.delta text when completed omits steps", func(t *testing.T) {
+		const deltaOnlyStream = "" +
+			"data: {\"event_type\":\"step.delta\",\"index\":0,\"delta\":{\"type\":\"text\",\"text\":\"hello \"}}\n\n" +
+			"data: {\"event_type\":\"step.delta\",\"index\":0,\"delta\":{\"type\":\"text\",\"text\":\"from deltas\"}}\n\n" +
+			"data: {\"event_type\":\"interaction.completed\",\"interaction\":{\"id\":\"int_2\",\"status\":\"completed\",\"usage\":{\"total_input_tokens\":5,\"total_output_tokens\":3,\"total_tokens\":8}}}\n\n" +
+			"data: [DONE]\n\n"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, deltaOnlyStream)
+		}))
+		defer server.Close()
+
+		args := append(plainArgs(server.URL), "--output-format", "json", "analyze", "-i", video, "--processing", "agentic")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		var envelope struct {
+			Text  string         `json:"text"`
+			Usage map[string]any `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &envelope); err != nil {
+			t.Fatalf("decode envelope: %v\n%s", err, result.stdout)
+		}
+		if envelope.Text != "hello from deltas" || envelope.Usage["total_tokens"] != float64(8) {
+			t.Errorf("envelope = %+v, want delta-assembled text and usage", envelope)
+		}
+	})
+
+	t.Run("streamed error event preserves stream error classification", func(t *testing.T) {
+		const errorStream = "data: {\"event_type\":\"error\",\"error\":{\"code\":\"internal_error\",\"message\":\"backend failed mid-stream\"}}\n\ndata: [DONE]\n\n"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, errorStream)
+		}))
+		defer server.Close()
+
+		args := append(plainArgs(server.URL), "--output-format", "json", "analyze", "-i", video, "--processing", "agentic")
+		result := runCLI(t, dir, nil, args...)
+		if result.err == nil {
+			t.Fatal("analyze unexpectedly succeeded on stream error event")
+		}
+		var errEnv struct {
+			ErrorType string `json:"error_type"`
+			Message   string `json:"message"`
+			Error     struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(result.stderr), &errEnv); err != nil {
+			t.Fatalf("decode error envelope: %v\nstderr: %s", err, result.stderr)
+		}
+		if errEnv.ErrorType != "api_error" || errEnv.Error.Code != "internal_error" || errEnv.Message != "backend failed mid-stream" {
+			t.Errorf("error envelope = %+v, want api_error / internal_error / backend failed mid-stream\nraw: %s", errEnv, result.stderr)
+		}
+	})
+
+	t.Run("streamed requires_continuation status is rejected as incomplete", func(t *testing.T) {
+		const contStream = "data: {\"event_type\":\"interaction.completed\",\"interaction\":{\"id\":\"int_3\",\"status\":\"requires_continuation\",\"steps\":[{\"type\":\"model_output\",\"content\":[{\"type\":\"text\",\"text\":\"partial\"}]}]}}\n\ndata: [DONE]\n\n"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, contStream)
+		}))
+		defer server.Close()
+
+		args := append(plainArgs(server.URL), "analyze", "-i", video, "--processing", "agentic")
+		result := runCLI(t, dir, nil, args...)
+		if code := exitCode(t, result); code != 1 {
+			t.Errorf("exit code = %d, want 1\nstderr: %s", code, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "requires_continuation") {
+			t.Errorf("stderr = %q, want requires_continuation status error", result.stderr)
+		}
+	})
+
+	t.Run("static video stays unary", func(t *testing.T) {
+		server, body := newServer(t)
+		args := append(plainArgs(server.URL), "analyze", "-i", video, "--processing", "static")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		if (*body)["stream"] != false {
+			t.Errorf("stream = %v, want false", (*body)["stream"])
+		}
+		parts := assertUserInputStepParts(t, *body)
+		if len(parts) != 2 || parts[0]["processing"] != "static" || parts[0]["resolution"] != nil {
+			t.Errorf("video block = %#v, want processing static and no resolution", parts)
+		}
+		if strings.TrimSpace(result.stdout) != "unary answer" {
+			t.Errorf("stdout = %q, want unary answer", result.stdout)
+		}
+	})
+
+	t.Run("image takes resolution and rejects processing before upload", func(t *testing.T) {
+		server, body := newServer(t)
+		args := append(plainArgs(server.URL), "analyze", "-i", image, "--resolution", "low")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		parts := assertUserInputStepParts(t, *body)
+		if len(parts) != 2 || parts[0]["type"] != "image" || parts[0]["resolution"] != "low" {
+			t.Errorf("image block = %#v, want resolution low", parts)
+		}
+
+		mock := newUploadMock(t)
+		result = runCLI(t, dir, nil, append(plainArgs(mock.URL), "analyze", "-i", image, "--upload", "--processing", "agentic")...)
+		if code := exitCode(t, result); code != 2 {
+			t.Errorf("exit code = %d, want 2\nstderr: %s", code, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "--processing applies to video, audio, and document inputs") {
+			t.Errorf("stderr = %q, want the modality hint", result.stderr)
+		}
+		if got := len(mock.recorded()); got != 0 {
+			t.Errorf("recorded upload requests = %d, want 0 before option validation", got)
+		}
+
+		dryResult := runCLI(t, dir, nil, append(plainArgs(mock.URL), "--dry-run", "analyze", "-i", image, "--upload", "--processing", "agentic")...)
+		if code := exitCode(t, dryResult); code != 2 {
+			t.Errorf("dry-run exit code = %d, want 2\nstderr: %s", code, dryResult.stderr)
+		}
+		if strings.Contains(dryResult.stderr, "[DRY-RUN]") {
+			t.Errorf("dry-run emitted upload preview before failing validation:\n%s", dryResult.stderr)
+		}
+	})
+
+	t.Run("generate forwards the options on its media input", func(t *testing.T) {
+		server, body := newServer(t)
+		args := append(plainArgs(server.URL), "generate", "-i", image, "--resolution", "medium", "--stream=false", "Describe it")
+		result := runCLI(t, dir, nil, args...)
+		if result.err != nil {
+			t.Fatalf("generate failed: %v\nstderr: %s", result.err, result.stderr)
+		}
+		parts := assertUserInputStepParts(t, *body)
+		if len(parts) != 2 || parts[0]["type"] != "image" || parts[0]["resolution"] != "medium" {
+			t.Errorf("image block = %#v, want resolution medium", parts)
+		}
+	})
+
+	t.Run("media flags without --input are rejected instead of silently dropped", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			args    []string
+			stdin   string
+			wantErr string
+		}{
+			{"generate --processing", []string{"generate", "hi", "--processing", "agentic"}, "", "--processing requires --input"},
+			{"generate --resolution", []string{"generate", "hi", "--resolution", "high"}, "", "--resolution requires --input"},
+			{"generate --upload", []string{"generate", "hi", "--upload"}, "", "--upload requires --input"},
+			{"generate bare --processing", []string{"generate", "--processing", "agentic"}, "", "--processing requires --input"},
+			{"agent run --processing", []string{"agent", "run", "hi", "--processing", "agentic"}, "", "--processing requires --input"},
+			{"agent run --upload", []string{"agent", "run", "hi", "--upload"}, "", "--upload requires --input"},
+			{"analyze --stdin --upload", []string{"analyze", "--stdin", "--upload"}, "hello", "--upload requires --input"},
+			{"analyze --stdin --processing", []string{"analyze", "--stdin", "--processing", "agentic"}, "hello", "--processing applies to video, audio, and document inputs"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				fullArgs := append(plainArgs("https://example.invalid"), tc.args...)
+				var result commandResult
+				if tc.stdin != "" {
+					result = runCLIWithStdin(t, dir, nil, tc.stdin, fullArgs...)
+				} else {
+					result = runCLI(t, dir, nil, fullArgs...)
+				}
+				if code := exitCode(t, result); code != 2 {
+					t.Errorf("exit code = %d, want 2\nstderr: %s", code, result.stderr)
+				}
+				if !strings.Contains(result.stderr, tc.wantErr) {
+					t.Errorf("stderr = %q, want %q", result.stderr, tc.wantErr)
+				}
+			})
 		}
 	})
 }
