@@ -502,10 +502,12 @@ func TestHTTPClientLeaseHeartbeatPreviewAndStream(t *testing.T) {
 		t.Errorf("ConnectInteraction(custom WSDialer) = (%v, called=%v), want (non-nil error, called=true)", err, customWSDialerCalled)
 	}
 
+	var dialEndpoint string
 	var dialReq *ConnectInteractionRequest
 	dialClient := NewHTTPClient(HTTPClientConfig{
 		BaseURL: srvURL,
-		StreamDialer: func(_ context.Context, _ string, _ http.Header, req *ConnectInteractionRequest) (InteractionStream, error) {
+		StreamDialer: func(_ context.Context, endpoint string, _ http.Header, req *ConnectInteractionRequest) (InteractionStream, error) {
+			dialEndpoint = endpoint
 			cp := *req
 			dialReq = &cp
 			return nil, errors.New("dialer stop")
@@ -514,6 +516,9 @@ func TestHTTPClientLeaseHeartbeatPreviewAndStream(t *testing.T) {
 	_, _ = dialClient.ConnectInteraction(t.Context(), &ConnectInteractionRequest{InteractionID: "int_d", NextOutputSeqNum: 5})
 	if dialReq == nil || dialReq.NextOutputSeqNum != 5 {
 		t.Errorf("ConnectInteraction(NextOutputSeqNum=5) = %+v, want 5", dialReq)
+	}
+	if wantEndpoint := srvURL + "/v1beta/interactions:streamForEnvironmentRuntime"; dialEndpoint != wantEndpoint {
+		t.Errorf("ConnectInteraction(StreamDialer) endpoint = %q, want %q", dialEndpoint, wantEndpoint)
 	}
 
 	var debugBuf bytes.Buffer

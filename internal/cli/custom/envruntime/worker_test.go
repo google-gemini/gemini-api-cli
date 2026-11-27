@@ -889,22 +889,55 @@ func TestPullWorkerPresetsAndDecoupledTrackActiveLeases(t *testing.T) {
 		t.Errorf("wCustomTimeout.tools.cfg.CommandTimeout = %v, want 7s", wCustomTimeout.tools.cfg.CommandTimeout)
 	}
 
-	// Verify exceedsMaxToolResultWire across exact MaxToolResultWireBytes boundaries (Protobuf and JSON), NaN marshal errors, and JSON-escaped overflow payloads.
-	probeRawLen := MaxToolResultWireBytes - 64
-	pbProbeOverhead := len(MarshalClientEvent(&ClientEvent{
-		SeqNum:          1,
-		TimestampMicros: 1,
-		Payload:         &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, probeRawLen)}},
-	})) - probeRawLen
+	// Verify exceedsMaxToolResultWire across exact MaxToolResultWireBytes boundaries (CallHookResponse RawWire and JSON), NaN marshal errors, and JSON-escaped overflow payloads.
+	hookProbeBase, err := MarshalClientEventBatchJSON(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("MarshalClientEventBatchJSON(hook probe) failed: %v", err)
+	}
+	exactHookRawLen := MaxToolResultWireBytes - len(hookProbeBase)
 	if exceedsMaxToolResultWire(&EventPayload{
-		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead)},
+		CallHookResponse: &CallHookResponse{RawWire: make([]byte, exactHookRawLen)},
 	}) {
-		t.Error("exceedsMaxToolResultWire(exact Protobuf MaxToolResultWireBytes) = true, want false")
+		t.Error("exceedsMaxToolResultWire(exact CallHookResponse MaxToolResultWireBytes) = true, want false")
 	}
 	if !exceedsMaxToolResultWire(&EventPayload{
-		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead+1)},
+		CallHookResponse: &CallHookResponse{RawWire: make([]byte, exactHookRawLen+1)},
 	}) {
-		t.Error("exceedsMaxToolResultWire(Protobuf MaxToolResultWireBytes+1) = false, want true")
+		t.Error("exceedsMaxToolResultWire(CallHookResponse MaxToolResultWireBytes+1) = false, want true")
+	}
+	if !exceedsMaxToolResultWire(&EventPayload{
+		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes+1)},
+	}) {
+		t.Error("exceedsMaxToolResultWire(CallHookResponse RawWire > MaxToolResultWireBytes) = false, want true")
+	}
+	if exceedsClientBatchWire(nil) {
+		t.Error("exceedsClientBatchWire(nil) = true, want false")
+	}
+	exactBatchHookRawLen := MaxGRPCFrameBytes - len(hookProbeBase)
+	if exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RawWire: make([]byte, exactBatchHookRawLen)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(exact CallHookResponse MaxGRPCFrameBytes) = true, want false")
+	}
+	if !exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RawWire: make([]byte, exactBatchHookRawLen+1)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(CallHookResponse MaxGRPCFrameBytes+1) = false, want true")
+	}
+	if !exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxGRPCFrameBytes+1)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(CallHookResponse RawWire > MaxGRPCFrameBytes) = false, want true")
 	}
 
 	jsonProbeBase, err := MarshalClientEventBatchJSON(&ClientEventBatch{

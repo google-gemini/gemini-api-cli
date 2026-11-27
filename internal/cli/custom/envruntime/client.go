@@ -66,6 +66,9 @@ const (
 
 	// MaxControlPlaneBodyBytes caps HTTP control-plane error and JSON response reads at 32 MiB.
 	MaxControlPlaneBodyBytes = 32 << 20
+
+	// MaxGRPCFrameBytes bounds uncompressed RPC and WebSocket message frames at 32 MiB.
+	MaxGRPCFrameBytes = 32 << 20
 )
 
 var (
@@ -102,10 +105,29 @@ type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// ErrStreamClientUnconfigured indicates that an RPC StreamClient was invoked
+// in a binary built with EmptyStreamClient.
+var ErrStreamClientUnconfigured = errors.New("RPC interaction stream client is not configured")
+
+// StreamClient opens a bidirectional InteractionStream for a leased interaction
+// over either HTTP/WebSocket or an injected RPC transport.
+type StreamClient interface {
+	ConnectInteraction(ctx context.Context, req *ConnectInteractionRequest) (InteractionStream, error)
+}
+
+// EmptyStreamClient is the default no-op RPC StreamClient used in binaries
+// that do not link an internal RPC transport.
+type EmptyStreamClient struct{}
+
+// ConnectInteraction returns ErrStreamClientUnconfigured.
+func (EmptyStreamClient) ConnectInteraction(context.Context, *ConnectInteractionRequest) (InteractionStream, error) {
+	return nil, ErrStreamClientUnconfigured
+}
+
 // EnvironmentClient abstracts control-plane leasing and data-plane stream attachment for workers and pollers.
 type EnvironmentClient interface {
 	LeaseInteractions(ctx context.Context, req *LeaseInteractionsRequest) (*LeaseInteractionsResult, error)
-	ConnectInteraction(ctx context.Context, req *ConnectInteractionRequest) (InteractionStream, error)
+	StreamClient
 }
 
 // InteractionStream represents an active bidirectional event stream for a leased interaction.
@@ -509,6 +531,8 @@ type HTTPClientConfig struct {
 	WSDialer                  *websocket.Dialer
 	TLSConfig                 *tls.Config
 	StreamDialer              HTTPStreamDialer
+	RPCStreamer               StreamClient
+	UseRPCStreamer            bool
 	Debug                     bool
 	DebugOut                  io.Writer
 	RequireCredentialsOnLease bool
@@ -536,6 +560,8 @@ type HTTPClient struct {
 	httpDoer           HTTPDoer
 	wsDialer           wsConnDialer
 	streamDialer       HTTPStreamDialer
+	rpcStreamer        StreamClient
+	useRPCStreamer     bool
 	marshalClientBatch func(*ClientEventBatch) ([]byte, error)
 	debug              bool
 	debugOut           io.Writer
@@ -616,6 +642,11 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 		copiedHeaders[k] = v
 	}
 
+	rpcStreamer := cfg.RPCStreamer
+	if rpcStreamer == nil {
+		rpcStreamer = EmptyStreamClient{}
+	}
+
 	return &HTTPClient{
 		baseURL:            baseURL,
 		apiVersion:         apiVersion,
@@ -633,11 +664,18 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 		httpDoer:           httpDoer,
 		wsDialer:           wsDialer,
 		streamDialer:       cfg.StreamDialer,
+		rpcStreamer:        rpcStreamer,
+		useRPCStreamer:     cfg.UseRPCStreamer,
 		marshalClientBatch: MarshalClientEventBatchJSON,
 		debug:              cfg.Debug,
 		debugOut:           cmp.Or[io.Writer](cfg.DebugOut, os.Stderr),
 		requireLeaseCred:   cfg.RequireCredentialsOnLease,
 	}
+}
+
+// RPCStreamer returns the configured RPC StreamClient (defaulting to EmptyStreamClient).
+func (c *HTTPClient) RPCStreamer() StreamClient {
+	return c.rpcStreamer
 }
 
 // ServerURL returns the normalized base URL configured on the client.
@@ -961,27 +999,32 @@ func (c *HTTPClient) ConnectInteraction(ctx context.Context, req *ConnectInterac
 		nextOut = 1
 	}
 
+	resolvedReq := &ConnectInteractionRequest{
+		InteractionID:     req.InteractionID,
+		EnvironmentID:     envID,
+		EnvironmentKey:    envKey,
+		LeaseToken:        req.LeaseToken,
+		WorkerID:          workerID,
+		ClientID:          clientID,
+		NextOutputSeqNum:  nextOut,
+		AckOutputSeqNum:   req.AckOutputSeqNum,
+		HeartbeatInterval: req.HeartbeatInterval,
+	}
+	if c.useRPCStreamer {
+		return c.rpcStreamer.ConnectInteraction(ctx, resolvedReq)
+	}
+
 	if c.streamDialer != nil {
 		headers := c.BuildHeaders(envID, envKey, req.LeaseToken)
 		if workerID != "" {
 			headers.Set(WorkerIDHeader, workerID)
 		}
-		endpoint := c.EndpointURL("/interactions/" + url.PathEscape(req.InteractionID) + ":stream")
-		stream, err := c.streamDialer(ctx, endpoint, headers, &ConnectInteractionRequest{
-			InteractionID:     req.InteractionID,
-			EnvironmentID:     envID,
-			EnvironmentKey:    envKey,
-			LeaseToken:        req.LeaseToken,
-			WorkerID:          workerID,
-			ClientID:          clientID,
-			NextOutputSeqNum:  nextOut,
-			AckOutputSeqNum:   req.AckOutputSeqNum,
-			HeartbeatInterval: req.HeartbeatInterval,
-		})
+		endpoint := c.baseURL + "/" + c.BidiStreamMethodPath()
+		stream, err := c.streamDialer(ctx, endpoint, headers, resolvedReq)
 		if err != nil {
 			return nil, err
 		}
-		if req.HeartbeatInterval > 0 {
+		if req.HeartbeatInterval > 0 && stream != nil {
 			return NewHeartbeatStream(ctx, stream, req.HeartbeatInterval, req.AckOutputSeqNum), nil
 		}
 		return stream, nil
@@ -1457,6 +1500,15 @@ func (s *HeartbeatStream) Close() error {
 	return err
 }
 
+// DecodeGRPCMessage percent-decodes a grpc-message header or trailer value.
+func DecodeGRPCMessage(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if unescaped, err := url.PathUnescape(trimmed); err == nil {
+		return unescaped
+	}
+	return trimmed
+}
+
 func checkGRPCHeaders(resp *http.Response) error {
 	return parseGRPCStatus(resp.Header.Get("Grpc-Status"), resp.Header.Get("Grpc-Message"), resp)
 }
@@ -1554,8 +1606,11 @@ func IsNonRetryableStatus(statusCode int) bool {
 	return false
 }
 
-// IsNonRetryableError reports whether err represents a non-retryable 400/401/403/404 control-plane error.
+// IsNonRetryableError reports whether err represents a non-retryable 400/401/403/404 control-plane or permanent stream configuration error.
 func IsNonRetryableError(err error) bool {
+	if errors.Is(err, ErrStreamClientUnconfigured) {
+		return true
+	}
 	var te *TransportError
 	return errors.As(err, &te) && IsNonRetryableStatus(te.StatusCode)
 }
