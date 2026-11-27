@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -62,13 +63,16 @@ func completedInteraction(text, usage string) string {
 
 // TestAnalyzeInlinePorcelain: local file → inline interaction content block, text on stdout.
 func TestAnalyzeInlinePorcelain(t *testing.T) {
+	var mu sync.Mutex
 	var sawInline bool
 	var gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
 		// A local PDF is inlined as a document content block carrying base64 data.
+		mu.Lock()
+		gotPath = r.URL.Path
 		sawInline = strings.Contains(string(raw), `"type":"document"`) && strings.Contains(string(raw), `"data"`)
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, completedInteraction("A short note about testing.", ""))
 	}))
@@ -83,10 +87,13 @@ func TestAnalyzeInlinePorcelain(t *testing.T) {
 	if result.err != nil {
 		t.Fatalf("analyze failed: %v\nstderr: %s", result.err, result.stderr)
 	}
-	if gotPath != "/v1beta/interactions" {
-		t.Errorf("request path = %q, want /v1beta/interactions", gotPath)
+	mu.Lock()
+	path, inline := gotPath, sawInline
+	mu.Unlock()
+	if path != "/v1beta/interactions" {
+		t.Errorf("request path = %q, want /v1beta/interactions", path)
 	}
-	if !sawInline {
+	if !inline {
 		t.Error("request did not carry inline base64 data")
 	}
 	if strings.TrimSpace(result.stdout) != "A short note about testing." {
@@ -98,6 +105,7 @@ func TestAnalyzeInlinePorcelain(t *testing.T) {
 // referenced by uri in the interaction content block.
 func TestAnalyzeRemoteFilePorcelain(t *testing.T) {
 	var getHit, genHit atomic.Int32
+	var mu sync.Mutex
 	var genBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -105,7 +113,9 @@ func TestAnalyzeRemoteFilePorcelain(t *testing.T) {
 		case r.URL.Path == "/v1beta/interactions":
 			genHit.Add(1)
 			raw, _ := io.ReadAll(r.Body)
+			mu.Lock()
 			genBody = string(raw)
+			mu.Unlock()
 			fmt.Fprint(w, completedInteraction("answer", ""))
 		case strings.Contains(r.URL.Path, "/files/"):
 			getHit.Add(1)
@@ -124,8 +134,11 @@ func TestAnalyzeRemoteFilePorcelain(t *testing.T) {
 	if getHit.Load() != 1 || genHit.Load() != 1 {
 		t.Errorf("expected one files.get and one interaction, got %d/%d", getHit.Load(), genHit.Load())
 	}
-	if !strings.Contains(genBody, `"uri"`) || !strings.Contains(genBody, "example/files/abc123") {
-		t.Errorf("interaction did not reference the resolved file URI: %s", genBody)
+	mu.Lock()
+	body := genBody
+	mu.Unlock()
+	if !strings.Contains(body, `"uri"`) || !strings.Contains(body, "example/files/abc123") {
+		t.Errorf("interaction did not reference the resolved file URI: %s", body)
 	}
 }
 
@@ -181,7 +194,7 @@ func TestFilesUploadWait(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var polls atomic.Int32
 			var server *httptest.Server
-			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.Header.Get("X-Goog-Upload-Command") {
 				case "start":
@@ -195,6 +208,7 @@ func TestFilesUploadWait(t *testing.T) {
 					fmt.Fprintf(w, `{"name":"files/xyz789","mimeType":"video/mp4","state":%q}`, state)
 				}
 			}))
+			server.Start()
 			defer server.Close()
 
 			dir := t.TempDir()
@@ -270,9 +284,12 @@ func TestFilesIdentifierForms(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
 			var gotMethod, gotPath string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
 				gotMethod, gotPath = r.Method, r.URL.Path
+				mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				fmt.Fprint(w, `{"name":"files/abc","state":"ACTIVE"}`)
 			}))
@@ -283,8 +300,11 @@ func TestFilesIdentifierForms(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("%s failed: %v\nstderr: %s", tt.name, result.err, result.stderr)
 			}
-			if gotMethod != tt.wantMethod || gotPath != "/v1beta/files/abc" {
-				t.Errorf("request = %s %q, want %s /v1beta/files/abc", gotMethod, gotPath, tt.wantMethod)
+			mu.Lock()
+			method, path := gotMethod, gotPath
+			mu.Unlock()
+			if method != tt.wantMethod || path != "/v1beta/files/abc" {
+				t.Errorf("request = %s %q, want %s /v1beta/files/abc", method, path, tt.wantMethod)
 			}
 		})
 	}
@@ -308,9 +328,12 @@ func TestVoicesIdentifierForms(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
 			var gotMethod, gotPath string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
 				gotMethod, gotPath = r.Method, r.URL.Path
+				mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				fmt.Fprint(w, `{"id":"voice_abc123","type":"prompted"}`)
 			}))
@@ -321,8 +344,11 @@ func TestVoicesIdentifierForms(t *testing.T) {
 			if result.err != nil {
 				t.Fatalf("%s failed: %v\nstderr: %s", tt.name, result.err, result.stderr)
 			}
-			if gotMethod != tt.wantMethod || gotPath != "/v1beta/voices/voice_abc123" {
-				t.Errorf("request = %s %q, want %s /v1beta/voices/voice_abc123", gotMethod, gotPath, tt.wantMethod)
+			mu.Lock()
+			method, path := gotMethod, gotPath
+			mu.Unlock()
+			if method != tt.wantMethod || path != "/v1beta/voices/voice_abc123" {
+				t.Errorf("request = %s %q, want %s /v1beta/voices/voice_abc123", method, path, tt.wantMethod)
 			}
 		})
 	}

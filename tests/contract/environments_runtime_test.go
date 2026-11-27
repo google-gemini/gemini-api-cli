@@ -482,7 +482,7 @@ func TestEnvironmentsCreateAndConnect(t *testing.T) {
 
 // TestEnvironmentsCreateSourcesShorthand guards the shipped `-s` shorthand for
 // `environments create --sources`. `--system-instruction` shares the initial,
-// so the generator drops `-s` unless the shorthand is pinned (b/584379945).
+// so the generator drops `-s` unless the shorthand is pinned.
 func TestEnvironmentsCreateSourcesShorthand(t *testing.T) {
 	env := map[string]string{
 		"GEMINI_NO_KEYRING": "true",

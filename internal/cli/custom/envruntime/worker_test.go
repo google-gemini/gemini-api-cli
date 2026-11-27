@@ -650,6 +650,7 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 	streamStarted := make(chan struct{})
 	streamCanceled := make(chan struct{})
 	tokenRotatedCh := make(chan struct{})
+	reconnectedCh := make(chan struct{})
 	var leasePollCount atomic.Int32
 	var sawActiveRenewal atomic.Bool
 	var firstPollMaxNew atomic.Int32
@@ -657,7 +658,7 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 	var activeMu sync.Mutex
 
 	activeClient := &fakeEnvClient{
-		leaseFn: func(_ context.Context, req *LeaseInteractionsRequest) (*LeaseInteractionsResult, error) {
+		leaseFn: func(ctx context.Context, req *LeaseInteractionsRequest) (*LeaseInteractionsResult, error) {
 			n := leasePollCount.Add(1)
 			switch n {
 			case 1:
@@ -671,6 +672,13 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 					PollBackoff: 15 * time.Millisecond,
 				}, nil
 			case 2:
+				// Wait for the initial stream to connect with "tok_v1" before
+				// rotating the lease token to "tok_v2_rotated".
+				select {
+				case <-streamStarted:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 				hasDirect := false
 				hasActiveToken := false
 				for _, al := range req.ActiveLeases {
@@ -684,7 +692,6 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 				if len(req.ActiveLeases) == 2 && hasDirect && hasActiveToken && req.MaxNewInteractions == 0 && req.SendZeroMaxNew {
 					sawActiveRenewal.Store(true)
 				}
-				defer close(tokenRotatedCh)
 				return &LeaseInteractionsResult{
 					Leases: []LeasedInteraction{{
 						InteractionID: "int_active_1",
@@ -693,6 +700,19 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 					}},
 					PollBackoff: 15 * time.Millisecond,
 				}, nil
+			case 3:
+				// Poll 3 runs strictly after poll 2's lease token update has been
+				// applied on the same loop goroutine, so releasing the stream here
+				// guarantees the reconnect observes "tok_v2_rotated" before the
+				// lease is revoked below.
+				close(tokenRotatedCh)
+				select {
+				case <-reconnectedCh:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				// Omit int_active_1 -> worker must cancel lost session!
+				return &LeaseInteractionsResult{PollBackoff: 15 * time.Millisecond}, nil
 			default:
 				// Omit int_active_1 -> worker must cancel lost session!
 				return &LeaseInteractionsResult{PollBackoff: 15 * time.Millisecond}, nil
@@ -718,6 +738,9 @@ func TestPullWorkerValidationServeLeasesAndActiveLeaseRenewal(t *testing.T) {
 						return nil, io.EOF
 					},
 				}, nil
+			}
+			if callNum == 2 {
+				close(reconnectedCh)
 			}
 			return &ctxBlockingStream{started: make(chan struct{}), canceled: streamCanceled}, nil
 		},
