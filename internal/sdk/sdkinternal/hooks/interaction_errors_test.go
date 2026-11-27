@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -594,5 +595,200 @@ func TestUserAgentBuilderAndHook(t *testing.T) {
 	})
 	if cfg.UserAgent != want {
 		t.Errorf("SDKInit UserAgent = %q, want %q", cfg.UserAgent, want)
+	}
+
+	wantFallback := fmt.Sprintf("google-genai-cli/dev gl-go/%s", runtime.Version())
+	for _, bad := range []string{"", "   ", "0.6.0\r\nX-Injected: 1", "0.6.0 (custom)", "0.6.0/extra", "0.6.0\x00"} {
+		if got := UserAgent(bad); got != wantFallback {
+			t.Errorf("UserAgent(%q) = %q, want %q", bad, got, wantFallback)
+		}
+	}
+}
+
+func TestResolveVersionFromBuildInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		fallback string
+		info     *debug.BuildInfo
+		want     string
+	}{
+		{
+			name:     "nil BuildInfo uses fallback",
+			fallback: "0.5.0",
+			info:     nil,
+			want:     "0.5.0",
+		},
+		{
+			name:     "goreleaser ldflags override",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "(devel)"},
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: "-s -w -X main.version=0.6.0 -X main.buildTime=2026-11-26T00:00:00Z"},
+				},
+			},
+			want: "0.6.0",
+		},
+		{
+			name:     "equals syntax and last ldflags override wins",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: `-X=main.version=0.5.1 -X "main.version=0.6.2"`},
+				},
+			},
+			want: "0.6.2",
+		},
+		{
+			name:     "empty ldflags main.version clears earlier override and falls back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "(devel)"},
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: "-X main.version=0.6.1 -X main.version="},
+				},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "windows backslash path in ldflags does not swallow closing quote",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: `-tmpdir "C:\Temp\" -extld C:\mingw\bin\gcc.exe --X main.version=0.6.3`},
+				},
+			},
+			want: "0.6.3",
+		},
+		{
+			name:     "per-package ldflags pattern all= applies while unrelated package pattern is ignored",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: "all=--X=main.version=0.6.4"},
+					{Key: "-ldflags", Value: "net=-X main.version=9.9.9"},
+				},
+			},
+			want: "0.6.4",
+		},
+		{
+			name:     "clean tagged module install strips leading v",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0"},
+			},
+			want: "0.6.0",
+		},
+		{
+			name:     "clean prerelease tagged module install strips leading v",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0-rc.1"},
+			},
+			want: "0.6.0-rc.1",
+		},
+		{
+			name:     "local VCS build ignores Main.Version so contract tests match cli.Version",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0-rc.1"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs", Value: "git"},
+					{Key: "vcs.modified", Value: "false"},
+				},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "test binary ignores both ldflags and Main.Version",
+			fallback: "0.4.5",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/internal/sdk/sdkinternal/hooks.test",
+				Main: debug.Module{Version: "v0.6.0"},
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: "-X main.version=0.6.0"},
+				},
+			},
+			want: "0.4.5",
+		},
+		{
+			name:     "malformed prerelease or build metadata in Main.Version falls back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0-rc 1"},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "empty prerelease suffix in Main.Version falls back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0-"},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "pseudo-versions and dirty builds fall back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.5.1-0.20261126120000-abcdef123456"},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "v0.0.0 pseudo-version falls back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.0.0-20261126120000-abcdef123456"},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "dirty module version falls back to SDKVersion",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.0+dirty"},
+			},
+			want: "0.5.0",
+		},
+		{
+			name:     "malformed ldflags version with CRLF or spaces falls back to clean Main.Version or fallback",
+			fallback: "0.5.0",
+			info: &debug.BuildInfo{
+				Path: "github.com/google-gemini/gemini-api-cli/cmd/gemini-api",
+				Main: debug.Module{Version: "v0.6.1"},
+				Settings: []debug.BuildSetting{
+					{Key: "-ldflags", Value: "-X \"main.version=0.6.0\r\nX-Injected: 1\""},
+				},
+			},
+			want: "0.6.1",
+		},
+		{
+			name:     "invalid fallback sanitizes to dev",
+			fallback: "  bad/fallback\r\n",
+			info:     nil,
+			want:     "dev",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveVersionFromBuildInfo(tt.fallback, tt.info); got != tt.want {
+				t.Errorf("resolveVersionFromBuildInfo(%q, %+v) = %q, want %q", tt.fallback, tt.info, got, tt.want)
+			}
+		})
 	}
 }

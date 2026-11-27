@@ -513,7 +513,7 @@ func TestEnvironmentsRuntimeCommandsFlagsDryRunAndExecution(t *testing.T) {
 						Events: []*envruntime.ServerEvent{{
 							SeqNum: 1,
 							Payload: &envruntime.EventPayload{
-								FunctionInvocation: &envruntime.FunctionInvocation{
+								FunctionCall: &envruntime.FunctionCallEvent{
 									CallID:    "c_bash",
 									Name:      "execute_bash",
 									Arguments: map[string]any{"command": "echo nope"},
@@ -960,8 +960,8 @@ func TestRuntimeTransportCredentialsHeadersValidationAndSDKErrorAdapter(t *testi
 		if noInstHdrs.Get("X-Speakeasy-Test-Name") != "contract_stream_case" || noInstHdrs.Values("X-Speakeasy-Test-Instance-Id") != nil {
 			t.Errorf("BuildHeaders(empty SPEAKEASY_TEST_INSTANCE_ID) = %v, want test name without instance ID header", noInstHdrs)
 		}
-		if gotUA, wantUA := noInstHdrs.Get("User-Agent"), defaultUserAgent(); gotUA != wantUA {
-			t.Errorf("BuildHeaders default User-Agent = %q, want %q", gotUA, wantUA)
+		if gotUA, wantUA := noInstHdrs.Get("User-Agent"), defaultUserAgent(); gotUA != wantUA || !strings.HasPrefix(gotUA, "google-genai-cli/") {
+			t.Errorf("BuildHeaders default User-Agent = %q, want %q with google-genai-cli/ prefix", gotUA, wantUA)
 		}
 
 		t.Setenv("SPEAKEASY_TEST_INSTANCE_ID", "inst_42")

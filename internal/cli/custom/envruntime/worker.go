@@ -662,17 +662,17 @@ func (w *PullWorker) handleServerEvent(ctx context.Context, ev *ServerEvent, sta
 		return nil
 	}
 
-	if fi := ev.Payload.FunctionInvocation; fi != nil {
-		callKey := "fn:" + cmp.Or(fi.CallID, fmt.Sprintf("seq-%d", ev.SeqNum))
+	if fc := ev.Payload.FunctionCall; fc != nil {
+		callKey := "fn:" + cmp.Or(fc.CallID, fmt.Sprintf("seq-%d", ev.SeqNum))
 		if cached := w.loadCachedCall(state, callKey); cached != nil {
 			return cached
 		}
-		w.logger.Printf("[%s] Executing function %s", state.interactionID, fi.Name)
-		resMap, isErr := w.tools.Dispatch(ctx, fi.Name, fi.Arguments)
+		w.logger.Printf("[%s] Executing function %s", state.interactionID, fc.Name)
+		resMap, isErr := w.tools.Dispatch(ctx, fc.Name, fc.Arguments)
 		out := &EventPayload{
 			FunctionResult: &FunctionResultEvent{
-				CallID:  fi.CallID,
-				Name:    fi.Name,
+				CallID:  fc.CallID,
+				Name:    fc.Name,
 				IsError: isErr,
 				Result:  resMap,
 			},
@@ -680,11 +680,11 @@ func (w *PullWorker) handleServerEvent(ctx context.Context, ev *ServerEvent, sta
 		if exceedsMaxToolResultWire(out) {
 			out = &EventPayload{
 				FunctionResult: &FunctionResultEvent{
-					CallID:  fi.CallID,
-					Name:    fi.Name,
+					CallID:  fc.CallID,
+					Name:    fc.Name,
 					IsError: true,
 					Result: map[string]any{
-						"error": fmt.Sprintf("tool %q result exceeds maximum frame size (%d bytes); narrow the query or specify start_line and end_line", fi.Name, MaxGRPCFrameBytes),
+						"error": fmt.Sprintf("tool %q result exceeds maximum frame size (%d bytes); narrow the query or specify start_line and end_line", fc.Name, MaxGRPCFrameBytes),
 					},
 				},
 			}
@@ -812,12 +812,42 @@ func sendClientEventsChunked(
 	return nil
 }
 
+func callHookResponseWireBytes(resp *CallHookResponse) int {
+	if resp == nil {
+		return 0
+	}
+	if len(resp.RawWire) > 0 {
+		return len(resp.RawWire) + len(resp.RequestID)
+	}
+	return len(resp.RequestID) + len(resp.ErrorMessage)
+}
+
+const callHookProtoOverheadBytes = 64
+
 func exceedsClientBatchWire(batch *ClientEventBatch) bool {
-	if len(MarshalClientEventBatch(batch)) > MaxGRPCFrameBytes {
-		return true
+	if batch == nil {
+		return false
+	}
+	var hookBytes int
+	hasNonHook := batch.ReconnectInteraction != nil || batch.Disconnect != nil
+	for _, ev := range batch.Events {
+		if ev == nil || ev.Payload == nil {
+			continue
+		}
+		if ev.Payload.CallHookResponse != nil {
+			hookBytes += callHookResponseWireBytes(ev.Payload.CallHookResponse) + callHookProtoOverheadBytes
+			if hookBytes > MaxGRPCFrameBytes {
+				return true
+			}
+		} else {
+			hasNonHook = true
+		}
+	}
+	if !hasNonHook {
+		return hookBytes > MaxGRPCFrameBytes
 	}
 	rawJSON, err := MarshalClientEventBatchJSON(batch)
-	return err != nil || len(rawJSON) > MaxGRPCFrameBytes
+	return err != nil || hookBytes+len(rawJSON) > MaxGRPCFrameBytes
 }
 
 func (w *PullWorker) loadCachedCall(state *sessionState, key string) *EventPayload {
@@ -836,12 +866,11 @@ func (w *PullWorker) storeCachedCall(state *sessionState, key string, payload *E
 }
 
 func exceedsMaxToolResultWire(payload *EventPayload) bool {
-	if len(MarshalClientEvent(&ClientEvent{
-		SeqNum:          1,
-		TimestampMicros: 1,
-		Payload:         payload,
-	})) > MaxToolResultWireBytes {
-		return true
+	if payload == nil {
+		return false
+	}
+	if payload.CallHookResponse != nil {
+		return callHookResponseWireBytes(payload.CallHookResponse) > MaxToolResultWireBytes
 	}
 	rawJSON, err := MarshalClientEventBatchJSON(&ClientEventBatch{
 		Events: []*ClientEvent{{Payload: payload}},

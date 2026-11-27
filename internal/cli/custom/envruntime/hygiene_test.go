@@ -77,6 +77,8 @@ func TestStdlibOnlyAndExportHygiene(t *testing.T) {
 		"Span" + "ner",
 		"Saw" + "mill",
 		"Sher" + "log",
+		"Mixed-" + "Tape",
+		"mixed-" + "tape",
 	}, "|") + `)\b`)
 	internalLinkPattern := regexp.MustCompile(`(^|[\s(])(go/[a-zA-Z0-9_-]+|(b|cl)/[0-9]+)`)
 	goFileCount := 0
