@@ -168,7 +168,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 				// Attempt 1: transient connect error -> retried because RetryConnectErrors=true.
 				return nil, errors.New("transient dial error")
 			case 2:
-				// Attempt 2: delivers empty payload + FunctionInvocation("fi_once") + Step.ToolCall("call_1"), Send fails -> rolls back seq while caching both!
+				// Attempt 2: delivers empty payload + FunctionCall("fc_once") + Step.ToolCall("call_1"), Send fails -> rolls back seq while caching both!
 				return &scriptedStream{
 					sendFn: func(call int, _ *ClientEventBatch) error {
 						if call == 1 {
@@ -188,7 +188,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 2,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_once",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "fn_once"},
@@ -216,7 +216,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 				// Attempt 3:
 				// - Call 1: ack-only event (SeqNum=1, Payload=nil).
 				// - Call 2: replays "fi_once" (SeqNum=2) and "call_1" (SeqNum=3) verifying rolled-back client seq 1 & 2.
-				// - Call 3: InteractionReconnected{NextInputSeqNum: 10} + CallHookRequest("hk_1") + FunctionInvocation("fi_big", "huge") + non-terminal Yield{NextInputSeqNum: 1}.
+				// - Call 3: InteractionReconnected{NextInputSeqNum: 10} + CallHookRequest("hk_1") + FunctionCall("fi_big", "huge") + non-terminal Yield{NextInputSeqNum: 1}.
 				// - Call 4: ReconnectionRequired.
 				s := &scriptedStream{
 					recvFn: func(call int) (*ServerEventBatch, error) {
@@ -233,7 +233,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 2,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_once",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "fn_once"},
@@ -266,7 +266,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 									{
 										SeqNum: 5,
 										Payload: &EventPayload{
-											FunctionInvocation: &FunctionInvocation{
+											FunctionCall: &FunctionCallEvent{
 												CallID:    "fi_big",
 												Name:      "execute_bash",
 												Arguments: map[string]any{"command": "huge"},
@@ -343,7 +343,7 @@ func TestPullWorkerReconnectReplayHooksYieldAndOversizedResult(t *testing.T) {
 		t.Errorf("side-effecting tool execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
 	}
 	if got := fnCalls.Load(); got != 1 {
-		t.Errorf("FunctionInvocation execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
+		t.Errorf("FunctionCall execution count = %d, want 1 (replay cache must prevent duplicate execution)", got)
 	}
 	if got := hookCalls.Load(); got != 1 {
 		t.Errorf("hook execution count = %d, want 1 (replay cache must prevent duplicate hook run)", got)
@@ -889,22 +889,73 @@ func TestPullWorkerPresetsAndDecoupledTrackActiveLeases(t *testing.T) {
 		t.Errorf("wCustomTimeout.tools.cfg.CommandTimeout = %v, want 7s", wCustomTimeout.tools.cfg.CommandTimeout)
 	}
 
-	// Verify exceedsMaxToolResultWire across exact MaxToolResultWireBytes boundaries (Protobuf and JSON), NaN marshal errors, and JSON-escaped overflow payloads.
-	probeRawLen := MaxToolResultWireBytes - 64
-	pbProbeOverhead := len(MarshalClientEvent(&ClientEvent{
-		SeqNum:          1,
-		TimestampMicros: 1,
-		Payload:         &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, probeRawLen)}},
-	})) - probeRawLen
+	// Verify exceedsMaxToolResultWire and exceedsClientBatchWire across exact MaxToolResultWireBytes and MaxGRPCFrameBytes boundaries (CallHookResponse RawWire and ErrorMessage/RequestID), NaN marshal errors, and JSON-escaped overflow payloads.
+	if exceedsMaxToolResultWire(nil) {
+		t.Error("exceedsMaxToolResultWire(nil) = true, want false")
+	}
+	if callHookResponseWireBytes(nil) != 0 {
+		t.Errorf("callHookResponseWireBytes(nil) = %d, want 0", callHookResponseWireBytes(nil))
+	}
 	if exceedsMaxToolResultWire(&EventPayload{
-		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead)},
+		CallHookResponse: &CallHookResponse{RequestID: "r1", RawWire: make([]byte, MaxToolResultWireBytes-2)},
 	}) {
-		t.Error("exceedsMaxToolResultWire(exact Protobuf MaxToolResultWireBytes) = true, want false")
+		t.Error("exceedsMaxToolResultWire(exact CallHookResponse RawWire+RequestID MaxToolResultWireBytes) = true, want false")
 	}
 	if !exceedsMaxToolResultWire(&EventPayload{
-		CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxToolResultWireBytes-pbProbeOverhead+1)},
+		CallHookResponse: &CallHookResponse{RequestID: "r1", RawWire: make([]byte, MaxToolResultWireBytes-1)},
 	}) {
-		t.Error("exceedsMaxToolResultWire(Protobuf MaxToolResultWireBytes+1) = false, want true")
+		t.Error("exceedsMaxToolResultWire(CallHookResponse RawWire+RequestID MaxToolResultWireBytes+1) = false, want true")
+	}
+	if exceedsMaxToolResultWire(&EventPayload{
+		CallHookResponse: &CallHookResponse{RequestID: "r1", ErrorMessage: strings.Repeat("e", MaxToolResultWireBytes-2)},
+	}) {
+		t.Error("exceedsMaxToolResultWire(exact CallHookResponse ErrorMessage+RequestID MaxToolResultWireBytes) = true, want false")
+	}
+	if !exceedsMaxToolResultWire(&EventPayload{
+		CallHookResponse: &CallHookResponse{RequestID: "r1", ErrorMessage: strings.Repeat("e", MaxToolResultWireBytes-1)},
+	}) {
+		t.Error("exceedsMaxToolResultWire(CallHookResponse ErrorMessage+RequestID MaxToolResultWireBytes+1) = false, want true")
+	}
+	if exceedsClientBatchWire(nil) {
+		t.Error("exceedsClientBatchWire(nil) = true, want false")
+	}
+	if exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{
+			nil,
+			{},
+			{Payload: &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxGRPCFrameBytes-callHookProtoOverheadBytes)}}},
+		},
+	}) {
+		t.Error("exceedsClientBatchWire(exact CallHookResponse RawWire MaxGRPCFrameBytes) = true, want false")
+	}
+	if !exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxGRPCFrameBytes-callHookProtoOverheadBytes+1)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(CallHookResponse RawWire MaxGRPCFrameBytes+1) = false, want true")
+	}
+	if exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RequestID: "r1", ErrorMessage: strings.Repeat("e", MaxGRPCFrameBytes-callHookProtoOverheadBytes-2)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(exact CallHookResponse ErrorMessage MaxGRPCFrameBytes) = true, want false")
+	}
+	if !exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{{Payload: &EventPayload{
+			CallHookResponse: &CallHookResponse{RequestID: "r1", ErrorMessage: strings.Repeat("e", MaxGRPCFrameBytes-callHookProtoOverheadBytes-1)},
+		}}},
+	}) {
+		t.Error("exceedsClientBatchWire(CallHookResponse ErrorMessage MaxGRPCFrameBytes+1) = false, want true")
+	}
+	if !exceedsClientBatchWire(&ClientEventBatch{
+		Events: []*ClientEvent{
+			{Payload: &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, MaxGRPCFrameBytes/2)}}},
+			{Payload: &EventPayload{CallHookResponse: &CallHookResponse{RawWire: make([]byte, (MaxGRPCFrameBytes/2)-callHookProtoOverheadBytes)}}},
+		},
+	}) {
+		t.Error("exceedsClientBatchWire(2 x CallHookResponse exceeding MaxGRPCFrameBytes with proto overhead) = false, want true")
 	}
 
 	jsonProbeBase, err := MarshalClientEventBatchJSON(&ClientEventBatch{
@@ -942,10 +993,13 @@ func TestPullWorkerPresetsAndDecoupledTrackActiveLeases(t *testing.T) {
 		t.Error("exceedsMaxToolResultWire(JSON-escaped payload > MaxToolResultWireBytes) = false, want true")
 	}
 
-	// Verify oversized CallHookResponse clamping in handleServerEvent and multi-event sub-batch splitting in sendClientEventsChunked.
+	// Verify oversized CallHookResponse clamping (both RawWire and returned error without RawWire) in handleServerEvent and multi-event sub-batch splitting in sendClientEventsChunked.
 	hookWorker := NewPullWorker(PullWorkerConfig{
 		FS: fs,
 		Hooks: hookHandlerFunc(func(_ context.Context, req *CallHookRequest) (*CallHookResponse, error) {
+			if req.RequestID == "req_big_err" {
+				return nil, errors.New(strings.Repeat("E", MaxToolResultWireBytes))
+			}
 			return &CallHookResponse{
 				RequestID: req.RequestID,
 				RawWire:   make([]byte, MaxToolResultWireBytes),
@@ -962,10 +1016,31 @@ func TestPullWorkerPresetsAndDecoupledTrackActiveLeases(t *testing.T) {
 		Payload: &EventPayload{CallHookRequest: &CallHookRequest{RequestID: "req_big", Name: "pre_tool"}},
 	}, hookState)
 	if clampedHook == nil || clampedHook.CallHookResponse == nil || len(clampedHook.CallHookResponse.RawWire) != 0 || !strings.Contains(clampedHook.CallHookResponse.ErrorMessage, "exceeds maximum frame size") {
-		t.Errorf("handleServerEvent(oversized CallHookResponse) = %+v, want clamped ErrorMessage", clampedHook)
+		t.Errorf("handleServerEvent(oversized CallHookResponse RawWire) = %+v, want clamped ErrorMessage", clampedHook)
+	}
+	clampedHookErr := hookWorker.handleServerEvent(t.Context(), &ServerEvent{
+		SeqNum:  2,
+		Payload: &EventPayload{CallHookRequest: &CallHookRequest{RequestID: "req_big_err", Name: "pre_tool"}},
+	}, hookState)
+	if clampedHookErr == nil || clampedHookErr.CallHookResponse == nil || !strings.Contains(clampedHookErr.CallHookResponse.ErrorMessage, "exceeds maximum frame size") {
+		t.Errorf("handleServerEvent(oversized CallHook error without RawWire) = %+v, want clamped ErrorMessage", clampedHookErr)
 	}
 
 	halfPayload := strings.Repeat("x", (MaxGRPCFrameBytes/2)+64*1024)
+	hookChunkState := &sessionState{nextClientSeq: 22}
+	var sentHookBatches []*ClientEventBatch
+	if err := sendClientEventsChunked(t.Context(), func(_ context.Context, b *ClientEventBatch) error {
+		sentHookBatches = append(sentHookBatches, b)
+		return nil
+	}, 99, []*ClientEvent{
+		{SeqNum: 20, Payload: &EventPayload{CallHookResponse: &CallHookResponse{RequestID: "h1", ErrorMessage: halfPayload}}},
+		{SeqNum: 21, Payload: &EventPayload{CallHookResponse: &CallHookResponse{RequestID: "h2", ErrorMessage: halfPayload}}},
+	}, 20, hookChunkState); err != nil {
+		t.Fatalf("sendClientEventsChunked(2 x oversized CallHookResponse) failed: %v", err)
+	}
+	if len(sentHookBatches) != 2 {
+		t.Errorf("sendClientEventsChunked(2 x CallHookResponse) sent %d batches, want 2", len(sentHookBatches))
+	}
 	ev1 := &ClientEvent{
 		SeqNum:  10,
 		Payload: &EventPayload{FunctionResult: &FunctionResultEvent{CallID: "c1", Name: "read_file", Result: map[string]any{"content": halfPayload}}},

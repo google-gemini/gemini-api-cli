@@ -68,7 +68,7 @@ func validAPIVersion(v string) bool {
 }
 
 func defaultUserAgent() string {
-	return hooks.UserAgent(sdk.New().SDKVersion)
+	return hooks.UserAgent(hooks.ResolveVersion(sdk.New().SDKVersion))
 }
 
 func newRawTransport(cmd *cobra.Command) (*rawTransport, error) {

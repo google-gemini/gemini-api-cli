@@ -189,6 +189,7 @@ func (rt *runtimeTransport) newEnvHTTPClient(envID, envKey string) *envruntime.H
 		Headers:        rt.headers,
 		Timeout:        rt.timeout,
 		HTTPDoer:       rt.httpClient,
+		RPCStreamer:    envruntime.EmptyStreamClient{},
 		Debug:          rt.debug,
 		DebugOut:       rt.errOut,
 	})
